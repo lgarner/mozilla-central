@@ -119,7 +119,7 @@ StackFrame::copyFrameAndValues(JSContext *cx, T *vp, StackFrame *otherfp, U *oth
         *dst = *src;
 
     if (cx->compartment->debugMode())
-        cx->runtime->debugScopes->onGeneratorFrameChange(otherfp, this);
+        cx->runtime->debugScopes->onGeneratorFrameChange(otherfp, this, cx);
 }
 
 /* Note: explicit instantiation for js_NewGenerator located in jsiter.cpp. */
@@ -299,7 +299,7 @@ StackFrame::epilogue(JSContext *cx)
     }
 
     if (cx->compartment->debugMode())
-        cx->runtime->debugScopes->onPopCall(this);
+        cx->runtime->debugScopes->onPopCall(this, cx);
 
     Probes::exitJSFun(cx, fun(), script());
 
@@ -513,6 +513,7 @@ StackSpace::init()
     conservativeEnd_ = commitEnd_ = base_ + COMMIT_VALS;
     trustedEnd_ = base_ + CAPACITY_VALS;
     defaultEnd_ = trustedEnd_ - BUFFER_VALS;
+    Debug_SetValueRangeToCrashOnTouch(base_, commitEnd_);
 #elif defined(XP_OS2)
     if (DosAllocMem(&p, CAPACITY_BYTES, PAG_COMMIT | PAG_READ | PAG_WRITE | OBJ_ANY) &&
         DosAllocMem(&p, CAPACITY_BYTES, PAG_COMMIT | PAG_READ | PAG_WRITE))
@@ -520,6 +521,7 @@ StackSpace::init()
     base_ = reinterpret_cast<Value *>(p);
     trustedEnd_ = base_ + CAPACITY_VALS;
     conservativeEnd_ = defaultEnd_ = trustedEnd_ - BUFFER_VALS;
+    Debug_SetValueRangeToCrashOnTouch(base_, trustedEnd_);
 #else
     JS_ASSERT(CAPACITY_BYTES % getpagesize() == 0);
     p = mmap(NULL, CAPACITY_BYTES, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -528,6 +530,7 @@ StackSpace::init()
     base_ = reinterpret_cast<Value *>(p);
     trustedEnd_ = base_ + CAPACITY_VALS;
     conservativeEnd_ = defaultEnd_ = trustedEnd_ - BUFFER_VALS;
+    Debug_SetValueRangeToCrashOnTouch(base_, trustedEnd_);
 #endif
     assertInvariants();
     return true;
@@ -603,12 +606,32 @@ StackSpace::markFrameValues(JSTracer *trc, StackFrame *fp, Value *slotsEnd, jsby
          * Will this slot be synced by the JIT? If not, replace with a dummy
          * value with the same type tag.
          */
-        if (!analysis->trackSlot(slot) || analysis->liveness(slot).live(offset))
+        if (!analysis->trackSlot(slot) || analysis->liveness(slot).live(offset)) {
             gc::MarkValueRoot(trc, vp, "vm_stack");
-        else if (vp->isObject())
-            *vp = ObjectValue(fp->scopeChain()->global());
-        else if (vp->isString())
-            *vp = StringValue(trc->runtime->atomState.nullAtom);
+        } else if (vp->isDouble()) {
+            *vp = DoubleValue(0.0);
+        } else {
+            /*
+             * It's possible that *vp may not be a valid Value. For example, it
+             * may be tagged as a NullValue but the low bits may be nonzero so
+             * that isNull() returns false. This can cause problems later on
+             * when marking the value. Extracting the type in this way and then
+             * overwriting the value circumvents the problem.
+             */
+            JSValueType type = vp->extractNonDoubleType();
+            if (type == JSVAL_TYPE_INT32)
+                *vp = Int32Value(0);
+            else if (type == JSVAL_TYPE_UNDEFINED)
+                *vp = UndefinedValue();
+            else if (type == JSVAL_TYPE_BOOLEAN)
+                *vp = BooleanValue(false);
+            else if (type == JSVAL_TYPE_STRING)
+                *vp = StringValue(trc->runtime->atomState.nullAtom);
+            else if (type == JSVAL_TYPE_NULL)
+                *vp = NullValue();
+            else if (type == JSVAL_TYPE_OBJECT)
+                *vp = ObjectValue(fp->scopeChain()->global());
+        }
     }
 
     gc::MarkValueRootRange(trc, fixedEnd, slotsEnd, "vm_stack");
@@ -707,6 +730,8 @@ StackSpace::ensureSpaceSlow(JSContext *cx, MaybeReportError report, Value *from,
                 js_ReportOverRecursed(cx);
             return false;
         }
+
+        Debug_SetValueRangeToCrashOnTouch(commitEnd_, newCommit);
 
         commitEnd_ = newCommit;
         conservativeEnd_ = Min(commitEnd_, defaultEnd_);
@@ -886,9 +911,13 @@ ContextStack::popInvokeArgs(const InvokeArgsGuard &iag)
     JS_ASSERT(onTop());
     JS_ASSERT(space().firstUnused() == seg_->calls().end());
 
+    Value *oldend = seg_->end();
+
     seg_->popCall();
     if (iag.pushedSeg_)
         popSegment();
+
+    Debug_SetValueRangeToCrashOnTouch(space().firstUnused(), oldend);
 }
 
 bool
@@ -950,7 +979,7 @@ ContextStack::pushExecuteFrame(JSContext *cx, JSScript *script, const Value &thi
     unsigned nvars = 2 /* callee, this */ + VALUES_PER_STACK_FRAME + script->nslots;
     Value *firstUnused = ensureOnTop(cx, REPORT_ERROR, nvars, extend, &efg->pushedSeg_);
     if (!firstUnused)
-        return NULL;
+        return false;
 
     StackFrame *prev = evalInFrame ? evalInFrame : maybefp();
     StackFrame *fp = reinterpret_cast<StackFrame *>(firstUnused + 2);
@@ -997,9 +1026,13 @@ ContextStack::popFrame(const FrameGuard &fg)
     JS_ASSERT(space().firstUnused() == fg.regs_.sp);
     JS_ASSERT(&fg.regs_ == &seg_->regs());
 
+    Value *oldend = seg_->end();
+
     seg_->popRegs(fg.prevRegs_);
     if (fg.pushedSeg_)
         popSegment();
+
+    Debug_SetValueRangeToCrashOnTouch(space().firstUnused(), oldend);
 
     /*
      * NB: this code can call out and observe the stack (e.g., through GC), so
@@ -1195,9 +1228,9 @@ CrashIfInvalidSlot(StackFrame *fp, Value *vp)
 {
     Value *slots = (Value *)(fp + 1);
     if (vp < slots || vp >= slots + fp->script()->nslots) {
-        JS_ASSERT(false && "About to dereference invalid slot");
-        *(int *)0xbad = 0;  // show up nicely in crash-stats
-        MOZ_Assert("About to dereference invalid slot", __FILE__, __LINE__);
+        MOZ_ASSERT(false, "About to dereference invalid slot");
+        *(volatile int *)0xbad = 0;  // show up nicely in crash-stats
+        MOZ_CRASH();
     }
 }
 

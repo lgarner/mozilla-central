@@ -732,6 +732,7 @@ JSRuntime::JSRuntime()
     gcIsFull(false),
     gcTriggerReason(gcreason::NO_REASON),
     gcStrictCompartmentChecking(false),
+    gcDisableStrictProxyCheckingCount(0),
     gcIncrementalState(gc::NO_INCREMENTAL),
     gcLastMarkSlice(false),
     gcInterFrameGC(0),
@@ -766,10 +767,8 @@ JSRuntime::JSRuntime()
     hadOutOfMemory(false),
     debugScopes(NULL),
     data(NULL),
-#ifdef JS_THREADSAFE
     gcLock(NULL),
     gcHelperThread(thisFromCtor()),
-#endif
     defaultFreeOp_(thisFromCtor(), false, false),
     debuggerMutations(0),
     securityCallbacks(const_cast<JSSecurityCallbacks *>(&NullSecurityCallbacks)),
@@ -1444,13 +1443,22 @@ JSAutoEnterCompartment::enterAndIgnoreErrors(JSContext *cx, JSObject *target)
     (void) enter(cx, target);
 }
 
-JSAutoEnterCompartment::~JSAutoEnterCompartment()
+void
+JSAutoEnterCompartment::leave()
 {
+    JS_ASSERT(entered());
     if (state == STATE_OTHER_COMPARTMENT) {
         AutoCompartment* ac = getAutoCompartment();
         CHECK_REQUEST(ac->context);
         ac->~AutoCompartment();
     }
+    state = STATE_UNENTERED;
+}
+
+JSAutoEnterCompartment::~JSAutoEnterCompartment()
+{
+    if (entered())
+        leave();
 }
 
 namespace JS {
@@ -2533,11 +2541,9 @@ JS_CallTracer(JSTracer *trc, void *thing, JSGCTraceKind kind)
     js::CallTracer(trc, thing, kind);
 }
 
-#ifdef DEBUG
-
 JS_PUBLIC_API(void)
-JS_PrintTraceThingInfo(char *buf, size_t bufsize, JSTracer *trc, void *thing,
-                       JSGCTraceKind kind, JSBool details)
+JS_GetTraceThingInfo(char *buf, size_t bufsize, JSTracer *trc, void *thing,
+                     JSGCTraceKind kind, JSBool details)
 {
     const char *name = NULL; /* silence uninitialized warning */
     size_t n;
@@ -2671,6 +2677,8 @@ JS_GetTraceEdgeName(JSTracer *trc, char *buffer, int bufferSize)
     return (const char*)trc->debugPrintArg;
 }
 
+#ifdef DEBUG
+
 typedef struct JSHeapDumpNode JSHeapDumpNode;
 
 struct JSHeapDumpNode {
@@ -2762,8 +2770,8 @@ DumpNode(JSDumpingTracer *dtrc, FILE* fp, JSHeapDumpNode *node)
     size_t chainLimit;
     enum { MAX_PARENTS_TO_PRINT = 10 };
 
-    JS_PrintTraceThingInfo(dtrc->buffer, sizeof dtrc->buffer,
-                           &dtrc->base, node->thing, node->kind, JS_TRUE);
+    JS_GetTraceThingInfo(dtrc->buffer, sizeof dtrc->buffer,
+                         &dtrc->base, node->thing, node->kind, JS_TRUE);
     if (fprintf(fp, "%p %-22s via ", node->thing, dtrc->buffer) < 0)
         return JS_FALSE;
 
@@ -2801,9 +2809,9 @@ DumpNode(JSDumpingTracer *dtrc, FILE* fp, JSHeapDumpNode *node)
                 if (fputs(node->edgeName, fp) < 0)
                     ok = false;
             } else {
-                JS_PrintTraceThingInfo(dtrc->buffer, sizeof dtrc->buffer,
-                                       &dtrc->base, prev->thing, prev->kind,
-                                       JS_FALSE);
+                JS_GetTraceThingInfo(dtrc->buffer, sizeof dtrc->buffer,
+                                     &dtrc->base, prev->thing, prev->kind,
+                                     JS_FALSE);
                 if (fprintf(fp, "(%p %s).%s",
                            prev->thing, dtrc->buffer, node->edgeName) < 0) {
                     ok = false;
@@ -5298,7 +5306,7 @@ JS_ExecuteScript(JSContext *cx, JSObject *obj, JSScript *scriptArg, jsval *rval)
         *(volatile int *) 0 = 0xf0;
     AutoLastFrameCheck lfc(cx);
 
-    JS::Anchor<JSScript *> script;
+    JS::Anchor<JSScript *> script(NULL);
 
     /*
      * Mozilla caches pre-compiled scripts (e.g., in the XUL prototype cache)
@@ -6618,7 +6626,7 @@ JS_AbortIfWrongThread(JSRuntime *rt)
 {
 #ifdef JS_THREADSAFE
     if (!rt->onOwnerThread())
-        MOZ_Assert("rt->onOwnerThread()", __FILE__, __LINE__);
+        MOZ_CRASH();
 #endif
 }
 
@@ -6636,12 +6644,17 @@ JS_SetGCZeal(JSContext *cx, uint8_t zeal, uint32_t frequency)
                    "  2: GC every F allocations (default: 100)\n"
                    "  3: GC when the window paints (browser only)\n"
                    "  4: Verify write barriers between instructions\n"
-                   "  5: Verify write barriers between paints\n");
+                   "  5: Verify write barriers between paints\n"
+                   "  6: Verify stack rooting (ignoring XML and Reflect)\n"
+                   "  7: Verify stack rooting (all roots)\n");
         }
         const char *p = strchr(env, ',');
         zeal = atoi(env);
         frequency = p ? atoi(p + 1) : JS_DEFAULT_ZEAL_FREQ;
     }
+
+    if (zeal == 0 && cx->runtime->gcVerifyData)
+        VerifyBarriers(cx->runtime);
 
     bool schedule = zeal >= js::gc::ZealAllocValue;
     cx->runtime->gcZeal_ = zeal;

@@ -42,6 +42,7 @@
 #include "nsIScriptContext.h"
 #include "nsWeakReference.h"
 #include "nsITabChild.h"
+#include "mozilla/Attributes.h"
 
 struct gfxMatrix;
 
@@ -115,7 +116,7 @@ public:
   TabChild* mTabChild;
 };
 
-class ContentListener : public nsIDOMEventListener
+class ContentListener MOZ_FINAL : public nsIDOMEventListener
 {
 public:
   ContentListener(TabChild* aTabChild) : mTabChild(aTabChild) {}
@@ -246,6 +247,17 @@ private:
     bool InitWidget(const nsIntSize& size);
     void DestroyWindow();
 
+    // Call RecvShow(nsIntSize(0, 0)) and block future calls to RecvShow().
+    void DoFakeShow();
+
+    nsresult
+    BrowserFrameProvideWindow(nsIDOMWindow* aOpener,
+                              nsIURI* aURI,
+                              const nsAString& aName,
+                              const nsACString& aFeatures,
+                              bool* aWindowIsNew,
+                              nsIDOMWindow** aReturn);
+
     nsCOMPtr<nsIWebNavigation> mWebNav;
     nsCOMPtr<nsIWidget> mWidget;
     RenderFrameChild* mRemoteFrame;
@@ -253,6 +265,7 @@ private:
     PRUint32 mChromeFlags;
     nsIntRect mOuterRect;
     nscolor mLastBackgroundColor;
+    bool mDidFakeShow;
 
     DISALLOW_EVIL_CONSTRUCTORS(TabChild);
 };

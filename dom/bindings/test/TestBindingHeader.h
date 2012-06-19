@@ -45,6 +45,14 @@ public:
   NS_DECL_ISUPPORTS
 };
 
+class TestNonWrapperCacheInterface : public nsISupports
+{
+public:
+  NS_DECL_ISUPPORTS
+
+  virtual JSObject* WrapObject(JSContext* cx, JSObject* scope);
+};
+
 class TestInterface : public nsISupports,
                       public nsWrapperCache
 {
@@ -156,6 +164,13 @@ public:
   void PassOptionalNonNullSelf(const Optional<NonNull<TestInterface> >&, ErrorResult&);
   void PassOptionalSelfWithDefault(TestInterface*, ErrorResult&);
 
+  already_AddRefed<TestNonWrapperCacheInterface> ReceiveNonWrapperCacheInterface(ErrorResult&);
+  already_AddRefed<TestNonWrapperCacheInterface> ReceiveNullableNonWrapperCacheInterface(ErrorResult&);
+  void ReceiveNonWrapperCacheInterfaceSequence(nsTArray<nsRefPtr<TestNonWrapperCacheInterface> >&, ErrorResult&);
+  void ReceiveNullableNonWrapperCacheInterfaceSequence(nsTArray<nsRefPtr<TestNonWrapperCacheInterface> >&, ErrorResult&);
+  void ReceiveNonWrapperCacheInterfaceNullableSequence(Nullable<nsTArray<nsRefPtr<TestNonWrapperCacheInterface> > >&, ErrorResult&);
+  void ReceiveNullableNonWrapperCacheInterfaceNullableSequence(Nullable<nsTArray<nsRefPtr<TestNonWrapperCacheInterface> > >&, ErrorResult&);
+
   already_AddRefed<TestNonCastableInterface> ReceiveOther(ErrorResult&);
   already_AddRefed<TestNonCastableInterface> ReceiveNullableOther(ErrorResult&);
   TestNonCastableInterface* ReceiveWeakOther(ErrorResult&);
@@ -233,6 +248,9 @@ public:
   void PassOptionalObjectSequence(const Optional<Sequence<OwningNonNull<TestInterface> > >&,
                                   ErrorResult&);
 
+  void ReceiveStringSequence(nsTArray<nsString>&, ErrorResult&);
+  void PassStringSequence(const Sequence<nsString>&, ErrorResult&);
+
   // Typed array types
   void PassArrayBuffer(ArrayBuffer&, ErrorResult&);
   void PassNullableArrayBuffer(ArrayBuffer*, ErrorResult&);
@@ -293,6 +311,14 @@ public:
   int8_t GetAttributeGetterRenamedTo(ErrorResult&);
   int8_t GetAttributeRenamedTo(ErrorResult&);
   void SetAttributeRenamedTo(int8_t, ErrorResult&);
+
+  // Dictionary tests
+  void PassDictionary(const Dict&, ErrorResult&);
+  void PassOptionalDictionary(const Optional<Dict>&, ErrorResult&);
+  void PassNullableDictionary(const Nullable<Dict>&, ErrorResult&);
+  void PassOptionalNullableDictionary(const Optional<Nullable<Dict> >&, ErrorResult&);
+  void PassOtherDictionary(const GrandparentDict&, ErrorResult&);
+  void PassSequenceOfDictionaries(const Sequence<Dict>&, ErrorResult&);
 
   // Methods and properties imported via "implements"
   bool GetImplementedProperty(ErrorResult&);

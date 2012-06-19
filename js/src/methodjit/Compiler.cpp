@@ -1210,6 +1210,10 @@ mjit::Compiler::markUndefinedLocal(uint32_t offset, uint32_t i)
         Lifetime *lifetime = analysis->liveness(slot).live(offset);
         if (lifetime)
             masm.storeValue(UndefinedValue(), local);
+#ifdef DEBUG
+        else
+            masm.storeValue(ObjectValueCrashOnTouch(), local);
+#endif
     }
 }
 
@@ -1222,6 +1226,14 @@ mjit::Compiler::markUndefinedLocals()
      */
     for (uint32_t i = 0; i < script->nfixed; i++)
         markUndefinedLocal(0, i);
+
+#ifdef DEBUG
+    uint32_t depth = ssa.getFrame(a->inlineIndex).depth;
+    for (uint32_t i = script->nfixed; i < script->nslots; i++) {
+        Address local(JSFrameReg, sizeof(StackFrame) + (depth + i) * sizeof(Value));
+        masm.storeValue(ObjectValueCrashOnTouch(), local);
+    }
+#endif
 }
 
 CompileStatus
@@ -5124,7 +5136,7 @@ mjit::Compiler::testSingletonPropertyTypes(FrameEntry *top, HandleId id, bool *t
 
     RootedObject proto(cx);
     if (!js_GetClassPrototype(cx, globalObj, key, proto.address(), NULL))
-        return NULL;
+        return false;
 
     return testSingletonProperty(proto, id);
 }
@@ -5831,7 +5843,8 @@ mjit::Compiler::jsop_aliasedVar(ScopeCoordinate sc, bool get, bool poppedAfter)
      * dynamic slots. For now, we special case for different layouts:
      */
     Address addr;
-    if (ScopeCoordinateBlockChain(script, PC)) {
+    StaticBlockObject *block = ScopeCoordinateBlockChain(script, PC);
+    if (block) {
         /*
          * Block objects use a fixed AllocKind which means an invariant number
          * of fixed slots. Any slot below the fixed slot count is inline, any
@@ -5859,9 +5872,10 @@ mjit::Compiler::jsop_aliasedVar(ScopeCoordinate sc, bool get, bool poppedAfter)
     }
 
     if (get) {
-        FrameEntry *fe = script->bindings.slotIsLocal(sc.slot)
-                         ? frame.getLocal(script->bindings.slotToLocal(sc.slot))
-                         : frame.getArg(script->bindings.slotToArg(sc.slot));
+        unsigned index;
+        FrameEntry *fe = ScopeCoordinateToFrameVar(script, PC, &index) == FrameVar_Local
+                         ? frame.getLocal(index)
+                         : frame.getArg(index);
         JSValueType type = fe->isTypeKnown() ? fe->getKnownType() : JSVAL_TYPE_UNKNOWN;
         frame.push(addr, type, true /* = reuseBase */);
     } else {

@@ -135,7 +135,7 @@ nsXPConnect::GetXPConnect()
     // XPConnect off the main thread. If you're an extension developer hitting
     // this, you need to change your code. See bug 716167.
     if (!NS_LIKELY(NS_IsMainThread() || NS_IsCycleCollectorThread()))
-        MOZ_Assert("NS_IsMainThread()", __FILE__, __LINE__);
+        MOZ_CRASH();
 
     if (!gSelf) {
         if (gOnceAliveNowDead)
@@ -2559,6 +2559,12 @@ nsXPConnect::GetCaller(JSContext **aJSContext, JSObject **aObj)
 namespace xpc {
 
 bool
+DeferredRelease(nsISupports *obj)
+{
+    return nsXPConnect::GetRuntimeInstance()->DeferredRelease(obj);
+}
+
+bool
 Base64Encode(JSContext *cx, JS::Value val, JS::Value *out)
 {
     MOZ_ASSERT(cx);
@@ -2610,7 +2616,6 @@ Base64Decode(JSContext *cx, JS::Value val, JS::Value *out)
     return true;
 }
 
-#ifdef DEBUG
 void
 DumpJSHeap(FILE* file)
 {
@@ -2622,7 +2627,6 @@ DumpJSHeap(FILE* file)
     }
     js::DumpHeapComplete(xpc->GetRuntime()->GetJSRuntime(), file);
 }
-#endif
 
 void
 SetLocationForGlobal(JSObject *global, const nsACString& location)
