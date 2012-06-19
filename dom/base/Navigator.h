@@ -38,6 +38,10 @@ class nsIDOMTelephony;
 #include "nsIDOMNavigatorBluetooth.h"
 #endif
 
+#ifdef MOZ_B2G_NFC
+#include "nsIDOMNavigatorNfc.h"
+#endif
+
 //*****************************************************************************
 // Navigator: Script "navigator" object
 //*****************************************************************************
@@ -79,6 +83,9 @@ class Navigator : public nsIDOMNavigator
 #ifdef MOZ_B2G_BT
                 , public nsIDOMNavigatorBluetooth
 #endif
+#ifdef MOZ_B2G_NFC
+                , public nsIDOMNavigatorNfc
+#endif
 
 {
 public:
@@ -103,6 +110,9 @@ public:
 
 #ifdef MOZ_B2G_BT
   NS_DECL_NSIDOMNAVIGATORBLUETOOTH
+#endif
+#ifdef MOZ_B2G_NFC
+  NS_DECL_NSIDOMNAVIGATORNFC
 #endif
 
   static void Init();
@@ -144,6 +154,9 @@ private:
   nsRefPtr<network::MobileConnection> mMobileConnection;
 #ifdef MOZ_B2G_BT
   nsCOMPtr<nsIDOMBluetoothManager> mBluetooth;
+#endif
+#ifdef MOZ_B2G_NFC
+  nsCOMPtr<nsIDOMNfc> mNfc;
 #endif
   nsWeakPtr mWindow;
 };

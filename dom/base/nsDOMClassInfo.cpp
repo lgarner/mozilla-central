@@ -519,6 +519,11 @@ using mozilla::dom::indexedDB::IDBWrapperCache;
 #include "BluetoothAdapter.h"
 #endif
 
+#ifdef MOZ_B2G_NFC
+#include "Nfc.h"
+#include "NfcNdefEvent.h"
+#endif
+
 #include "DOMError.h"
 #include "DOMRequest.h"
 
@@ -1658,6 +1663,13 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            EVENTTARGET_SCRIPTABLE_FLAGS)
 #endif
 
+#ifdef MOZ_B2G_NFC
+  NS_DEFINE_CLASSINFO_DATA(Nfc, nsEventTargetSH,
+                           EVENTTARGET_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(NfcNdefEvent, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+#endif
+
   NS_DEFINE_CLASSINFO_DATA(DOMError, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
@@ -2504,6 +2516,10 @@ nsDOMClassInfo::Init()
                                         network::IsAPIEnabled())
 #ifdef MOZ_B2G_BT
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorBluetooth)
+#endif
+
+#ifdef MOZ_B2G_NFC
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorNfc)
 #endif
   DOM_CLASSINFO_MAP_END
 
@@ -4514,6 +4530,18 @@ nsDOMClassInfo::Init()
 
   DOM_CLASSINFO_MAP_BEGIN(BluetoothAdapter, nsIDOMBluetoothAdapter)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMBluetoothAdapter)
+  DOM_CLASSINFO_MAP_END
+#endif
+
+#ifdef MOZ_B2G_NFC
+  DOM_CLASSINFO_MAP_BEGIN(Nfc, nsIDOMNfc)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNfc)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(NfcNdefEvent, nsIDOMNfcNdefEvent)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNfcNdefEvent)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEvent)
   DOM_CLASSINFO_MAP_END
 #endif
 

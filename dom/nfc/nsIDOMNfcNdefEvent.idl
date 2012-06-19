@@ -1,0 +1,9 @@
+#include "nsIDOMEvent.idl"
+
+interface nsIDOMNfcNdefRecord;
+
+[scriptable, builtinclass, uuid(41fcd640-4dd4-11e1-b86c-0800200c9a66)]
+interface nsIDOMNfcNdefEvent : nsIDOMEvent
+{
+  readonly attribute jsval ndefRecords;
+};

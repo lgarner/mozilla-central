@@ -1,0 +1,13 @@
+#include "nsIDOMEventTarget.idl"
+
+interface nsIDOMNfcNdefRecord;
+
+[scriptable, builtinclass, uuid(c2c01a50-4779-11e1-b86c-0800200c9a66)]
+interface nsIDOMNfc : nsIDOMEventTarget {
+
+  attribute nsIDOMEventListener onndefdiscovered;
+
+  // Only for debug/development purposes to send a unfiltered
+  // message to the nfcd socket
+  void sendToNfcd(in DOMString message);
+};

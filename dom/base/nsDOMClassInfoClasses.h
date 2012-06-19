@@ -530,6 +530,11 @@ DOMCI_CLASS(BluetoothManager)
 DOMCI_CLASS(BluetoothAdapter)
 #endif
 
+#ifdef MOZ_B2G_NFC
+DOMCI_CLASS(Nfc)
+DOMCI_CLASS(NfcNdefEvent)
+#endif
+
 DOMCI_CLASS(DOMError)
 DOMCI_CLASS(DOMRequest)
 

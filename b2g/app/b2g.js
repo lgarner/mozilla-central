@@ -16,6 +16,7 @@ pref("browser.homescreenURL", "http://homescreen.gaiamobile.org/");
 // XXX TODO : we should read them from a file somewhere
 pref("b2g.privileged.domains", "http://browser.gaiamobile.org,
 	                            http://calculator.gaiamobile.org,
+	                            http://nfc-demo.gaiamobile.org,
 	                            http://contacts.gaiamobile.org,
 	                            http://camera.gaiamobile.org,
 	                            http://clock.gaiamobile.org,

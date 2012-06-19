@@ -48,6 +48,9 @@
 #include "nsIDOMBluetoothManager.h"
 #include "BluetoothManager.h"
 #endif
+#ifdef MOZ_B2G_NFC
+#include "NfcFactory.h"
+#endif
 
 // This should not be in the namespace.
 DOMCI_DATA(Navigator, mozilla::dom::Navigator)
@@ -107,6 +110,9 @@ NS_INTERFACE_MAP_BEGIN(Navigator)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozNavigatorNetwork)
 #ifdef MOZ_B2G_BT
   NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorBluetooth)
+#endif
+#ifdef MOZ_B2G_NFC
+  NS_INTERFACE_MAP_ENTRY(nsIDOMNavigatorNfc)
 #endif
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(Navigator)
 NS_INTERFACE_MAP_END
@@ -169,6 +175,12 @@ Navigator::Invalidate()
 #ifdef MOZ_B2G_BT
   if (mBluetooth) {
     mBluetooth = nsnull;
+  }
+#endif
+
+#ifdef MOZ_B2G_NFC
+  if (mNfc) {
+    mNfc = nsnull;
   }
 #endif
 }
@@ -1210,6 +1222,32 @@ Navigator::GetMozBluetooth(nsIDOMBluetoothManager** aBluetooth)
   return NS_OK;
 }
 #endif //MOZ_B2G_BT
+
+#ifdef MOZ_B2G_NFC
+//*****************************************************************************
+//    nsNavigator::nsIDOMNavigatorNfc
+//*****************************************************************************
+
+NS_IMETHODIMP
+Navigator::GetMozNfc(nsIDOMNfc** aNfc)
+{
+  nsCOMPtr<nsIDOMNfc> nfc = mNfc;
+
+  if (!nfc) {
+    nsCOMPtr<nsPIDOMWindow> window = do_QueryReferent(mWindow);
+    NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
+
+    nsresult rv = NS_NewNfc(window, getter_AddRefs(mNfc));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // mNfc may be null here!
+    nfc = mNfc;
+  }
+
+  nfc.forget(aNfc);
+  return NS_OK;
+}
+#endif // MOZ_B2G_NFC
 
 size_t
 Navigator::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
