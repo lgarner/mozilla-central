@@ -6,6 +6,7 @@ interface nsIDOMNfcNdefRecord;
 interface nsIDOMNfc : nsIDOMEventTarget {
 
   attribute nsIDOMEventListener onndefdiscovered;
+  attribute nsIDOMEventListener ontaglost;
 
   // Only for debug/development purposes to send a unfiltered
   // message to the nfcd socket

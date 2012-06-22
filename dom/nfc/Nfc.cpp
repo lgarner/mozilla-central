@@ -112,6 +112,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(Nfc,
                                                   nsDOMEventTargetHelper)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
   NS_CYCLE_COLLECTION_TRAVERSE_EVENT_HANDLER(ndefdiscovered)
+  NS_CYCLE_COLLECTION_TRAVERSE_EVENT_HANDLER(taglost)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(Nfc,
@@ -121,6 +122,7 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(Nfc,
                                                 nsDOMEventTargetHelper)
   NS_CYCLE_COLLECTION_UNLINK_EVENT_HANDLER(ndefdiscovered)
+  NS_CYCLE_COLLECTION_UNLINK_EVENT_HANDLER(taglost)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(Nfc)
@@ -136,6 +138,7 @@ DOMCI_DATA(Nfc, Nfc)
 NS_IMPL_ISUPPORTS1(Nfc::NFCCallback, nsINFCCallback)
 
 NS_IMPL_EVENT_HANDLER(Nfc, ndefdiscovered)
+NS_IMPL_EVENT_HANDLER(Nfc, taglost)
 
 NS_IMETHODIMP
 Nfc::NdefDiscovered(const nsAString &aNdefRecords)
@@ -167,6 +170,35 @@ Nfc::NdefDiscovered(const nsAString &aNdefRecords)
 
   return NS_OK;
 }
+
+NS_IMETHODIMP
+Nfc::TagLost(const nsAString &aNfcHandle) {
+  LOG("DOM: Received TagLost callback => create event");
+
+  jsval result;
+  nsresult rv;
+  nsIScriptContext* sc = GetContextForEventHandlers(&rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  int length = aNfcHandle.Length();
+  if (!length || !JS_ParseJSON(sc->GetNativeContext(), static_cast<const jschar*>(PromiseFlatString(aNfcHandle).get()),
+       aNfcHandle.Length(), &result)) {
+    LOG("DOM: Couldn't parse JSON");
+    return NS_ERROR_UNEXPECTED;
+  }
+
+  // Dispatch incoming event.
+  nsRefPtr<NfcNdefEvent> event = NfcNdefEvent::Create(result);
+  NS_ASSERTION(event, "This should never fail!");
+
+  LOG("DOM: Created event => dispatching");
+  rv = event->Dispatch(ToIDOMEventTarget(), NS_LITERAL_STRING("taglost"));
+  LOG("DOM: Event dispatched (%d)", NS_ERROR_GET_CODE(rv));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return NS_OK;
+}
+
 
 NS_IMETHODIMP
 Nfc::SendToNfcd(const nsAString& message)

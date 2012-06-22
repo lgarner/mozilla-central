@@ -57,6 +57,7 @@ class Nfc : public nsDOMEventTargetHelper,
   nsCOMPtr<nsINFCCallback> mNFCCallback;
 
   NS_DECL_EVENT_HANDLER(ndefdiscovered)
+  NS_DECL_EVENT_HANDLER(taglost)
 
 public:
   NS_DECL_ISUPPORTS_INHERITED

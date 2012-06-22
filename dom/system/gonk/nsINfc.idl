@@ -43,6 +43,7 @@
 interface nsINFCCallback : nsISupports
 {
   void ndefDiscovered(in AString aNdefRecords);
+  void tagLost(in AString aNfcHandle);
 };
 
 [scriptable, uuid(79c96fc0-5e73-11e1-b86c-0800200c9a66)]
