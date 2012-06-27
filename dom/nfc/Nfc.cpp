@@ -55,6 +55,7 @@
 #include "nsNetUtil.h"
 #include "nsServiceManagerUtils.h"
 #include "SystemWorkerManager.h"
+#include "mozilla/LazyIdleThread.h"
 
 #include "NfcNdefEvent.h"
 
@@ -106,10 +107,6 @@ Nfc::Create(nsPIDOMWindow* aOwner, nsINfc* aNfc)
 
   return nfc.forget();
 }
-
-NS_INTERFACE_MAP_BEGIN(Nfc)
-  NS_INTERFACE_MAP_ENTRY(nsIDOMNdefRecord)
-NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(Nfc)
 
@@ -205,21 +202,45 @@ Nfc::TagLost(const nsAString &aNfcHandle) {
 }
 
 NS_IMETHODIMP
-Nfc::SendContactToNfc(const jsval& message)
+Nfc::WriteNdefTag(char aTnf, const nsAString &aType, const nsAString &aId, const jsval& aPayload, nsIDOMDOMRequest** aDomRequest)
 {
-  nsresult rv = mNfc->SendContactToNfc(message);
+  nsresult rv;
+
+  nsCOMPtr<nsIDOMRequestService> rs = do_GetService("@mozilla.org/dom/dom-request-service;1");
+
+  if (!rs) {
+    NS_ERROR("No DOMRequest Service!");
+    return NS_ERROR_FAILURE;
+  }
+
+  //TODO check for correct payload type
+
+  nsIScriptContext* sc = GetContextForEventHandlers(&rv);
+  NS_ENSURE_STATE(sc);
+  JSContext* cx = sc->GetNativeContext();
+  NS_ASSERTION(cx, "Failed to get a context!");
+
+  JSObject* global = sc->GetNativeGlobal();
+  NS_ASSERTION(global, "Failed to get global object!");
+
+  JSAutoRequest ar(cx);
+  JSAutoEnterCompartment ac;
+  if (!ac.enter(cx, global)) {
+    NS_ERROR("Failed to enter the js compartment!");
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCOMPtr<nsIDOMDOMRequest> request;
+
+  rv = rs->CreateRequest(GetOwner(), getter_AddRefs(request));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-Nfc::SendUrlToNfc(const jsval& message)
-{
-  nsresult rv = mNfc->SendUrlToNfc(message);
-  NS_ENSURE_SUCCESS(rv, rv);
+  //TODO keep track of requests so requestId can be mapped back to the actual request
+  PRInt32 requestId;
+  mNfc->WriteNdefTag(aTnf, aType, aId, aPayload, requestId);
 
   return NS_OK;
+
 }
 
 // TODO: make private

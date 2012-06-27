@@ -168,13 +168,10 @@ Nfc.prototype = {
     }
   },
 
-  sendContactToNfc: function sendContactToNfc(message) {
-    this.worker.postMessage({type: "directMessage", content: message});
+  writeNdefTag: function writeNdefTag(tnf, type, id, payload, requestId) {
+    this.worker.postMessage({type: "writeNdefTag", "tnf": tnf, "type": type, "id": id, "payload": payload});
   },
 
-  sendUrlToNfc: function sendUrlToNfc(message) {
-    this.worker.postMessage({type: "directMessage", content: message});
-  },
 
   sendToNfcd: function sendToNfcd(message) {
     this.worker.postMessage({type: "directMessage", content: message});
