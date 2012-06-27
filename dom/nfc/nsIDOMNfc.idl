@@ -1,12 +1,15 @@
 #include "nsIDOMEventTarget.idl"
-
-interface nsIDOMNfcNdefRecord;
+#include "nsIDOMNdefRecord.idl"
 
 [scriptable, builtinclass, uuid(c2c01a50-4779-11e1-b86c-0800200c9a66)]
 interface nsIDOMNfc : nsIDOMEventTarget {
+  attribute nsIDOMNdefRecord mozNdefRecord;
 
   attribute nsIDOMEventListener onndefdiscovered;
   attribute nsIDOMEventListener ontaglost;
+
+  void sendContactToNfc(in jsval contactMessage);
+  void sendUrlToNfc(in jsval urlMessage);
 
   // Only for debug/development purposes to send a unfiltered
   // message to the nfcd socket

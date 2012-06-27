@@ -53,9 +53,11 @@ include $(topsrcdir)/dom/dom-config.mk
 CPPSRCS = \
   Nfc.cpp \
   NfcNdefEvent.cpp \
+  NdefRecord.cpp \
   $(NULL)
 
 XPIDLSRCS = \
+  nsIDOMNdefRecord.idl \
   nsIDOMNfcNdefEvent.idl \
   nsIDOMNavigatorNfc.idl \
   nsIDOMNfc.idl \

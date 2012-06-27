@@ -38,6 +38,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "Nfc.h"
+#include "NdefRecord.h"
 
 #include "nsIDocument.h"
 #include "nsIURI.h"
@@ -105,6 +106,10 @@ Nfc::Create(nsPIDOMWindow* aOwner, nsINfc* aNfc)
 
   return nfc.forget();
 }
+
+NS_INTERFACE_MAP_BEGIN(Nfc)
+  NS_INTERFACE_MAP_ENTRY(nsIDOMNdefRecord)
+NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(Nfc)
 
@@ -199,7 +204,25 @@ Nfc::TagLost(const nsAString &aNfcHandle) {
   return NS_OK;
 }
 
+NS_IMETHODIMP
+Nfc::SendContactToNfc(const jsval& message)
+{
+  nsresult rv = mNfc->SendContactToNfc(message);
+  NS_ENSURE_SUCCESS(rv, rv);
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Nfc::SendUrlToNfc(const jsval& message)
+{
+  nsresult rv = mNfc->SendUrlToNfc(message);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return NS_OK;
+}
+
+// TODO: make private
 NS_IMETHODIMP
 Nfc::SendToNfcd(const nsAString& message)
 {

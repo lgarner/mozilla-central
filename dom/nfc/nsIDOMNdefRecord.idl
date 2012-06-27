@@ -1,0 +1,9 @@
+#include "nsISupports.idl"
+  
+[scriptable, builtinclass, uuid(b6803610-bfe4-11e1-afa7-0800200c9a66)]
+interface nsIDOMNdefRecord : nsISupports {
+  readonly attribute char tnf;
+  readonly attribute DOMString type;
+  readonly attribute DOMString id;
+  readonly attribute DOMString payload;
+};

@@ -168,6 +168,14 @@ Nfc.prototype = {
     }
   },
 
+  sendContactToNfc: function sendContactToNfc(message) {
+    this.worker.postMessage({type: "directMessage", content: message});
+  },
+
+  sendUrlToNfc: function sendUrlToNfc(message) {
+    this.worker.postMessage({type: "directMessage", content: message});
+  },
+
   sendToNfcd: function sendToNfcd(message) {
     this.worker.postMessage({type: "directMessage", content: message});
   }

@@ -52,5 +52,8 @@ interface nsINfc : nsISupports
   void registerCallback(in nsINFCCallback callback);
   void unregisterCallback(in nsINFCCallback callback);
 
+  void sendContactToNfc(in jsval contactMessage);
+  void sendUrlToNfc(in jsval urlMessage);
+
   void sendToNfcd(in DOMString message);
 };
