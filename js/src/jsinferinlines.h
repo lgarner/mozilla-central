@@ -440,7 +440,7 @@ UseNewTypeAtEntry(JSContext *cx, StackFrame *fp)
 {
     return fp->isConstructing() && cx->typeInferenceEnabled() &&
            fp->prev() && fp->prev()->isScriptFrame() &&
-           UseNewType(cx, fp->prev()->script(), fp->prev()->pcQuadratic(cx->stack, fp));
+           UseNewType(cx, fp->prev()->script(), fp->prevpc());
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -531,7 +531,7 @@ struct AllocationSiteKey {
 /* static */ inline TypeObject *
 TypeScript::InitObject(JSContext *cx, JSScript *script, jsbytecode *pc, JSProtoKey kind)
 {
-    JS_ASSERT(!UseNewTypeForInitializer(cx, script, pc));
+    JS_ASSERT(!UseNewTypeForInitializer(cx, script, pc, kind));
 
     /* :XXX: Limit script->length so we don't need to check the offset up front? */
     uint32_t offset = pc - script->code;
@@ -561,7 +561,10 @@ SetInitializerObjectType(JSContext *cx, JSScript *script, jsbytecode *pc, JSObje
     if (!cx->typeInferenceEnabled())
         return true;
 
-    if (UseNewTypeForInitializer(cx, script, pc)) {
+    JSProtoKey key = JSCLASS_CACHED_PROTO_KEY(obj->getClass());
+    JS_ASSERT(key != JSProto_Null);
+
+    if (UseNewTypeForInitializer(cx, script, pc, key)) {
         if (!obj->setSingletonType(cx))
             return false;
 
@@ -572,7 +575,6 @@ SetInitializerObjectType(JSContext *cx, JSScript *script, jsbytecode *pc, JSObje
          */
         TypeScript::Monitor(cx, script, pc, ObjectValue(*obj));
     } else {
-        JSProtoKey key = obj->isDenseArray() ? JSProto_Array : JSProto_Object;
         types::TypeObject *type = TypeScript::InitObject(cx, script, pc, key);
         if (!type)
             return false;
@@ -1260,8 +1262,36 @@ TypeObject::getProperty(JSContext *cx, jsid id, bool assign)
 
     TypeSet *types = &(*pprop)->types;
 
-    if (assign)
-        types->setOwnProperty(cx, false);
+    if (assign && !types->isOwnProperty(false)) {
+        /*
+         * Normally, we just want to set the property as being an own property
+         * when we got a set to it. The exception is when the set is actually
+         * calling a setter higher on the prototype chain. Check to see if there
+         * is a setter higher on the prototype chain, setter the property as an
+         * own property if that is not the case.
+         */
+        bool foundSetter = false;
+
+        JSObject *protoWalk = proto;
+        while (protoWalk) {
+            if (!protoWalk->isNative()) {
+                protoWalk = protoWalk->getProto();
+                continue;
+            }
+
+            const Shape *shape = protoWalk->nativeLookup(cx, id);
+
+            foundSetter = shape &&
+                          !shape->hasDefaultSetter();
+            if (foundSetter)
+                break;
+
+            protoWalk = protoWalk->getProto();
+        }
+
+        if (!foundSetter)
+            types->setOwnProperty(cx, false);
+    }
 
     return types;
 }
@@ -1305,34 +1335,28 @@ TypeObject::setFlagsFromKey(JSContext *cx, JSProtoKey key)
     TypeObjectFlags flags = 0;
 
     switch (key) {
-      case JSProto_Function:
-        JS_ASSERT(isFunction());
-        /* FALLTHROUGH */
-
-      case JSProto_Object:
-        flags = OBJECT_FLAG_NON_DENSE_ARRAY
-              | OBJECT_FLAG_NON_PACKED_ARRAY
-              | OBJECT_FLAG_NON_TYPED_ARRAY;
-        break;
-
       case JSProto_Array:
         flags = OBJECT_FLAG_NON_TYPED_ARRAY;
         break;
 
-      default:
-        /* :XXX: abstract */
-        JS_ASSERT(key == JSProto_Int8Array ||
-                  key == JSProto_Uint8Array ||
-                  key == JSProto_Int16Array ||
-                  key == JSProto_Uint16Array ||
-                  key == JSProto_Int32Array ||
-                  key == JSProto_Uint32Array ||
-                  key == JSProto_Float32Array ||
-                  key == JSProto_Float64Array ||
-                  key == JSProto_Uint8ClampedArray ||
-                  key == JSProto_DataView);
+      case JSProto_Int8Array:
+      case JSProto_Uint8Array:
+      case JSProto_Int16Array:
+      case JSProto_Uint16Array:
+      case JSProto_Int32Array:
+      case JSProto_Uint32Array:
+      case JSProto_Float32Array:
+      case JSProto_Float64Array:
+      case JSProto_Uint8ClampedArray:
+      case JSProto_DataView:
         flags = OBJECT_FLAG_NON_DENSE_ARRAY
               | OBJECT_FLAG_NON_PACKED_ARRAY;
+        break;
+
+      default:
+        flags = OBJECT_FLAG_NON_DENSE_ARRAY
+              | OBJECT_FLAG_NON_PACKED_ARRAY
+              | OBJECT_FLAG_NON_TYPED_ARRAY;
         break;
     }
 
@@ -1427,6 +1451,7 @@ JSScript::ensureHasTypes(JSContext *cx)
 inline bool
 JSScript::ensureRanAnalysis(JSContext *cx, JSObject *scope)
 {
+    js::analyze::AutoEnterAnalysis aea(cx->compartment);
     JSScript *self = this;
     JS::SkipRoot root(cx, &self);
 

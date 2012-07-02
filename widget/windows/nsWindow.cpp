@@ -137,6 +137,7 @@
 #if defined(ACCESSIBILITY)
 #include "oleidl.h"
 #include <winuser.h>
+#include "nsAccessibilityService.h"
 #include "nsIAccessibleDocument.h"
 #if !defined(WINABLEAPI)
 #include <winable.h>
@@ -325,7 +326,6 @@ nsWindow::nsWindow() : nsBaseWidget()
   mPickerDisplayCount   = 0;
   mWindowType           = eWindowType_child;
   mBorderStyle          = eBorderStyle_default;
-  mPopupType            = ePopupTypeAny;
   mOldSizeMode          = nsSizeMode_Normal;
   mLastSizeMode         = nsSizeMode_Normal;
   mLastPoint.x          = 0;
@@ -465,7 +465,6 @@ nsWindow::Create(nsIWidget *aParent,
       WinUtils::GetNSWindowPtr((HWND)aNativeParent) : nsnull;
   }
 
-  mPopupType = aInitData->mPopupHint;
   mIsRTL = aInitData->mRTL;
 
   DWORD style = WindowStyle();
@@ -1335,6 +1334,7 @@ NS_METHOD nsWindow::Move(PRInt32 aX, PRInt32 aY)
 
     SetThemeRegion();
   }
+  NotifyRollupGeometryChange(sRollupListener);
   return NS_OK;
 }
 
@@ -1372,6 +1372,7 @@ NS_METHOD nsWindow::Resize(PRInt32 aWidth, PRInt32 aHeight, bool aRepaint)
   if (aRepaint)
     Invalidate();
 
+  NotifyRollupGeometryChange(sRollupListener);
   return NS_OK;
 }
 
@@ -1411,6 +1412,7 @@ NS_METHOD nsWindow::Resize(PRInt32 aX, PRInt32 aY, PRInt32 aWidth, PRInt32 aHeig
   if (aRepaint)
     Invalidate();
 
+  NotifyRollupGeometryChange(sRollupListener);
   return NS_OK;
 }
 
@@ -3155,8 +3157,7 @@ nsWindow::GetLayerManager(PLayersChild* aShadowManager,
     if (eTransparencyTransparent == mTransparencyMode ||
         prefs.mDisableAcceleration ||
         windowRect.right - windowRect.left > MAX_ACCELERATED_DIMENSION ||
-        windowRect.bottom - windowRect.top > MAX_ACCELERATED_DIMENSION ||
-        mWindowType == eWindowType_popup)
+        windowRect.bottom - windowRect.top > MAX_ACCELERATED_DIMENSION)
       mUseAcceleratedRendering = false;
     else if (prefs.mAccelerateByDefault)
       mUseAcceleratedRendering = true;
@@ -7337,27 +7338,9 @@ bool nsWindow::AssociateDefaultIMC(bool aAssociate)
 Accessible*
 nsWindow::GetRootAccessible()
 {
-  // We want the ability to forcibly disable a11y on windows, because
-  // some non-a11y-related components attempt to bring it up.  See bug
-  // 538530 for details; we have a pref here that allows it to be disabled
-  // for performance and testing resons.
-  //
-  // This pref is checked only once, and the browser needs a restart to
-  // pick up any changes.
-  static int accForceDisable = -1;
-
-  if (accForceDisable == -1) {
-    const char* kPrefName = "accessibility.win32.force_disabled";
-    if (Preferences::GetBool(kPrefName, false)) {
-      accForceDisable = 1;
-    } else {
-      accForceDisable = 0;
-    }
-  }
-
-  // If the pref was true, return null here, disabling a11y.
-  if (accForceDisable)
-      return nsnull;
+  // If the pref was ePlatformIsDisabled, return null here, disabling a11y.
+  if (a11y::PlatformDisabledState() == a11y::ePlatformIsDisabled)
+    return nsnull;
 
   if (mInDtor || mOnDestroyCalled || mWindowType == eWindowType_invisible) {
     return nsnull;

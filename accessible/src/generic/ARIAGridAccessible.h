@@ -45,6 +45,12 @@ public:
   virtual bool IsColSelected(PRUint32 aColIdx);
   virtual bool IsRowSelected(PRUint32 aRowIdx);
   virtual bool IsCellSelected(PRUint32 aRowIdx, PRUint32 aColIdx);
+  virtual PRUint32 SelectedCellCount();
+  virtual PRUint32 SelectedColCount();
+  virtual PRUint32 SelectedRowCount();
+  virtual void SelectedCellIndices(nsTArray<PRUint32>* aCells);
+  virtual void SelectedColIndices(nsTArray<PRUint32>* aCols);
+  virtual void SelectedRowIndices(nsTArray<PRUint32>* aRows);
   virtual void SelectCol(PRUint32 aColIdx);
   virtual void SelectRow(PRUint32 aRowIdx);
   virtual void UnselectCol(PRUint32 aColIdx);
@@ -81,12 +87,6 @@ protected:
    */
   nsresult SetARIASelected(Accessible* aAccessible, bool aIsSelected,
                            bool aNotify = true);
-
-  /**
-   * Helper method for GetSelectedColumnCount and GetSelectedColumns.
-   */
-  nsresult GetSelectedColumnsArray(PRUint32 *acolumnCount,
-                                   PRInt32 **aColumns = nsnull);
 };
 
 

@@ -450,9 +450,8 @@ FindEnumStringIndex(JSContext* cx, JS::Value v, const EnumEntry* values, bool* o
     }
   }
 
-  // XXX we don't know whether we're on the main thread, so play it safe
-  *ok = Throw<false>(cx, NS_ERROR_XPC_BAD_CONVERT_JS);
-  return 0;
+  *ok = true;
+  return -1;
 }
 
 inline nsWrapperCache*
@@ -502,13 +501,13 @@ template<class T>
 inline nsISupports*
 GetParentPointer(T* aObject)
 {
-  return aObject;
+  return ToSupports(aObject);
 }
 
 inline nsISupports*
 GetParentPointer(const ParentObject& aObject)
 {
-  return aObject.mObject;
+  return ToSupports(aObject.mObject);
 }
 
 // Only set allowNativeWrapper to false if you really know you need it, if in
@@ -862,6 +861,25 @@ class Sequence : public AutoFallibleTArray<T, 16>
 {
 public:
   Sequence() : AutoFallibleTArray<T, 16>() {}
+};
+
+// Class for holding the type of members of a union. The union type has an enum
+// to keep track of which of its UnionMembers has been constructed.
+template<class T>
+class UnionMember {
+    AlignedStorage2<T> storage;
+
+public:
+    T& SetValue() {
+      new (storage.addr()) T();
+      return *storage.addr();
+    }
+    const T& Value() const {
+      return *storage.addr();
+    }
+    void Destroy() {
+      storage.addr()->~T();
+    }
 };
 
 } // namespace dom

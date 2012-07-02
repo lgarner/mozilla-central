@@ -468,9 +468,6 @@ class TypeSet
     /* Get the single value which can appear in this type set, otherwise NULL. */
     JSObject *getSingleton(JSContext *cx, bool freeze = true);
 
-    /* Whether all objects in this set are parented to a particular global. */
-    bool hasGlobalObject(JSContext *cx, JSObject *global);
-
     inline void clearObjects();
 
     /*
@@ -874,7 +871,7 @@ UseNewType(JSContext *cx, JSScript *script, jsbytecode *pc);
 
 /* Whether to use a new type object for an initializer opcode at script/pc. */
 bool
-UseNewTypeForInitializer(JSContext *cx, JSScript *script, jsbytecode *pc);
+UseNewTypeForInitializer(JSContext *cx, JSScript *script, jsbytecode *pc, JSProtoKey key);
 
 /*
  * Whether Array.prototype, or an object on its proto chain, has an

@@ -410,6 +410,15 @@ nsIdentifierMapEntry::RemoveNameElement(Element* aElement)
   }
 }
 
+// static
+size_t
+nsIdentifierMapEntry::SizeOfExcludingThis(nsIdentifierMapEntry* aEntry,
+                                          nsMallocSizeOfFun aMallocSizeOf,
+                                          void*)
+{
+  return aEntry->GetKey().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+}
+
 // Helper structs for the content->subdoc map
 
 class SubDocMapEntry : public PLDHashEntryHdr
@@ -1169,8 +1178,7 @@ nsExternalResourceMap::ExternalResource::~ExternalResource()
 // If we ever have an nsIDocumentObserver notification for stylesheet title
 // changes, we could make this inherit from nsDOMStringList instead of
 // reimplementing nsIDOMDOMStringList.
-class nsDOMStyleSheetSetList : public nsIDOMDOMStringList
-                          
+class nsDOMStyleSheetSetList MOZ_FINAL : public nsIDOMDOMStringList
 {
 public:
   NS_DECL_ISUPPORTS
@@ -2822,7 +2830,10 @@ nsDocument::ElementFromPointHelper(float aX, float aY,
   if (elem && !elem->IsElement()) {
     elem = elem->GetParent();
   }
-  return CallQueryInterface(elem, aReturn);
+  if (elem) {
+    CallQueryInterface(elem, aReturn);
+  }
+  return NS_OK;
 }
 
 nsresult
@@ -2872,12 +2883,12 @@ nsDocument::NodesFromRectHelper(float aX, float aY,
   // Used to filter out repeated elements in sequence.
   nsIContent* lastAdded = nsnull;
 
-  for (PRInt32 i = 0; i < outFrames.Length(); i++) {
+  for (PRUint32 i = 0; i < outFrames.Length(); i++) {
     nsIContent* node = GetContentInThisDocument(outFrames[i]);
 
     if (node && !node->IsElement() && !node->IsNodeOfType(nsINode::eTEXT)) {
-      // If we have a node that isn't an element or a text node,
-      // replace it with the first parent node.
+      // We have a node that isn't an element or a text node,
+      // use its parent content instead.
       node = node->GetParent();
     }
     if (node && node != lastAdded) {
@@ -7161,12 +7172,12 @@ nsDocument::GetContentInThisDocument(nsIFrame* aFrame) const
 {
   for (nsIFrame* f = aFrame; f;
        f = nsLayoutUtils::GetParentOrPlaceholderForCrossDoc(f)) {
-    nsIContent* ptContent = f->GetContent();
-    if (!ptContent || ptContent->IsInAnonymousSubtree())
+    nsIContent* content = f->GetContent();
+    if (!content || content->IsInAnonymousSubtree())
       continue;
 
-    if (ptContent->OwnerDoc() == this) {
-      return ptContent;
+    if (content->OwnerDoc() == this) {
+      return content;
     }
     // We must be in a subdocument so jump directly to the root frame.
     // GetParentOrPlaceholderForCrossDoc gets called immediately to jump up to
@@ -7687,7 +7698,7 @@ namespace {
  * Stub for LoadSheet(), since all we want is to get the sheet into
  * the CSSLoader's style cache
  */
-class StubCSSLoaderObserver : public nsICSSLoaderObserver {
+class StubCSSLoaderObserver MOZ_FINAL : public nsICSSLoaderObserver {
 public:
   NS_IMETHOD
   StyleSheetLoaded(nsCSSStyleSheet*, bool, nsresult)
@@ -8980,6 +8991,7 @@ nsDocument::RequestFullScreen(Element* aElement, bool aWasCallerChrome)
   // to the document's principal's host, if it has one.
   if (!mIsApprovedForFullscreen) {
     mIsApprovedForFullscreen =
+      GetWindow()->IsPartOfApp() ||
       nsContentUtils::IsSitePermAllow(NodePrincipal(), "fullscreen");
   }
 
@@ -9680,7 +9692,8 @@ nsDocument::DocSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const
     mStyledLinks.SizeOfExcludingThis(NULL, aWindowSizes->mMallocSizeOf);
 
   aWindowSizes->mDOMOther +=
-    mIdentifierMap.SizeOfExcludingThis(NULL, aWindowSizes->mMallocSizeOf);
+    mIdentifierMap.SizeOfExcludingThis(nsIdentifierMapEntry::SizeOfExcludingThis,
+                                       aWindowSizes->mMallocSizeOf);
 
   // Measurement of the following members may be added later if DMD finds it
   // is worthwhile:
