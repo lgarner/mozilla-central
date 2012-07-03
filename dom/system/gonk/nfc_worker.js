@@ -91,6 +91,11 @@ let NFC = {
     postNFCMessage(message.content);
   },
 
+  writeNdefTag: function writeNdefTagWorker(message) {
+    //TODO implement communication with nfcd and writing back success/error to DOM
+    //See how SMS does this
+  },
+
   /**
    * Send messages to the main UI thread.
    */

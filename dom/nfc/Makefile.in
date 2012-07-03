@@ -53,12 +53,14 @@ include $(topsrcdir)/dom/dom-config.mk
 CPPSRCS = \
   Nfc.cpp \
   NfcNdefEvent.cpp \
+  NdefRecord.cpp
   $(NULL)
 
 XPIDLSRCS = \
   nsIDOMNfcNdefEvent.idl \
   nsIDOMNavigatorNfc.idl \
   nsIDOMNfc.idl \
+  nsIDOMMozNdefRecord.idl \
   $(NULL)
 
 #LOCAL_INCLUDES = \

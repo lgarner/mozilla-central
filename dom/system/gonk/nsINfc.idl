@@ -52,5 +52,7 @@ interface nsINfc : nsISupports
   void registerCallback(in nsINFCCallback callback);
   void unregisterCallback(in nsINFCCallback callback);
 
+  void writeNdefTag(in jsval records);
+
   void sendToNfcd(in DOMString message);
 };
