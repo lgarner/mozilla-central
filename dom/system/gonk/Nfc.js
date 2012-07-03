@@ -169,7 +169,7 @@ Nfc.prototype = {
   },
 
   writeNdefTag: function writeNdefTag(tnf, type, id, payload, requestId) {
-    this.worker.postMessage({type: "writeNdefTag", "tnf": tnf, "type": type, "id": id, "payload": payload});
+    this.worker.postMessage({type: "writeNdefTag", "tnf": tnf, "ndef-type": type, "id": id, "payload": payload});
   },
 
 
