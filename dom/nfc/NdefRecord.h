@@ -1,34 +1,42 @@
+#ifndef _NDEFRECORD_H
+#define _NDEFRECORD_H
 
+#include "mozilla/Attributes.h"
 #include "nsIDOMNdefRecord.h"
-#include "nsIDOMNode.h"
-#include "nsCycleCollectionParticipant.h"
-#include "nsCOMPtr.h"
 #include "nsString.h"
+#include "jsapi.h"
 
+namespace mozilla {
+namespace dom {
+namespace nfc {
 
 /**
- * When we send a mozbrowseropenwindow event (an instance of CustomEvent), we
- * use an instance of this class as the event's detail.
+ *
  */
-class NdefRecord : public nsIDOMNdefRecord
+class NdefRecord MOZ_FINAL : public nsIDOMMozNdefRecord
 {
 public:
   NS_DECL_ISUPPORTS
- 
-  NdefRecord(const char& tnf,
-               const nsAString& type,
-               const nsAString& id,
-               const nsAString& payload)
-    : tnf(tnf)
-    , type(type)
-    , id(id)
-    , payload(payload)
-  {}
+  NS_DECL_NSIDOMMOZNDEFRECORD
 
+  NdefRecord();
+  static nsresult NewNdefRecord(nsISupports* *aNewRecord);
+#if 0
+  NdefRecord(const char tnf, const nsAString& type, const nsAString& id, const jsval& payload);
+  static nsresult Create(const char tnf, const nsAString& type, const nsAString& id, const jsval& payload,
+                         JSContext*aCx, nsIDOMMozNdefRecord** aRecord);
+#endif
+ 
   virtual ~NdefRecord() {}
 
-  const char tnf;
-  const nsString type;
-  const nsString id;
-  const nsString payload;
+  char tnf;
+  nsString type;
+  nsString id;
+  jsval payload;
 };
+
+} // namespace nfc
+} // namespace dom
+} // namespace mozilla
+
+#endif /* _NDEFRECORD_H */

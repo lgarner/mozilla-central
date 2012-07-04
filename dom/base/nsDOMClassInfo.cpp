@@ -524,6 +524,7 @@ using mozilla::dom::indexedDB::IDBWrapperCache;
 #ifdef MOZ_B2G_NFC
 #include "Nfc.h"
 #include "NfcNdefEvent.h"
+#include "NdefRecord.h"
 #endif
 
 #include "DOMError.h"
@@ -1687,6 +1688,8 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            EVENTTARGET_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(NfcNdefEvent, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(MozNdefRecord, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
 #endif
 
   NS_DEFINE_CLASSINFO_DATA(DOMError, nsDOMGenericSH,
@@ -1810,6 +1813,9 @@ static const nsConstructorFuncMapData kConstructorFuncMap[] =
 #endif
   NS_DEFINE_CONSTRUCTOR_FUNC_DATA(MozSmsFilter, sms::SmsFilter::NewSmsFilter)
   NS_DEFINE_CONSTRUCTOR_FUNC_DATA(XMLHttpRequest, NS_XMLHttpRequestCtor)
+#ifdef MOZ_B2G_NFC
+  NS_DEFINE_CONSTRUCTOR_FUNC_DATA(MozNdefRecord, nfc::NdefRecord::NewNdefRecord)
+#endif
 };
 
 nsIXPConnect *nsDOMClassInfo::sXPConnect = nsnull;
@@ -4528,6 +4534,10 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(NfcNdefEvent, nsIDOMNfcNdefEvent)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNfcNdefEvent)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMEvent)
+  DOM_CLASSINFO_MAP_END
+  
+  DOM_CLASSINFO_MAP_BEGIN(MozNdefRecord, nsIDOMMozNdefRecord)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNdefRecord)
   DOM_CLASSINFO_MAP_END
 #endif
 

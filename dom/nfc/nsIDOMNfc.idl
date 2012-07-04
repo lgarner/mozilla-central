@@ -8,9 +8,9 @@ interface nsIDOMNfc : nsIDOMEventTarget {
   attribute nsIDOMEventListener onndefdiscovered;
   attribute nsIDOMEventListener ontaglost;
 
-  // payload should be DOMString for text data and ArrayBuffer or Blob for binary data
-  // See: https://developer.mozilla.org/en/DOM/XMLHttpRequest/Sending_and_Receiving_Binary_Data#Sending_binary_data
-  nsIDOMDOMRequest writeNdefTag(in char tnf, in DOMString type, in DOMString id, in jsval payload);
+  // records is an array of 1 or more records
+  [implicit_jscontext]
+  nsIDOMDOMRequest writeNdefTag(in jsval records);
 
   // Only for debug/development purposes to send a unfiltered
   // message to the nfcd socket

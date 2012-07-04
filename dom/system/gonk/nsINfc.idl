@@ -52,11 +52,7 @@ interface nsINfc : nsISupports
   void registerCallback(in nsINFCCallback callback);
   void unregisterCallback(in nsINFCCallback callback);
 
-  void writeNdefTag(in char tnf, 
-                    in DOMString type, 
-                    in DOMString id, 
-                    in jsval payload,
-                    in long requestId);
+  void writeNdefTag(in jsval records);
 
   void sendToNfcd(in DOMString message);
 };

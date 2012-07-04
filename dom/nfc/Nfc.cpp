@@ -45,8 +45,10 @@
 #include "nsIURL.h"
 #include "nsPIDOMWindow.h"
 #include "nsJSON.h"
+#include "nsStringBuffer.h"
 
 #include "jsapi.h"
+#include "json.h"
 #include "mozilla/Preferences.h"
 #include "nsCharSeparatedTokenizer.h"
 #include "nsContentUtils.h"
@@ -155,7 +157,7 @@ Nfc::NdefDiscovered(const nsAString &aNdefRecords)
   NS_ENSURE_SUCCESS(rv, rv);
 
   int length = aNdefRecords.Length();
-  if (!JS_ParseJSON(sc->GetNativeContext(), static_cast<const jschar*>(PromiseFlatString(aNdefRecords).get()),
+  if ((length <= 0) || !JS_ParseJSON(sc->GetNativeContext(), static_cast<const jschar*>(PromiseFlatString(aNdefRecords).get()),
        aNdefRecords.Length(), &result)) {
     LOG("DOM: Couldn't parse JSON");
     return NS_ERROR_UNEXPECTED;
@@ -201,34 +203,42 @@ Nfc::TagLost(const nsAString &aNfcHandle) {
   return NS_OK;
 }
 
+static JSBool
+JSONCreator(const jschar* aBuf, uint32_t aLen, void* aData)
+{
+  nsAString* result = static_cast<nsAString*>(aData);
+  result->Append(static_cast<const PRUnichar*>(aBuf),
+                 static_cast<PRUint32>(aLen));
+  return true;
+}
+
+// TODO, we want to take well formed object arrays.
 NS_IMETHODIMP
-Nfc::WriteNdefTag(char aTnf, const nsAString &aType, const nsAString &aId, const jsval& aPayload, nsIDOMDOMRequest** aDomRequest)
+Nfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDomRequest)
 {
   nsresult rv;
-
   nsCOMPtr<nsIDOMRequestService> rs = do_GetService("@mozilla.org/dom/dom-request-service;1");
 
-  if (!rs) {
-    NS_ERROR("No DOMRequest Service!");
-    return NS_ERROR_FAILURE;
+  // First parameter needs to be an array
+  if (!aRecords.isString() &&
+      !(aRecords.isObject() &&
+      !JS_IsArrayObject(aCx, &aRecords.toObject()))) {
+    return NS_ERROR_INVALID_ARG;
   }
 
-  //TODO check for correct payload type
-
-  nsIScriptContext* sc = GetContextForEventHandlers(&rv);
-  NS_ENSURE_STATE(sc);
-  JSContext* cx = sc->GetNativeContext();
-  NS_ASSERTION(cx, "Failed to get a context!");
-
-  JSObject* global = sc->GetNativeGlobal();
-  NS_ASSERTION(global, "Failed to get global object!");
-
-  JSAutoRequest ar(cx);
-  JSAutoEnterCompartment ac;
-  if (!ac.enter(cx, global)) {
-    NS_ERROR("Failed to enter the js compartment!");
-    return NS_ERROR_FAILURE;
+  if (aRecords.isObject()) { // objectArray is also an object.
+    // The Nfcd service expects json message, not an object binary. 
+    // Call javascript's Stringify method.
+    nsString json;
+    jsval v = aRecords;
+    // TODO: There is a name collision problem, need replacer for wtype --> type
+    if (!JS_Stringify(aCx, &v, nsnull, JSVAL_NULL, JSONCreator, &json))
+        return false;
+    // write the whole thing as nsString for transmission.
+    // PRInt32 requestId;
+    return mNfc->SendToNfcd(json); 
   }
+
 
   nsCOMPtr<nsIDOMDOMRequest> request;
 
@@ -236,11 +246,11 @@ Nfc::WriteNdefTag(char aTnf, const nsAString &aType, const nsAString &aId, const
   NS_ENSURE_SUCCESS(rv, rv);
 
   //TODO keep track of requests so requestId can be mapped back to the actual request
-  PRInt32 requestId;
-  mNfc->WriteNdefTag(aTnf, aType, aId, aPayload, requestId);
+  // mNfc->WriteNdefTag(aTnf, aType, aId, aPayload, requestId);
+
+  request.forget(aDomRequest);
 
   return NS_OK;
-
 }
 
 // TODO: make private

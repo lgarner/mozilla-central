@@ -57,10 +57,10 @@ CPPSRCS = \
   $(NULL)
 
 XPIDLSRCS = \
-  nsIDOMNdefRecord.idl \
   nsIDOMNfcNdefEvent.idl \
   nsIDOMNavigatorNfc.idl \
   nsIDOMNfc.idl \
+  nsIDOMNdefRecord.idl \
   $(NULL)
 
 #LOCAL_INCLUDES = \

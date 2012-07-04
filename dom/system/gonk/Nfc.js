@@ -87,6 +87,9 @@ Nfc.prototype = {
       case "ndefDiscovered":
         this.handleNdefDiscovered(message);
         break;
+      case "tagLost":
+        this.handleTagLost(message);
+        break;
       default:
         throw new Error("Don't know about this message type: " + message.type);
     }
@@ -104,6 +107,10 @@ Nfc.prototype = {
     }
     this._deliverCallback("ndefDiscovered",
                           records)
+  },
+
+  handleTagLost: function handleTagLost(handle) {
+     this._deliverCallback("tagLost", handle);
   },
 
 
@@ -171,7 +178,6 @@ Nfc.prototype = {
   writeNdefTag: function writeNdefTag(tnf, type, id, payload, requestId) {
     this.worker.postMessage({type: "writeNdefTag", "tnf": tnf, "ndef-type": type, "id": id, "payload": payload});
   },
-
 
   sendToNfcd: function sendToNfcd(message) {
     this.worker.postMessage({type: "directMessage", content: message});
