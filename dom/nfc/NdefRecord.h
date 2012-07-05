@@ -2,9 +2,9 @@
 #define _NDEFRECORD_H
 
 #include "mozilla/Attributes.h"
-#include "nsIDOMNdefRecord.h"
 #include "nsString.h"
 #include "jsapi.h"
+#include "nsIDOMMozNdefRecord.h"
 
 namespace mozilla {
 namespace dom {
