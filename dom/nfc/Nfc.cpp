@@ -219,26 +219,13 @@ Nfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDom
   nsresult rv;
   nsCOMPtr<nsIDOMRequestService> rs = do_GetService("@mozilla.org/dom/dom-request-service;1");
 
-  // First parameter needs to be an array
-  if (!aRecords.isString() &&
-      !(aRecords.isObject() &&
-      !JS_IsArrayObject(aCx, &aRecords.toObject()))) {
+  // First parameter needs to be an array, and of type MozNdefRecord
+  if (!JS_IsArrayObject(aCx, &aRecords.toObject())) {
+    LOG("error: WriteNdefTag requires an MozNdefRecord array.");
     return NS_ERROR_INVALID_ARG;
   }
 
-  if (aRecords.isObject()) { // objectArray is also an object.
-    // The Nfcd service expects json message, not an object binary. 
-    // Call javascript's Stringify method.
-    nsString json;
-    jsval v = aRecords;
-    // TODO: There is a name collision problem, need replacer for wtype --> type
-    if (!JS_Stringify(aCx, &v, nsnull, JSVAL_NULL, JSONCreator, &json))
-        return false;
-    // write the whole thing as nsString for transmission.
-    // PRInt32 requestId;
-    return mNfc->SendToNfcd(json); 
-  }
-
+  mNfc->WriteNdefTag(aRecords);
 
   nsCOMPtr<nsIDOMDOMRequest> request;
 
