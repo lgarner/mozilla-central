@@ -114,6 +114,18 @@ js::PrepareForFullGC(JSRuntime *rt)
         c->scheduleGC();
 }
 
+JS_FRIEND_API(void)
+js::PrepareForIncrementalGC(JSRuntime *rt)
+{
+    if (rt->gcIncrementalState == gc::NO_INCREMENTAL)
+        return;
+
+    for (CompartmentsIter c(rt); !c.done(); c.next()) {
+        if (c->needsBarrier())
+            PrepareCompartmentForGC(c);
+    }
+}
+
 JS_FRIEND_API(bool)
 js::IsGCScheduled(JSRuntime *rt)
 {
@@ -147,6 +159,12 @@ JS_FRIEND_API(void)
 js::IncrementalGC(JSRuntime *rt, gcreason::Reason reason)
 {
     GCSlice(rt, GC_NORMAL, reason);
+}
+
+JS_FRIEND_API(void)
+js::FinishIncrementalGC(JSRuntime *rt, gcreason::Reason reason)
+{
+    GCFinalSlice(rt, GC_NORMAL, reason);
 }
 
 JS_FRIEND_API(void)
@@ -758,10 +776,7 @@ NotifyDidPaint(JSRuntime *rt)
     }
 
     if (rt->gcIncrementalState != gc::NO_INCREMENTAL && !rt->gcInterFrameGC) {
-        for (CompartmentsIter c(rt); !c.done(); c.next()) {
-            if (c->needsBarrier())
-                PrepareCompartmentForGC(c);
-        }
+        PrepareForIncrementalGC(rt);
         GCSlice(rt, GC_NORMAL, gcreason::REFRESH_FRAME);
     }
 
@@ -783,7 +798,7 @@ DisableIncrementalGC(JSRuntime *rt)
 JS_FRIEND_API(bool)
 IsIncrementalBarrierNeeded(JSRuntime *rt)
 {
-    return (rt->gcIncrementalState == gc::MARK && !rt->gcRunning);
+    return (rt->gcIncrementalState == gc::MARK && !rt->isHeapBusy());
 }
 
 JS_FRIEND_API(bool)
@@ -809,7 +824,7 @@ IncrementalReferenceBarrier(void *ptr)
 {
     if (!ptr)
         return;
-    JS_ASSERT(!static_cast<gc::Cell *>(ptr)->compartment()->rt->gcRunning);
+    JS_ASSERT(!static_cast<gc::Cell *>(ptr)->compartment()->rt->isHeapBusy());
     uint32_t kind = gc::GetGCThingTraceKind(ptr);
     if (kind == JSTRACE_OBJECT)
         JSObject::writeBarrierPre((JSObject *) ptr);

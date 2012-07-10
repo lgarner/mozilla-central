@@ -298,6 +298,20 @@ public:
           b.DefineProperty(sample, "frames", frames);
           b.ArrayPush(samples, sample);
           break;
+        case 'r':
+          {
+            if (sample) {
+              b.DefineProperty(sample, "responsiveness", entry.mTagFloat);
+            }
+          }
+          break;
+        case 't':
+          {
+            if (sample) {
+              b.DefineProperty(sample, "time", entry.mTagFloat);
+            }
+          }
+          break;
         case 'c':
         case 'l':
           {
@@ -355,6 +369,7 @@ class TableTicker: public Sampler {
               const char** aFeatures, uint32_t aFeatureCount)
     : Sampler(aInterval, true)
     , mPrimaryThreadProfile(aEntrySize, aStack)
+    , mStartTime(TimeStamp::Now())
     , mSaveRequested(false)
   {
     mUseStackWalk = hasFeature(aFeatures, aFeatureCount, "stackwalk");
@@ -394,6 +409,7 @@ private:
 private:
   // This represent the application's main thread (SAMPLER_INIT)
   ThreadProfile mPrimaryThreadProfile;
+  TimeStamp mStartTime;
   bool mSaveRequested;
   bool mUseStackWalk;
   bool mJankOnly;
@@ -695,6 +711,9 @@ void doSampleStackTrace(ProfileStack *aStack, ThreadProfile &aProfile, TickSampl
 #ifdef ENABLE_SPS_LEAF_DATA
   if (sample) {
     aProfile.addTag(ProfileEntry('l', (void*)sample->pc));
+#ifdef ENABLE_ARM_LR_SAVING
+    aProfile.addTag(ProfileEntry('L', (void*)sample->lr));
+#endif
   }
 #endif
 }
@@ -755,9 +774,14 @@ void TableTicker::Tick(TickSample* sample)
   if (recordSample)
     mPrimaryThreadProfile.flush();
 
-  if (!mJankOnly && !sLastTracerEvent.IsNull() && sample) {
+  if (!sLastTracerEvent.IsNull() && sample) {
     TimeDuration delta = sample->timestamp - sLastTracerEvent;
     mPrimaryThreadProfile.addTag(ProfileEntry('r', delta.ToMilliseconds()));
+  }
+
+  if (sample) {
+    TimeDuration delta = sample->timestamp - mStartTime;
+    mPrimaryThreadProfile.addTag(ProfileEntry('t', delta.ToMilliseconds()));
   }
 }
 
@@ -775,12 +799,12 @@ std::ostream& operator<<(std::ostream& stream, const ProfileEntry& entry)
 {
   if (entry.mTagName == 'r') {
     stream << entry.mTagName << "-" << std::fixed << entry.mTagFloat << "\n";
-  } else if (entry.mTagName == 'l') {
+  } else if (entry.mTagName == 'l' || entry.mTagName == 'L') {
     // Bug 739800 - Force l-tag addresses to have a "0x" prefix on all platforms
     // Additionally, stringstream seemed to be ignoring formatter flags.
     char tagBuff[1024];
     unsigned long long pc = (unsigned long long)(uintptr_t)entry.mTagPtr;
-    snprintf(tagBuff, 1024, "l-%#llx\n", pc);
+    snprintf(tagBuff, 1024, "%c-%#llx\n", entry.mTagName, pc);
     stream << tagBuff;
   } else if (entry.mTagName == 'd') {
     // TODO implement 'd' tag for text profile

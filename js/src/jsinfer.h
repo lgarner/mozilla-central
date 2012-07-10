@@ -1206,7 +1206,7 @@ struct TypeCompartment
                               JSProtoKey kind, JSObject *proto, bool unknown = false);
 
     /* Make an object for an allocation site. */
-    TypeObject *newAllocationSiteTypeObject(JSContext *cx, const AllocationSiteKey &key);
+    TypeObject *newAllocationSiteTypeObject(JSContext *cx, AllocationSiteKey key);
 
     void nukeTypes(FreeOp *fop);
     void processPendingRecompiles(FreeOp *fop);
@@ -1265,9 +1265,5 @@ MOZ_NORETURN void TypeFailure(JSContext *cx, const char *fmt, ...);
 
 } /* namespace types */
 } /* namespace js */
-
-namespace JS {
-    template<> class AnchorPermitted<js::types::TypeObject *> { };
-}
 
 #endif // jsinfer_h___

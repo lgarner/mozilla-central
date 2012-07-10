@@ -142,12 +142,36 @@ class JS_FRIEND_API(AbstractWrapper) : public Wrapper,
  * DirectWrappers forward both their fundamental and derived traps to the
  * wrapped object.
  */
-class JS_FRIEND_API(DirectWrapper) : public AbstractWrapper
+class JS_FRIEND_API(DirectWrapper) : public Wrapper, public DirectProxyHandler
 {
   public:
     explicit DirectWrapper(unsigned flags);
 
     virtual ~DirectWrapper();
+
+    virtual BaseProxyHandler* toBaseProxyHandler() {
+        return this;
+    }
+
+    virtual Wrapper *toWrapper() {
+        return this;
+    }
+
+    /* ES5 Harmony fundamental wrapper traps. */
+    virtual bool getPropertyDescriptor(JSContext *cx, JSObject *wrapper,
+                                       jsid id, bool set,
+                                       PropertyDescriptor *desc) MOZ_OVERRIDE;
+    virtual bool getOwnPropertyDescriptor(JSContext *cx, JSObject *wrapper,
+                                          jsid id, bool set,
+                                          PropertyDescriptor *desc) MOZ_OVERRIDE;
+    virtual bool defineProperty(JSContext *cx, JSObject *wrapper, jsid id,
+                                PropertyDescriptor *desc) MOZ_OVERRIDE;
+    virtual bool getOwnPropertyNames(JSContext *cx, JSObject *wrapper,
+                                     AutoIdVector &props) MOZ_OVERRIDE;
+    virtual bool delete_(JSContext *cx, JSObject *wrapper, jsid id,
+                         bool *bp) MOZ_OVERRIDE;
+    virtual bool enumerate(JSContext *cx, JSObject *wrapper,
+                           AutoIdVector &props) MOZ_OVERRIDE;
 
     /* ES5 Harmony derived wrapper traps. */
     virtual bool has(JSContext *cx, JSObject *wrapper, jsid id, bool *bp) MOZ_OVERRIDE;
@@ -286,6 +310,50 @@ IsCrossCompartmentWrapper(const JSObject *obj);
 
 void
 NukeCrossCompartmentWrapper(JSObject *wrapper);
+
+bool
+RemapWrapper(JSContext *cx, JSObject *wobj, JSObject *newTarget);
+
+bool
+RemapAllWrappersForObject(JSContext *cx, JSObject *oldTarget,
+                          JSObject *newTarget);
+
+// API to recompute all cross-compartment wrappers whose source and target
+// match the given filters.
+//
+// These filters are designed to be ephemeral stack classes, and thus don't
+// do any rooting or holding of their members.
+struct CompartmentFilter {
+    virtual bool match(JSCompartment *c) const = 0;
+};
+
+struct AllCompartments : public CompartmentFilter {
+    virtual bool match(JSCompartment *c) const { return true; };
+};
+
+struct ContentCompartmentsOnly : public CompartmentFilter {
+    virtual bool match(JSCompartment *c) const {
+        return !IsSystemCompartment(c);
+    };
+};
+
+struct SingleCompartment : public CompartmentFilter {
+    JSCompartment *ours;
+    SingleCompartment(JSCompartment *c) : ours(c) {};
+    virtual bool match(JSCompartment *c) const { return c == ours; };
+};
+
+struct CompartmentsWithPrincipals : public CompartmentFilter {
+    JSPrincipals *principals;
+    CompartmentsWithPrincipals(JSPrincipals *p) : principals(p) {};
+    virtual bool match(JSCompartment *c) const {
+        return JS_GetCompartmentPrincipals(c) == principals;
+    };
+};
+
+JS_FRIEND_API(bool)
+RecomputeWrappers(JSContext *cx, const CompartmentFilter &sourceFilter,
+                  const CompartmentFilter &targetFilter);
 
 } /* namespace js */
 

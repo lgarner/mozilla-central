@@ -378,7 +378,7 @@ str_enumerate(JSContext *cx, HandleObject obj)
 
 static JSBool
 str_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
-            JSObject **objp)
+            MutableHandleObject objp)
 {
     if (!JSID_IS_INT(id))
         return JS_TRUE;
@@ -394,7 +394,7 @@ str_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
                                 STRING_ELEMENT_ATTRS)) {
             return JS_FALSE;
         }
-        *objp = obj;
+        objp.set(obj);
     }
     return JS_TRUE;
 }
@@ -3432,6 +3432,9 @@ InflateString(JSContext *cx, const char *bytes, size_t *lengthp, FlationCoding f
     size_t nchars;
     jschar *chars;
     size_t nbytes = *lengthp;
+
+    // Malformed UTF8 chars could trigger errors and hence GC
+    MaybeCheckStackRoots(cx);
 
     if (js_CStringsAreUTF8 || fc == CESU8Encoding) {
         if (!InflateUTF8StringToBuffer(cx, bytes, nbytes, NULL, &nchars, fc))

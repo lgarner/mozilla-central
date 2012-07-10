@@ -107,6 +107,7 @@
 #include "nsIDOMPerformanceNavigation.h"
 #include "nsIDOMPerformance.h"
 #include "nsClientRect.h"
+#include "nsIDOMHTMLPropertiesCollection.h"
 
 // DOM core includes
 #include "nsDOMError.h"
@@ -527,6 +528,8 @@ using mozilla::dom::indexedDB::IDBWrapperCache;
 #include "NdefRecord.h"
 #endif
 
+#include "nsIDOMNavigatorSystemMessages.h"
+
 #include "DOMError.h"
 #include "DOMRequest.h"
 #include "nsIOpenWindowEventDetail.h"
@@ -540,6 +543,7 @@ using mozilla::dom::indexedDB::IDBWrapperCache;
 
 #undef None // something included above defines this preprocessor symbol, maybe Xlib headers
 #include "WebGLContext.h"
+#include "nsICanvasRenderingContextInternal.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1456,7 +1460,7 @@ static nsDOMClassInfoData sClassInfoData[] = {
   NS_DEFINE_CLASSINFO_DATA(GeoPositionError, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
-  NS_DEFINE_CLASSINFO_DATA(MozBatteryManager, nsDOMGenericSH,
+  NS_DEFINE_CLASSINFO_DATA(BatteryManager, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 
   NS_DEFINE_CLASSINFO_DATA(MozPowerManager, nsDOMGenericSH,
@@ -2485,7 +2489,7 @@ nsDOMClassInfo::Init()
     DOM_CLASSINFO_MAP_CONDITIONAL_ENTRY(nsIDOMNavigatorDesktopNotification,
                                         Navigator::HasDesktopNotificationSupport())
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMClientInformation)
-    DOM_CLASSINFO_MAP_CONDITIONAL_ENTRY(nsIDOMMozNavigatorBattery,
+    DOM_CLASSINFO_MAP_CONDITIONAL_ENTRY(nsINavigatorBattery,
                                         battery::BatteryManager::HasSupport())
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNavigatorSms)
 #ifdef MOZ_MEDIA_NAVIGATOR
@@ -2503,6 +2507,7 @@ nsDOMClassInfo::Init()
 #ifdef MOZ_B2G_NFC
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorNfc)
 #endif
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorSystemMessages)
   DOM_CLASSINFO_MAP_END
 
   DOM_CLASSINFO_MAP_BEGIN(Plugin, nsIDOMPlugin)
@@ -4122,8 +4127,8 @@ nsDOMClassInfo::Init()
      DOM_CLASSINFO_MAP_ENTRY(nsIDOMGeoPositionError)
   DOM_CLASSINFO_MAP_END
 
-  DOM_CLASSINFO_MAP_BEGIN(MozBatteryManager, nsIDOMMozBatteryManager)
-     DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozBatteryManager)
+  DOM_CLASSINFO_MAP_BEGIN(BatteryManager, nsIDOMBatteryManager)
+     DOM_CLASSINFO_MAP_ENTRY(nsIDOMBatteryManager)
      DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
   DOM_CLASSINFO_MAP_END
 
@@ -4628,6 +4633,10 @@ nsDOMClassInfo::Init()
   // Non-proxy bindings
   mozilla::dom::Register(nameSpaceManager);
 
+  if (!AzureCanvasEnabled()) {
+    nameSpaceManager->RegisterDefineDOMInterface(NS_LITERAL_STRING("CanvasRenderingContext2D"), NULL);
+  }
+
   sIsInitialized = true;
 
   return NS_OK;
@@ -4952,11 +4961,7 @@ nsDOMClassInfo::CheckAccess(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
 {
   PRUint32 mode_type = mode & JSACC_TYPEMASK;
 
-  if ((mode_type == JSACC_WATCH ||
-       mode_type == JSACC_PROTO ||
-       mode_type == JSACC_PARENT) &&
-      sSecMan) {
-
+  if ((mode_type == JSACC_WATCH || mode_type == JSACC_PROTO) && sSecMan) {
     nsresult rv;
     JSObject *real_obj;
     if (wrapper) {
@@ -5409,13 +5414,12 @@ GetDocument(JSObject *obj)
 JSBool
 nsWindowSH::GlobalScopePolluterNewResolve(JSContext *cx, JSHandleObject obj,
                                           JSHandleId id, unsigned flags,
-                                          JSObject **objp)
+                                          JSMutableHandleObject objp)
 {
-  if (flags & (JSRESOLVE_ASSIGNING | JSRESOLVE_DECLARING |
-               JSRESOLVE_QUALIFIED) ||
+  if (flags & (JSRESOLVE_ASSIGNING | JSRESOLVE_QUALIFIED) ||
       !JSID_IS_STRING(id)) {
-    // Nothing to do here if we're either assigning or declaring,
-    // doing a qualified resolve, or resolving a number.
+    // Nothing to do here if we're assigning, doing a qualified resolve, or
+    // resolving a non-string property.
 
     return JS_TRUE;
   }
@@ -5464,7 +5468,7 @@ nsWindowSH::GlobalScopePolluterNewResolve(JSContext *cx, JSHandleObject obj,
       return JS_FALSE;
     }
 
-    *objp = obj;
+    objp.set(obj);
   }
 
   return JS_TRUE;
@@ -7357,9 +7361,11 @@ nsWindowSH::NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
 
     // Resolve special classes.
     for (PRUint32 i = 0; i < ArrayLength(sOtherResolveFuncs); i++) {
-      if (!sOtherResolveFuncs[i](cx, obj, id, flags, objp)) {
+      JS::RootedObject tmp(cx, *objp);
+      if (!sOtherResolveFuncs[i](cx, obj, id, flags, &tmp)) {
         return NS_ERROR_FAILURE;
       }
+      *objp = tmp;
       if (*objp) {
         return NS_OK;
       }
@@ -8999,7 +9005,7 @@ nsHTMLDocumentSH::DocumentAllGetProperty(JSContext *cx, JSHandleObject obj_,
 
 JSBool
 nsHTMLDocumentSH::DocumentAllNewResolve(JSContext *cx, JSHandleObject obj, JSHandleId id,
-                                        unsigned flags, JSObject **objp)
+                                        unsigned flags, JSMutableHandleObject objp)
 {
   if (flags & JSRESOLVE_ASSIGNING) {
     // Nothing to do here if we're assigning
@@ -9014,7 +9020,7 @@ nsHTMLDocumentSH::DocumentAllNewResolve(JSContext *cx, JSHandleObject obj, JSHan
 
     JSFunction *fnc = ::JS_DefineFunctionById(cx, obj, id, CallToGetPropMapper,
                                               0, JSPROP_ENUMERATE);
-    *objp = obj;
+    objp.set(obj);
 
     return fnc != nsnull;
   }
@@ -9051,7 +9057,7 @@ nsHTMLDocumentSH::DocumentAllNewResolve(JSContext *cx, JSHandleObject obj, JSHan
 
   if (v != JSVAL_VOID) {
     ok = ::JS_DefinePropertyById(cx, obj, id, v, nsnull, nsnull, 0);
-    *objp = obj;
+    objp.set(obj);
   }
 
   return ok;
@@ -9198,7 +9204,7 @@ nsHTMLDocumentSH::DocumentAllHelperGetProperty(JSContext *cx, JSHandleObject obj
 JSBool
 nsHTMLDocumentSH::DocumentAllHelperNewResolve(JSContext *cx, JSHandleObject obj,
                                               JSHandleId id, unsigned flags,
-                                              JSObject **objp)
+                                              JSMutableHandleObject objp)
 {
   if (nsDOMClassInfo::sAll_id == id) {
     // document.all is resolved for the first time. Define it.
@@ -9210,7 +9216,7 @@ nsHTMLDocumentSH::DocumentAllHelperNewResolve(JSContext *cx, JSHandleObject obj,
         return JS_FALSE;
       }
 
-      *objp = helper;
+      objp.set(helper);
     }
   }
 
@@ -9221,7 +9227,7 @@ nsHTMLDocumentSH::DocumentAllHelperNewResolve(JSContext *cx, JSHandleObject obj,
 JSBool
 nsHTMLDocumentSH::DocumentAllTagsNewResolve(JSContext *cx, JSHandleObject obj,
                                             JSHandleId id, unsigned flags,
-                                            JSObject **objp)
+                                            JSMutableHandleObject objp)
 {
   if (JSID_IS_STRING(id)) {
     nsDocument *doc = GetDocument(obj);
@@ -9259,7 +9265,7 @@ nsHTMLDocumentSH::DocumentAllTagsNewResolve(JSContext *cx, JSHandleObject obj,
         return JS_FALSE;
       }
 
-      *objp = obj;
+      objp.set(obj);
     }
   }
 

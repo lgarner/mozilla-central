@@ -13,6 +13,7 @@
 #include "jsprf.h"
 
 #include "gc/Marking.h"
+#include "gc/Root.h"
 #include "vm/GlobalObject.h"
 
 #include "vm/Stack-inl.h"
@@ -263,8 +264,9 @@ struct AutoEnterCompilation
 inline TypeObject *
 GetTypeNewObject(JSContext *cx, JSProtoKey key)
 {
-    JSObject *proto;
-    if (!js_GetClassPrototype(cx, NULL, key, &proto, NULL))
+    RootedObject proto(cx);
+    RootedObject null(cx);
+    if (!js_GetClassPrototype(cx, null, key, &proto))
         return NULL;
     return proto->getNewType(cx);
 }
@@ -305,11 +307,11 @@ TypeMonitorCall(JSContext *cx, const js::CallArgs &args, bool constructing)
     extern void TypeMonitorCallSlow(JSContext *cx, JSObject *callee,
                                     const CallArgs &args, bool constructing);
 
-    JSObject *callee = &args.callee();
+    RootedObject callee(cx, &args.callee());
     if (callee->isFunction()) {
         JSFunction *fun = callee->toFunction();
         if (fun->isInterpreted()) {
-            JSScript *script = fun->script();
+            RootedScript script(cx, fun->script());
             if (!script->ensureRanAnalysis(cx, fun->environment()))
                 return false;
             if (cx->typeInferenceEnabled())
@@ -501,8 +503,9 @@ TypeScript::SlotTypes(JSScript *script, unsigned slot)
 /* static */ inline TypeObject *
 TypeScript::StandardType(JSContext *cx, JSScript *script, JSProtoKey key)
 {
-    JSObject *proto;
-    if (!js_GetClassPrototype(cx, script->global(), key, &proto, NULL))
+    RootedObject proto(cx);
+    RootedObject global(cx, script->global());
+    if (!js_GetClassPrototype(cx, global, key, &proto, NULL))
         return NULL;
     return proto->getNewType(cx);
 }
@@ -556,7 +559,7 @@ TypeScript::InitObject(JSContext *cx, JSScript *script, jsbytecode *pc, JSProtoK
 
 /* Set the type to use for obj according to the site it was allocated at. */
 static inline bool
-SetInitializerObjectType(JSContext *cx, JSScript *script, jsbytecode *pc, JSObject *obj)
+SetInitializerObjectType(JSContext *cx, HandleScript script, jsbytecode *pc, HandleObject obj)
 {
     if (!cx->typeInferenceEnabled())
         return true;
@@ -776,7 +779,7 @@ inline void
 TypeCompartment::addPending(JSContext *cx, TypeConstraint *constraint, TypeSet *source, Type type)
 {
     JS_ASSERT(this == &cx->compartment->types);
-    JS_ASSERT(!cx->runtime->gcRunning);
+    JS_ASSERT(!cx->runtime->isHeapBusy());
 
     InferSpew(ISpewOps, "pending: %sC%p%s %s",
               InferSpewColor(constraint), constraint, InferSpewColorReset(),
@@ -1279,7 +1282,7 @@ TypeObject::getProperty(JSContext *cx, jsid id, bool assign)
                 continue;
             }
 
-            const Shape *shape = protoWalk->nativeLookup(cx, id);
+            Shape *shape = protoWalk->nativeLookup(cx, id);
 
             foundSetter = shape &&
                           !shape->hasDefaultSetter();
@@ -1472,13 +1475,14 @@ JSScript::ensureRanAnalysis(JSContext *cx, JSObject *scope)
 inline bool
 JSScript::ensureRanInference(JSContext *cx)
 {
+    JS::RootedScript self(cx, this);
     if (!ensureRanAnalysis(cx, NULL))
         return false;
-    if (!analysis()->ranInference()) {
+    if (!self->analysis()->ranInference()) {
         js::types::AutoEnterTypeInference enter(cx);
-        analysis()->analyzeTypes(cx);
+        self->analysis()->analyzeTypes(cx);
     }
-    return !analysis()->OOM() &&
+    return !self->analysis()->OOM() &&
         !cx->compartment->types.pendingNukeTypes;
 }
 
@@ -1513,9 +1517,39 @@ js::analyze::ScriptAnalysis::addPushedType(JSContext *cx, uint32_t offset, uint3
 inline js::types::TypeObject *
 JSCompartment::getEmptyType(JSContext *cx)
 {
-    if (!emptyTypeObject)
-        emptyTypeObject = types.newTypeObject(cx, NULL, JSProto_Object, NULL, true);
+    if (!emptyTypeObject) {
+        JS::RootedObject nullproto(cx, NULL);
+        emptyTypeObject = types.newTypeObject(cx, NULL, JSProto_Object, nullproto, true);
+    }
     return emptyTypeObject;
 }
+
+namespace JS {
+
+template<> class AnchorPermitted<js::types::TypeObject *> { };
+
+template <>
+struct RootMethods<const js::types::Type>
+{
+    static js::types::Type initial() { return js::types::Type::UnknownType(); }
+    static ThingRootKind kind() { return THING_ROOT_TYPE; }
+    static bool poisoned(const js::types::Type &v) {
+        return (v.isTypeObject() && IsPoisonedPtr(v.typeObject()))
+            || (v.isSingleObject() && IsPoisonedPtr(v.singleObject()));
+    }
+};
+
+template <>
+struct RootMethods<js::types::Type>
+{
+    static js::types::Type initial() { return js::types::Type::UnknownType(); }
+    static ThingRootKind kind() { return THING_ROOT_TYPE; }
+    static bool poisoned(const js::types::Type &v) {
+        return (v.isTypeObject() && IsPoisonedPtr(v.typeObject()))
+            || (v.isSingleObject() && IsPoisonedPtr(v.singleObject()));
+    }
+};
+
+}  // namespace JS
 
 #endif // jsinferinlines_h___

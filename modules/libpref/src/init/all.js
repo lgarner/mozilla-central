@@ -324,6 +324,9 @@ pref("toolkit.telemetry.infoURL", "http://www.mozilla.com/legal/privacy/firefox.
 // i.e. dynamically constructed SQL strings or SQL executed by addons against addon DBs
 pref("toolkit.telemetry.debugSlowSql", false);
 
+// Identity module
+pref("toolkit.identity.debug", false);
+
 // Disable remote debugging protocol logging
 pref("devtools.debugger.log", false);
 // Disable remote debugging connections
@@ -643,6 +646,9 @@ pref("dom.min_background_timeout_value", 1000);
 // changed)
 pref("dom.new_bindings", true);
 pref("dom.experimental_bindings", true);
+
+// Don't use new input types
+pref("dom.experimental_forms", false);
 
 // Parsing perf prefs. For now just mimic what the old code did.
 #ifndef XP_WIN
@@ -1622,6 +1628,8 @@ pref("dom.ipc.plugins.parentTimeoutSecs", 0);
 // Disable oopp for standard java. They run their own process isolation (which
 // conflicts with our implementation, at least on Windows).
 pref("dom.ipc.plugins.java.enabled", false);
+
+pref("dom.ipc.plugins.flash.subprocess.crashreporter.enabled", true);
 
 #ifndef ANDROID
 #ifndef XP_MACOSX
@@ -3544,6 +3552,9 @@ pref("full-screen-api.enabled", false);
 pref("full-screen-api.allow-trusted-requests-only", true);
 pref("full-screen-api.exit-on-deactivate", true);
 pref("full-screen-api.pointer-lock.enabled", true);
+
+// DOM idle observers API
+pref("dom.idle-observers-api.enabled", true);
 
 // Time limit, in milliseconds, for nsEventStateManager::IsHandlingUserInput().
 // Used to detect long running handlers of user-generated events.

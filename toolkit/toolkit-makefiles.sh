@@ -41,6 +41,8 @@ MAKEFILES_dom="
   dom/indexedDB/Makefile
   dom/ipc/Makefile
   dom/locales/Makefile
+  dom/messages/Makefile
+  dom/messages/interfaces/Makefile
   dom/network/Makefile
   dom/network/interfaces/Makefile
   dom/network/src/Makefile
@@ -457,6 +459,7 @@ MAKEFILES_xulapp="
   toolkit/components/viewconfig/Makefile
   toolkit/components/viewsource/Makefile
   toolkit/devtools/Makefile
+  toolkit/identity/Makefile
   toolkit/locales/Makefile
   toolkit/mozapps/downloads/Makefile
   toolkit/mozapps/extensions/Makefile
@@ -868,6 +871,8 @@ if [ "$ENABLE_TESTS" ]; then
     toolkit/content/tests/chrome/rtltest/Makefile
     toolkit/content/tests/widgets/Makefile
     toolkit/devtools/debugger/tests/Makefile
+    toolkit/identity/tests/Makefile
+    toolkit/identity/tests/chrome/Makefile
     toolkit/mozapps/downloads/tests/Makefile
     toolkit/mozapps/downloads/tests/chrome/Makefile
     toolkit/mozapps/extensions/test/Makefile
@@ -1143,10 +1148,9 @@ if [ "$MOZ_CRASHREPORTER" ]; then
   "
   if [ "$OS_ARCH" = "WINNT" ]; then
     add_makefiles "
-      toolkit/crashreporter/google-breakpad/src/client/windows/crash_generation/Makefile
-      toolkit/crashreporter/google-breakpad/src/client/windows/handler/Makefile
-      toolkit/crashreporter/google-breakpad/src/client/windows/sender/Makefile
-      toolkit/crashreporter/google-breakpad/src/common/windows/Makefile
+      toolkit/crashreporter/breakpad-windows-libxul/Makefile
+      toolkit/crashreporter/breakpad-windows-standalone/Makefile
+      toolkit/crashreporter/injector/Makefile
     "
   elif [ "$OS_ARCH" = "Darwin" ]; then
     add_makefiles "

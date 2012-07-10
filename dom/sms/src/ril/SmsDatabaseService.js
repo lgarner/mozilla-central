@@ -142,7 +142,7 @@ SmsDatabaseService.prototype = {
       callback(null, db);
     }
 
-    let request = GLOBAL_SCOPE.mozIndexedDB.open(DB_NAME, DB_VERSION);
+    let request = GLOBAL_SCOPE.indexedDB.open(DB_NAME, DB_VERSION);
     request.onsuccess = function (event) {
       if (DEBUG) debug("Opened database:", DB_NAME, DB_VERSION);
       gotDB(event.target.result);
@@ -379,7 +379,7 @@ SmsDatabaseService.prototype = {
           requestId, Ci.nsISmsRequestManager.INTERNAL_ERROR);
         return;
       }
-      let request = store.getAll(messageId);
+      let request = store.mozGetAll(messageId);
 
       txn.oncomplete = function oncomplete() {
         if (DEBUG) debug("Transaction " + txn + " completed.");

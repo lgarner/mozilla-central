@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+"use strict";
+
 const Cu = Components.utils;
 const Cc = Components.classes;
 const Ci = Components.interfaces;
@@ -23,6 +25,10 @@ XPCOMUtils.defineLazyGetter(this, "ppmm", function() {
   return Cc["@mozilla.org/parentprocessmessagemanager;1"].getService(Ci.nsIFrameMessageManager);
 });
 
+XPCOMUtils.defineLazyGetter(this, "msgmgr", function() {
+  return Cc["@mozilla.org/system-message-internal;1"].getService(Ci.nsISystemMessagesInternal);
+});
+
 #ifdef MOZ_WIDGET_GONK
   const DIRECTORY_NAME = "webappsDir";
 #else
@@ -35,10 +41,12 @@ XPCOMUtils.defineLazyGetter(this, "ppmm", function() {
 let DOMApplicationRegistry = {
   appsFile: null,
   webapps: { },
+  allAppsLaunchable: false,
 
   init: function() {
     this.messages = ["Webapps:Install", "Webapps:Uninstall",
-                    "Webapps:GetSelf", "Webapps:GetInstalled",
+                    "Webapps:GetSelf",
+                    "Webapps:GetInstalled", "Webapps:GetNotInstalled",
                     "Webapps:Launch", "Webapps:GetAll"];
 
     this.messages.forEach((function(msgName) {
@@ -50,7 +58,14 @@ let DOMApplicationRegistry = {
     this.appsFile = FileUtils.getFile(DIRECTORY_NAME, ["webapps", "webapps.json"], true);
 
     if (this.appsFile.exists()) {
-      this._loadJSONAsync(this.appsFile, (function(aData) { this.webapps = aData; }).bind(this));
+      this._loadJSONAsync(this.appsFile, (function(aData) {
+        this.webapps = aData;
+#ifdef MOZ_SYS_MSG
+        for (let id in this.webapps) {
+          this._registerSystemMessagesForId(id);
+        };
+#endif
+      }).bind(this));
     }
 
     try {
@@ -61,6 +76,26 @@ let DOMApplicationRegistry = {
       });
     } catch(e) { }
   },
+
+#ifdef MOZ_SYS_MSG
+  _registerSystemMessages: function(aManifest, aApp) {
+    if (aManifest.messages && Array.isArray(aManifest.messages) && aManifest.messages.length > 0) {
+      let manifest = new DOMApplicationManifest(aManifest, aApp.origin);
+      let launchPath = Services.io.newURI(manifest.fullLaunchPath(), null, null);
+      let manifestURL = Services.io.newURI(aApp.manifestURL, null, null);
+      aManifest.messages.forEach(function registerPages(aMessage) {
+        msgmgr.registerPage(aMessage, launchPath, manifestURL);
+      });
+    }
+  },
+
+  _registerSystemMessagesForId: function(aId) {
+    let app = this.webapps[aId];
+    this._readManifests([{ id: aId }], (function registerManifest(aResult) {
+      this._registerSystemMessages(aResult[0].manifest, app);
+    }).bind(this));
+  },
+#endif
 
   observe: function(aSubject, aTopic, aData) {
     if (aTopic == "xpcom-shutdown") {
@@ -123,6 +158,9 @@ let DOMApplicationRegistry = {
         break;
       case "Webapps:GetInstalled":
         this.getInstalled(msg);
+        break;
+      case "Webapps:GetNotInstalled":
+        this.getNotInstalled(msg);
         break;
       case "Webapps:GetAll":
         if (msg.hasPrivileges)
@@ -202,6 +240,10 @@ let DOMApplicationRegistry = {
         ppmm.sendAsyncMessage("Webapps:Install:Return:OK", aData);
         Services.obs.notifyObservers(this, "webapps-sync-install", appNote);
       }).bind(this));
+
+#ifdef MOZ_SYS_MSG
+    this._registerSystemMessages(id, app);
+#endif
 
     // if the manifest has an appcache_path property, use it to populate the appcache
     if (manifest.appcache_path) {
@@ -296,7 +338,7 @@ let DOMApplicationRegistry = {
     let tmp = [];
     let id = this._appId(aData.origin);
 
-    if (id) {
+    if (id && this._isLaunchable(this.webapps[id].origin)) {
       let app = this._cloneAppObject(this.webapps[id]);
       aData.apps.push(app);
       tmp.push({ id: id });
@@ -312,10 +354,10 @@ let DOMApplicationRegistry = {
   getInstalled: function(aData) {
     aData.apps = [];
     let tmp = [];
-    let id = this._appId(aData.origin);
 
-    for (id in this.webapps) {
-      if (this.webapps[id].installOrigin == aData.origin) {
+    for (let id in this.webapps) {
+      if (this.webapps[id].installOrigin == aData.origin &&
+          this._isLaunchable(this.webapps[id].origin)) {
         aData.apps.push(this._cloneAppObject(this.webapps[id]));
         tmp.push({ id: id });
       }
@@ -328,12 +370,34 @@ let DOMApplicationRegistry = {
     }).bind(this));
   },
 
+  getNotInstalled: function(aData) {
+    aData.apps = [];
+    let tmp = [];
+
+    for (let id in this.webapps) {
+      if (this.webapps[id].installOrigin == aData.origin &&
+          !this._isLaunchable(this.webapps[id].origin)) {
+        aData.apps.push(this._cloneAppObject(this.webapps[id]));
+        tmp.push({ id: id });
+      }
+    }
+
+    this._readManifests(tmp, (function(aResult) {
+      for (let i = 0; i < aResult.length; i++)
+        aData.apps[i].manifest = aResult[i].manifest;
+      ppmm.sendAsyncMessage("Webapps:GetNotInstalled:Return:OK", aData);
+    }).bind(this));
+  },
+
   getAll: function(aData) {
     aData.apps = [];
     let tmp = [];
 
     for (let id in this.webapps) {
       let app = this._cloneAppObject(this.webapps[id]);
+      if (!this._isLaunchable(app.origin))
+        continue;
+
       aData.apps.push(app);
       tmp.push({ id: id });
     }
@@ -445,13 +509,68 @@ let DOMApplicationRegistry = {
       }
     }
     this._saveApps(aCallback);
+  },
+
+  _isLaunchable: function(aOrigin) {
+    if (this.allAppsLaunchable)
+      return true;
+
+#ifdef XP_WIN
+    let uninstallKey = Cc["@mozilla.org/windows-registry-key;1"]
+                         .createInstance(Ci.nsIWindowsRegKey);
+    try {
+      uninstallKey.open(uninstallKey.ROOT_KEY_CURRENT_USER,
+                        "SOFTWARE\\Microsoft\\Windows\\" +
+                        "CurrentVersion\\Uninstall\\" +
+                        aOrigin,
+                        uninstallKey.ACCESS_READ);
+      uninstallKey.close();
+      return true;
+    } catch (ex) {
+      return false;
+    }
+#elifdef XP_MACOSX
+    let mwaUtils = Cc["@mozilla.org/widget/mac-web-app-utils;1"]
+                     .createInstance(Ci.nsIMacWebAppUtils);
+
+    return !!mwaUtils.pathForAppWithIdentifier(aOrigin);
+#elifdef XP_UNIX
+    let env = Cc["@mozilla.org/process/environment;1"]
+                .getService(Ci.nsIEnvironment);
+    let xdg_data_home_env = env.get("XDG_DATA_HOME");
+
+    let desktopINI;
+    if (xdg_data_home_env != "") {
+      desktopINI = Cc["@mozilla.org/file/local;1"]
+                     .createInstance(Ci.nsIFile);
+      desktopINI.initWithPath(xdg_data_home_env);
+    }
+    else {
+      desktopINI = Services.dirsvc.get("Home", Ci.nsIFile);
+      desktopINI.append(".local");
+      desktopINI.append("share");
+    }
+    desktopINI.append("applications");
+
+    let origin = Services.io.newURI(aOrigin, null, null);
+    let uniqueName = origin.scheme + ";" +
+                     origin.host +
+                     (origin.port != -1 ? ";" + origin.port : "");
+
+    desktopINI.append("owa-" + uniqueName + ".desktop");
+
+    return desktopINI.exists();
+#else
+    return true;
+#endif
+
   }
 };
 
 /**
  * Appcache download observer
  */
-AppcacheObserver = function(aApp) {
+let AppcacheObserver = function(aApp) {
   this.app = aApp;
 };
 
@@ -498,7 +617,7 @@ AppcacheObserver.prototype = {
 /**
  * Helper object to access manifest information with locale support
  */
-DOMApplicationManifest = function(aManifest, aOrigin) {
+let DOMApplicationManifest = function(aManifest, aOrigin) {
   this._origin = Services.io.newURI(aOrigin, null, null);
   this._manifest = aManifest;
   let chrome = Cc["@mozilla.org/chrome/chrome-registry;1"].getService(Ci.nsIXULChromeRegistry)
