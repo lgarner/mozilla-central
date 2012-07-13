@@ -53,6 +53,7 @@ const NFC_CID =
   Components.ID("{2ff24790-5e74-11e1-b86c-0800200c9a66}");
 
 function Nfc() {
+  this.requestMap = new Array();
   this.worker = new ChromeWorker("resource://gre/modules/nfc_worker.js");
   this.worker.onerror = this.onerror.bind(this);
   this.worker.onmessage = this.onmessage.bind(this);
@@ -90,6 +91,9 @@ Nfc.prototype = {
       case "tagLost":
         this.handleTagLost(message);
         break;
+      case "ndefWriteStatus":
+        this.handleNdefWriteStatus(message);
+        break;
       default:
         throw new Error("Don't know about this message type: " + message.type);
     }
@@ -113,6 +117,32 @@ Nfc.prototype = {
      this._deliverCallback("tagLost", handle);
   },
 
+  requestMap: null,
+
+  handleNdefWriteStatus: function handleNdefWriteStatus(message) {
+    debug("XXXXXXXXXXXXXX handleNdefWriteStatus () XXXXXXXXXXXXXXXX");
+    let response = message.content; // Subfields of content: requestId, status, optional message
+    debug("XXXXXXXXXXXXXX handleNdefWriteStatus (" + response.requestId + ", " + response.status + ") XXXXXXXXXXXXXXXX");
+    var idx = response.requestId;
+    debug("requestMap size: " + this.requestMap.length + " Index: " + idx);
+    var domrequest = this.requestMap[idx];
+    debug("Found request: " + domrequest);
+    if (response.status = "OK") {
+      Services.DOMRequest.fireSuccess(domrequest, true);
+    } else {
+      Services.DOMRequest.fireError(domrequest, false);
+    }
+    // Locate and remove:
+    if (domrequest) {
+      debug("Removing request");
+      for (var i = 0; i < requestMap.length; i++) {
+        if (requestMap[idx] == domrequest) {
+          requestMap.splice(i, 1);
+          break;
+        }
+      }
+    } // request removal
+  },
 
   _deliverCallback: function _deliverCallback(name, args) {
     // We need to worry about callback registration state mutations during the
@@ -175,12 +205,32 @@ Nfc.prototype = {
     }
   },
 
-  writeNdefTag: function writeNdefTag(arrayRecords, requestId) {
+  writeNdefTag: function writeNdefTag(arrayRecords, aDomRequest) {
     var jsonStr;
     var type;
     var id;
     var payload;
     var i;
+
+    debug("XXXXXXXXXXXXXXXX check requestMap XXX");
+    // Get ID:
+    if (typeof this.requestMap === 'undefined') {
+      debug("XXXXXXXXXXXXXXXX undefined requestMap XXX");
+      // this.requestMap = new Array();
+    }
+    debug("XXXXXXXXXXXXXXXX requestMap is defined XXX");
+    debug("XXXXXXXXXXXXXXXX requestMap.length: " + this.requestMap.length + " XXX");
+    var rid = this.requestMap.length;
+    debug("XXXXXXXXXXXXXXXX request id: " + rid + " XXX");
+    if (typeof aDomRequest === 'undefined') {
+      debug("XXXX New req is undefined!!!");
+    } else {
+      debug("XXXXXXXXXXXXXXXX Success!, Have aDomRequest");
+      this.requestMap[rid] = aDomRequest;
+    }
+    debug("XXXXXXXXXXXXXXXX assigned map idx: requestMap[" + rid +"] = " + this.requestMap[rid]);
+
+    //debug("Obj: " + req + " idx: " + rid);
   
     debug("XXXXXXXXXXXXXXXXXX Here! XXXXXXXXXXXXXXXXXXXXXXXXX");
     // Begin Hack: XPCOM object MozNdefRecord doesn't Stringify. Encode and JSONify an XPCOM object by parts...

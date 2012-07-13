@@ -38,6 +38,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "nsISupports.idl"
+#include "nsIDOMDOMRequest.idl"
 
 [scriptable, uuid(999fa430-6180-11e1-b86c-0800200c9a66)]
 interface nsINFCCallback : nsISupports
@@ -52,7 +53,7 @@ interface nsINfc : nsISupports
   void registerCallback(in nsINFCCallback callback);
   void unregisterCallback(in nsINFCCallback callback);
 
-  void writeNdefTag(in jsval records);
+  void writeNdefTag(in jsval records, in nsIDOMDOMRequest aDomRequest);
 
   void sendToNfcd(in DOMString message);
 };

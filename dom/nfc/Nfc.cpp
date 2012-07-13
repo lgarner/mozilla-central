@@ -214,7 +214,7 @@ JSONCreator(const jschar* aBuf, uint32_t aLen, void* aData)
 
 // TODO, we want to take well formed object arrays.
 NS_IMETHODIMP
-Nfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDomRequest)
+Nfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDomRequest_ret_val)
 {
   nsresult rv;
   nsCOMPtr<nsIDOMRequestService> rs = do_GetService("@mozilla.org/dom/dom-request-service;1");
@@ -225,17 +225,17 @@ Nfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDom
     return NS_ERROR_INVALID_ARG;
   }
 
-  mNfc->WriteNdefTag(aRecords);
-
   nsCOMPtr<nsIDOMDOMRequest> request;
-
   rv = rs->CreateRequest(GetOwner(), getter_AddRefs(request));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  //TODO keep track of requests so requestId can be mapped back to the actual request
-  // mNfc->WriteNdefTag(aTnf, aType, aId, aPayload, requestId);
-
-  request.forget(aDomRequest);
+  // Call to NFC.js
+  nsIDOMDOMRequest *req = request.get();
+  mNfc->WriteNdefTag(aRecords, req);
+  NS_ASSERTION(aDomRequest_ret_val, "Null pointer?!");
+  if (req) {
+    request.forget(aDomRequest_ret_val);
+  }
 
   return NS_OK;
 }
