@@ -88,7 +88,7 @@ Nfc.prototype = {
       case "ndefDiscovered":
         this.handleNdefDiscovered(message);
         break;
-      case "tagLost":
+      case "ndefTagLost":
         this.handleTagLost(message);
         break;
       case "ndefWriteStatus":
@@ -114,7 +114,7 @@ Nfc.prototype = {
   },
 
   handleTagLost: function handleTagLost(handle) {
-     this._deliverCallback("tagLost", handle);
+     this._deliverCallback("ndefTagLost", handle);
   },
 
   requestMap: null,
@@ -247,7 +247,7 @@ Nfc.prototype = {
       debug("----  item [" + i + "]   ----");
     }
     jsonStr += "]";
-    var prefix = '{ "type": "ndefDiscovered", "content": { "records": ';
+    var prefix = '{ "type": "ndefWriteRequest", "requestId": ' + rid + ', "content": { "records": ';
     var suffix = " }}";
     var outMessage = prefix + jsonStr + suffix;
     debug("Outgoing NDef post message done here" + outMessage);
