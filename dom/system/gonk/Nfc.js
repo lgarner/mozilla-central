@@ -88,7 +88,7 @@ Nfc.prototype = {
       case "ndefDiscovered":
         this.handleNdefDiscovered(message);
         break;
-      case "ndefTagLost":
+      case "tagLost":
         this.handleTagLost(message);
         break;
       case "ndefWriteStatus":
@@ -114,7 +114,7 @@ Nfc.prototype = {
   },
 
   handleTagLost: function handleTagLost(handle) {
-     this._deliverCallback("ndefTagLost", handle);
+     this._deliverCallback("tagLost", handle);
   },
 
   requestMap: null,
