@@ -17,7 +17,27 @@ namespace js {
 
 class DummyFrameGuard;
 
-/* Base class for all C++ wrappers. */
+/*
+ * A wrapper is essentially a proxy that restricts access to certain traps. The
+ * way in which a wrapper restricts access to its traps depends on the
+ * particular policy for that wrapper. To allow a wrapper's policy to be
+ * customized, the Wrapper base class contains two functions, enter/leave, which
+ * are called as a policy enforcement check before/after each trap is forwarded.
+ *
+ * To minimize code duplication, a set of abstract wrapper classes is
+ * provided, from which other wrappers may inherit. These abstract classes are
+ * organized in the following hierarchy:
+ *
+ * BaseProxyHandler Wrapper
+ * |                    | |
+ * IndirectProxyHandler | |
+ * |                  | | |
+ * |      IndirectWrapper |
+ * |                      |
+ * DirectProxyHandler     |
+ *                  |     |
+ *            DirectWrapper
+ */
 class JS_FRIEND_API(Wrapper)
 {
     unsigned mFlags;
@@ -74,10 +94,6 @@ class JS_FRIEND_API(Wrapper)
      * on the underlying object's |id| property. In the case when |act| is CALL,
      * |id| is generally JSID_VOID.
      *
-     * leave() allows the policy to undo various scoped state changes taken in
-     * enter(). If enter() succeeds, leave() must be called upon completion of
-     * the approved action.
-     *
      * The |act| parameter to enter() specifies the action being performed. GET,
      * SET, and CALL are self-explanatory, but PUNCTURE requires more
      * explanation:
@@ -99,19 +115,19 @@ class JS_FRIEND_API(Wrapper)
      */
     virtual bool enter(JSContext *cx, JSObject *wrapper, jsid id, Action act,
                        bool *bp);
-
-    virtual void leave(JSContext *cx, JSObject *wrapper);
 };
 
 /*
- * AbstractWrappers forward their fundamental traps to the wrapped object, and
- * implement their derived traps in terms of the fundamental traps.
+ * IndirectWrapper forwards its traps by forwarding them to
+ * IndirectProxyHandler. In effect, IndirectWrapper behaves the same as
+ * IndirectProxyHandler, except that it adds policy enforcement checks to each
+ * fundamental trap.
  */
-class JS_FRIEND_API(AbstractWrapper) : public Wrapper,
+class JS_FRIEND_API(IndirectWrapper) : public Wrapper,
                                        public IndirectProxyHandler
 {
   public:
-    explicit AbstractWrapper(unsigned flags);
+    explicit IndirectWrapper(unsigned flags);
 
     virtual BaseProxyHandler* toBaseProxyHandler() {
         return this;
@@ -139,8 +155,9 @@ class JS_FRIEND_API(AbstractWrapper) : public Wrapper,
 };
 
 /*
- * DirectWrappers forward both their fundamental and derived traps to the
- * wrapped object.
+ * DirectWrapper forwards its traps by forwarding them to DirectProxyHandler.
+ * In effect, DirectWrapper behaves the same as DirectProxyHandler, except that
+ * it adds policy enforcement checks to each trap.
  */
 class JS_FRIEND_API(DirectWrapper) : public Wrapper, public DirectProxyHandler
 {
@@ -185,7 +202,8 @@ class JS_FRIEND_API(DirectWrapper) : public Wrapper, public DirectProxyHandler
     /* Spidermonkey extensions. */
     virtual bool call(JSContext *cx, JSObject *wrapper, unsigned argc, Value *vp) MOZ_OVERRIDE;
     virtual bool construct(JSContext *cx, JSObject *wrapper, unsigned argc, Value *argv, Value *rval) MOZ_OVERRIDE;
-    virtual bool nativeCall(JSContext *cx, JSObject *wrapper, Class *clasp, Native native, CallArgs args) MOZ_OVERRIDE;
+    virtual bool nativeCall(JSContext *cx, IsAcceptableThis test, NativeImpl impl,
+                            CallArgs args) MOZ_OVERRIDE;
     virtual bool hasInstance(JSContext *cx, JSObject *wrapper, const Value *vp, bool *bp) MOZ_OVERRIDE;
     virtual JSString *obj_toString(JSContext *cx, JSObject *wrapper) MOZ_OVERRIDE;
     virtual JSString *fun_toString(JSContext *cx, JSObject *wrapper, unsigned indent) MOZ_OVERRIDE;
@@ -226,7 +244,8 @@ class JS_FRIEND_API(CrossCompartmentWrapper) : public DirectWrapper
     /* Spidermonkey extensions. */
     virtual bool call(JSContext *cx, JSObject *wrapper, unsigned argc, Value *vp) MOZ_OVERRIDE;
     virtual bool construct(JSContext *cx, JSObject *wrapper, unsigned argc, Value *argv, Value *rval) MOZ_OVERRIDE;
-    virtual bool nativeCall(JSContext *cx, JSObject *wrapper, Class *clasp, Native native, CallArgs args) MOZ_OVERRIDE;
+    virtual bool nativeCall(JSContext *cx, IsAcceptableThis test, NativeImpl impl,
+                            CallArgs args) MOZ_OVERRIDE;
     virtual bool hasInstance(JSContext *cx, JSObject *wrapper, const Value *vp, bool *bp) MOZ_OVERRIDE;
     virtual JSString *obj_toString(JSContext *cx, JSObject *wrapper) MOZ_OVERRIDE;
     virtual JSString *fun_toString(JSContext *cx, JSObject *wrapper, unsigned indent) MOZ_OVERRIDE;
@@ -251,7 +270,8 @@ class JS_FRIEND_API(SecurityWrapper) : public Base
   public:
     SecurityWrapper(unsigned flags);
 
-    virtual bool nativeCall(JSContext *cx, JSObject *wrapper, Class *clasp, Native native, CallArgs args) MOZ_OVERRIDE;
+    virtual bool nativeCall(JSContext *cx, IsAcceptableThis test, NativeImpl impl,
+                            CallArgs args) MOZ_OVERRIDE;
     virtual bool objectClassIs(JSObject *obj, ESClassValue classValue, JSContext *cx) MOZ_OVERRIDE;
     virtual bool regexp_toShared(JSContext *cx, JSObject *proxy, RegExpGuard *g) MOZ_OVERRIDE;
 };
@@ -328,27 +348,27 @@ struct CompartmentFilter {
 };
 
 struct AllCompartments : public CompartmentFilter {
-    virtual bool match(JSCompartment *c) const { return true; };
+    virtual bool match(JSCompartment *c) const { return true; }
 };
 
 struct ContentCompartmentsOnly : public CompartmentFilter {
     virtual bool match(JSCompartment *c) const {
         return !IsSystemCompartment(c);
-    };
+    }
 };
 
 struct SingleCompartment : public CompartmentFilter {
     JSCompartment *ours;
-    SingleCompartment(JSCompartment *c) : ours(c) {};
-    virtual bool match(JSCompartment *c) const { return c == ours; };
+    SingleCompartment(JSCompartment *c) : ours(c) {}
+    virtual bool match(JSCompartment *c) const { return c == ours; }
 };
 
 struct CompartmentsWithPrincipals : public CompartmentFilter {
     JSPrincipals *principals;
-    CompartmentsWithPrincipals(JSPrincipals *p) : principals(p) {};
+    CompartmentsWithPrincipals(JSPrincipals *p) : principals(p) {}
     virtual bool match(JSCompartment *c) const {
         return JS_GetCompartmentPrincipals(c) == principals;
-    };
+    }
 };
 
 JS_FRIEND_API(bool)

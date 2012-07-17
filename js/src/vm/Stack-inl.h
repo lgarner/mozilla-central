@@ -114,6 +114,9 @@ StackFrame::initInlineFrame(JSFunction *fun, StackFrame *prevfp, jsbytecode *pre
     flags_ = StackFrame::FUNCTION;
     exec.fun = fun;
     resetInlinePrev(prevfp, prevpc);
+
+    if (prevfp->hasPushedSPSFrame())
+        setPushedSPSFrame();
 }
 
 inline void
@@ -183,19 +186,7 @@ StackFrame::jitHeavyweightFunctionPrologue(JSContext *cx)
     pushOnScopeChain(*callobj);
     flags_ |= HAS_CALL_OBJ;
 
-    if (script()->nesting()) {
-        types::NestingPrologue(cx, this);
-        flags_ |= HAS_NESTING;
-    }
-
     return true;
-}
-
-inline void
-StackFrame::jitTypeNestingPrologue(JSContext *cx)
-{
-    types::NestingPrologue(cx, this);
-    flags_ |= HAS_NESTING;
 }
 
 inline void

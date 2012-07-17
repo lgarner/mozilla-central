@@ -17,17 +17,18 @@
 #include "nsHTMLURIRefObject.h"
 
 #include "nsIDOMText.h"
+#include "nsIDOMNamedNodeMap.h"
 #include "nsIDOMNodeList.h"
 #include "nsIDOMDocument.h"
 #include "nsIDOMAttr.h"
 #include "nsIDocument.h"
 #include "nsIDOMEventTarget.h" 
 #include "nsIDOMKeyEvent.h"
-#include "nsISelectionPrivate.h"
 #include "nsIDOMHTMLAnchorElement.h"
 #include "nsISelectionController.h"
 #include "nsIDOMHTMLDocument.h"
 #include "nsILinkHandler.h"
+#include "nsIInlineSpellChecker.h"
 
 #include "mozilla/css/Loader.h"
 #include "nsCSSStyleSheet.h"
@@ -63,6 +64,7 @@
 
 #include "nsIFrame.h"
 #include "nsIParserService.h"
+#include "mozilla/Selection.h"
 #include "mozilla/dom/Element.h"
 #include "nsTextFragment.h"
 
@@ -526,7 +528,7 @@ nsHTMLEditor::BeginningOfDocument()
     else if ((visType==nsWSRunObject::eBreak)    ||
              (visType==nsWSRunObject::eSpecial))
     {
-      GetNodeLocation(visNode, address_of(selNode), &selOffset);
+      selNode = GetNodeLocation(visNode, &selOffset);
       done = true;
     }
     else if (visType==nsWSRunObject::eOtherBlock)
@@ -546,7 +548,7 @@ nsHTMLEditor::BeginningOfDocument()
         // like a <hr>
         // We want to place the caret in front of that block.
 
-        GetNodeLocation(visNode, address_of(selNode), &selOffset);
+        selNode = GetNodeLocation(visNode, &selOffset);
         done = true;
       }
       else
@@ -556,7 +558,7 @@ nsHTMLEditor::BeginningOfDocument()
             isEmptyBlock)
         {
           // skip the empty block
-          GetNodeLocation(visNode, address_of(curNode), &curOffset);
+          curNode = GetNodeLocation(visNode, &curOffset);
           ++curOffset;
         }
         else
@@ -941,7 +943,7 @@ bool nsHTMLEditor::IsVisBreak(nsIDOMNode *aNode)
   // determine what is going on
   nsCOMPtr<nsIDOMNode> selNode, tmp;
   PRInt32 selOffset;
-  GetNodeLocation(aNode, address_of(selNode), &selOffset);
+  selNode = GetNodeLocation(aNode, &selOffset);
   selOffset++; // lets look after the break
   nsWSRunObject wsObj(this, selNode, selOffset);
   nsCOMPtr<nsIDOMNode> visNode;
@@ -1468,10 +1470,8 @@ nsHTMLEditor::NormalizeEOLInsertPosition(nsIDOMNode *firstNodeToInsert,
   if (prevVisType & nsWSRunObject::eThisBlock)
     return;
 
-  nsCOMPtr<nsIDOMNode> brNode;
   PRInt32 brOffset=0;
-
-  GetNodeLocation(nextVisNode, address_of(brNode), &brOffset);
+  nsCOMPtr<nsIDOMNode> brNode = GetNodeLocation(nextVisNode, &brOffset);
 
   *insertParentNode = brNode;
   *insertOffset = brOffset + 1;
@@ -3270,7 +3270,8 @@ nsHTMLEditor::ContentInserted(nsIDocument *aDocument, nsIContent* aContainer,
   nsCOMPtr<nsIHTMLEditor> kungFuDeathGrip(this);
 
   if (ShouldReplaceRootElement()) {
-    ResetRootElementAndEventTarget();
+    nsContentUtils::AddScriptRunner(NS_NewRunnableMethod(
+      this, &nsHTMLEditor::ResetRootElementAndEventTarget));
   }
   // We don't need to handle our own modifications
   else if (!mAction && (aContainer ? aContainer->IsEditable() : aDocument->IsEditable())) {
@@ -3300,7 +3301,8 @@ nsHTMLEditor::ContentRemoved(nsIDocument *aDocument, nsIContent* aContainer,
   nsCOMPtr<nsIHTMLEditor> kungFuDeathGrip(this);
 
   if (SameCOMIdentity(aChild, mRootElement)) {
-    ResetRootElementAndEventTarget();
+    nsContentUtils::AddScriptRunner(NS_NewRunnableMethod(
+      this, &nsHTMLEditor::ResetRootElementAndEventTarget));
   }
   // We don't need to handle our own modifications
   else if (!mAction && (aContainer ? aContainer->IsEditable() : aDocument->IsEditable())) {

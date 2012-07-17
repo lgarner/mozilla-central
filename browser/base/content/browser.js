@@ -134,6 +134,12 @@ XPCOMUtils.defineLazyGetter(this, "Tilt", function() {
   return new tmp.Tilt(window);
 });
 
+XPCOMUtils.defineLazyGetter(this, "Social", function() {
+  let tmp = {};
+  Cu.import("resource:///modules/Social.jsm", tmp);
+  return tmp.Social;
+});
+
 let gInitialPages = [
   "about:blank",
   "about:newtab",
@@ -148,6 +154,7 @@ let gInitialPages = [
 #include browser-fullZoom.js
 #include browser-places.js
 #include browser-plugins.js
+#include browser-social.js
 #include browser-tabPreviews.js
 #include browser-tabview.js
 #include browser-thumbnails.js
@@ -1001,6 +1008,8 @@ var gBrowserInit = {
     gBrowser.addEventListener("PluginOutdated",     gPluginHandler, true);
     gBrowser.addEventListener("PluginDisabled",     gPluginHandler, true);
     gBrowser.addEventListener("PluginClickToPlay",  gPluginHandler, true);
+    gBrowser.addEventListener("PluginVulnerableUpdatable", gPluginHandler, true);
+    gBrowser.addEventListener("PluginVulnerableNoUpdate", gPluginHandler, true);
     gBrowser.addEventListener("NewPluginInstalled", gPluginHandler.newPluginInstalled, true);
 #ifdef XP_MACOSX
     gBrowser.addEventListener("npapi-carbon-event-model-failure", gPluginHandler, true);
@@ -1244,6 +1253,7 @@ var gBrowserInit = {
     OfflineApps.init();
     IndexedDBPromptHelper.init();
     gFormSubmitObserver.init();
+    SocialUI.init();
     AddonManager.addAddonListener(AddonsMgrListener);
 
     gBrowser.addEventListener("pageshow", function(evt) { setTimeout(pageShowEventHandlers, 0, evt); }, true);
@@ -1394,6 +1404,7 @@ var gBrowserInit = {
     if (devToolbarEnabled) {
       document.getElementById("menu_devToolbar").hidden = false;
       document.getElementById("Tools:DevToolbar").removeAttribute("disabled");
+      document.getElementById("Tools:DevToolbarFocus").removeAttribute("disabled");
 #ifdef MENUBAR_CAN_AUTOHIDE
       document.getElementById("appmenu_devToolbar").hidden = false;
 #endif
@@ -1477,7 +1488,9 @@ var gBrowserInit = {
 #ifdef MENUBAR_CAN_AUTOHIDE
       document.getElementById("appmenu_styleeditor").hidden = false;
 #endif
-      document.getElementById("developer-toolbar-styleeditor").hidden = false;
+      // We don't show the Style Editor button in the developer toolbar for now.
+      // See bug 771203
+      // document.getElementById("developer-toolbar-styleeditor").hidden = false;
     }
 
 #ifdef MENUBAR_CAN_AUTOHIDE
@@ -1612,6 +1625,7 @@ var gBrowserInit = {
       OfflineApps.uninit();
       IndexedDBPromptHelper.uninit();
       AddonManager.removeAddonListener(AddonsMgrListener);
+      SocialUI.uninit();
     }
 
     // Final window teardown, do this last.
@@ -3557,6 +3571,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged) {
     URLBarSetURI();
     XULBrowserWindow.asyncUpdateUI();
     PlacesStarButton.updateState();
+    SocialShareButton.updateShareState();
   }
 
   TabsInTitlebar.allowedBy("customizing-toolbars", true);
@@ -4035,6 +4050,7 @@ var XULBrowserWindow = {
 
         // Update starring UI
         PlacesStarButton.updateState();
+        SocialShareButton.updateShareState();
       }
 
       // Show or hide browser chrome based on the whitelist
@@ -6055,16 +6071,45 @@ function WindowIsClosing()
  */
 function warnAboutClosingWindow() {
   // Popups aren't considered full browser windows.
-  if (!toolbar.visible)
+  let isPBWindow = gPrivateBrowsingUI.privateWindow;
+  if (!isPBWindow && !toolbar.visible)
     return gBrowser.warnAboutClosingTabs(true);
 
   // Figure out if there's at least one other browser window around.
   let e = Services.wm.getEnumerator("navigator:browser");
+  let otherPBWindowExists = false;
+  let warnAboutClosingTabs = false;
   while (e.hasMoreElements()) {
     let win = e.getNext();
-    if (win != window && win.toolbar.visible)
-      return gBrowser.warnAboutClosingTabs(true);
+    if (win != window) {
+      if (isPBWindow &&
+          ("gPrivateBrowsingUI" in win) &&
+          win.gPrivateBrowsingUI.privateWindow)
+        otherPBWindowExists = true;
+      if (win.toolbar.visible)
+        warnAboutClosingTabs = true;
+      // If the current window is not in private browsing mode we don't need to 
+      // look for other pb windows, we can leave the loop when finding the 
+      // first non-popup window. If however the current window is in private 
+      // browsing mode then we need at least one other pb and one non-popup 
+      // window to break out early.
+      if ((!isPBWindow || otherPBWindowExists) && warnAboutClosingTabs)
+        break;
+    }
   }
+
+  if (isPBWindow && !otherPBWindowExists) {
+    let exitingCanceled = Cc["@mozilla.org/supports-PRBool;1"].
+                          createInstance(Ci.nsISupportsPRBool);
+    exitingCanceled.data = false;
+    Services.obs.notifyObservers(exitingCanceled,
+                                 "last-pb-context-exiting",
+                                 null);
+    if (exitingCanceled.data)
+      return false;
+  }
+  if (warnAboutClosingTabs)
+    return gBrowser.warnAboutClosingTabs(true);
 
   let os = Services.obs;
 

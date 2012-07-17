@@ -26,6 +26,8 @@
 #include "cutils/properties.h"
 
 #define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, "Gonk" , ## args)
+#define LOGW(args...) __android_log_print(ANDROID_LOG_WARN, "Gonk", ## args)
+#define LOGE(args...) __android_log_print(ANDROID_LOG_ERROR, "Gonk", ## args)
 
 #define IS_TOPLEVEL() (mWindowType == eWindowType_toplevel || mWindowType == eWindowType_dialog)
 
@@ -131,13 +133,6 @@ nsWindow::nsWindow()
             NS_RUNTIMEABORT("Failed to create framebufferWatcherThread, aborting...");
         }
 
-        sUsingOMTC = UseOffMainThreadCompositing();
-
-        if (sUsingOMTC) {
-          sOMTCSurface = new gfxImageSurface(gfxIntSize(1, 1),
-                                             gfxASurface::ImageFormatRGB24);
-        }
-
         // We (apparently) don't have a way to tell if allocating the
         // fbs succeeded or failed.
         gNativeWindow = new android::FramebufferNativeWindow();
@@ -170,6 +165,20 @@ nsWindow::nsWindow()
         sScreenInitialized = true;
 
         nsAppShell::NotifyScreenInitialized();
+
+        // This is a hack to force initialization of the compositor
+        // resources, if we're going to use omtc.
+        //
+        // NB: GetPlatform() will create the gfxPlatform, which wants
+        // to know the color depth, which asks our native window.
+        // This has to happen after other init has finished.
+        gfxPlatform::GetPlatform();
+        sUsingOMTC = UseOffMainThreadCompositing();
+
+        if (sUsingOMTC) {
+          sOMTCSurface = new gfxImageSurface(gfxIntSize(1, 1),
+                                             gfxASurface::ImageFormatRGB24);
+        }
     }
 }
 
@@ -483,20 +492,10 @@ nsWindow::GetLayerManager(PLayersChild* aShadowManager,
     // Set mUseAcceleratedRendering here to make it consistent with
     // nsBaseWidget::GetLayerManager
     mUseAcceleratedRendering = GetShouldAccelerate();
-    if (!mUseAcceleratedRendering) {
-        if (!sFramebufferOpen) {
-            sFramebufferOpen = Framebuffer::Open();
-            if (!sFramebufferOpen) {
-                LOG("Failed to mmap fb(?!?), aborting ...");
-                NS_RUNTIMEABORT("Can't open GL context and can't fall back on /dev/graphics/fb0 ...");
-            }
-        }
-    }
-
     nsWindow *topWindow = sTopWindows[0];
 
     if (!topWindow) {
-        LOG(" -- no topwindow\n");
+        LOGW(" -- no topwindow\n");
         return nsnull;
     }
 
@@ -506,23 +505,38 @@ nsWindow::GetLayerManager(PLayersChild* aShadowManager,
             return mLayerManager;
     }
 
-    DebugOnly<nsIntRect> fbBounds = gScreenBounds;
-    if (!sGLContext) {
-      sGLContext = GLContextProvider::CreateForWindow(this);
-    }
-    MOZ_ASSERT(fbBounds.value == gScreenBounds);
-    if (sGLContext) {
-        nsRefPtr<LayerManagerOGL> layerManager = new LayerManagerOGL(this);
+    if (mUseAcceleratedRendering) {
+        DebugOnly<nsIntRect> fbBounds = gScreenBounds;
+        if (!sGLContext) {
+            sGLContext = GLContextProvider::CreateForWindow(this);
+        }
 
-        if (layerManager->Initialize(sGLContext)) {
-            mLayerManager = layerManager;
-            return mLayerManager;
+        MOZ_ASSERT(fbBounds.value == gScreenBounds);
+        if (sGLContext) {
+            nsRefPtr<LayerManagerOGL> layerManager = new LayerManagerOGL(this);
+
+            if (layerManager->Initialize(sGLContext)) {
+                mLayerManager = layerManager;
+                return mLayerManager;
+            } else {
+                LOGW("Could not create OGL LayerManager");
+            }
         } else {
-            LOG("Could not create OGL LayerManager");
+            LOGW("GL context was not created");
         }
     }
 
+    // Fall back to software rendering.
+    sFramebufferOpen = Framebuffer::Open();
+    if (sFramebufferOpen) {
+        LOG("Falling back to framebuffer software rendering");
+    } else {
+        LOGE("Failed to mmap fb(?!?), aborting ...");
+        NS_RUNTIMEABORT("Can't open GL context and can't fall back on /dev/graphics/fb0 ...");
+    }
+
     mLayerManager = new BasicShadowLayerManager(this);
+    mUseAcceleratedRendering = false;
 
     return mLayerManager;
 }

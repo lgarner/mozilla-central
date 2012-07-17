@@ -275,7 +275,7 @@ nsGenericHTMLElement::DOMQueryInterface(nsIDOMHTMLElement *aElement,
 // No closing bracket, because NS_INTERFACE_MAP_END does that for us.
 
 nsresult
-nsGenericHTMLElement::CopyInnerTo(nsGenericElement* aDst) const
+nsGenericHTMLElement::CopyInnerTo(nsGenericElement* aDst)
 {
   nsresult rv;
   PRInt32 i, count = GetAttrCount();
@@ -2449,7 +2449,7 @@ nsGenericHTMLElement::MapCommonAttributesInto(const nsMappedAttributes* aAttribu
   if (aData->mSIDs & NS_STYLE_INHERIT_BIT(Display)) {
     nsCSSValue* display = aData->ValueForDisplay();
     if (display->GetUnit() == eCSSUnit_Null) {
-      if (aAttributes->IndexOfAttr(nsGkAtoms::hidden, kNameSpaceID_None) >= 0) {
+      if (aAttributes->IndexOfAttr(nsGkAtoms::hidden) >= 0) {
         display->SetIntValue(NS_STYLE_DISPLAY_NONE, eCSSUnit_Enumerated);
       }
     }

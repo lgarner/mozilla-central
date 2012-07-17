@@ -119,12 +119,17 @@ nsSVGDisplayContainerFrame::InsertFrames(ChildListID aListID,
       if (SVGFrame) {
         NS_ABORT_IF_FALSE(!(kid->GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD),
                           "Check for this explicitly in the |if|, then");
+        bool isFirstReflow = (kid->GetStateBits() & NS_FRAME_FIRST_REFLOW);
         // Remove bits so that ScheduleBoundsUpdate will work:
         kid->RemoveStateBits(NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_DIRTY |
                              NS_FRAME_HAS_DIRTY_CHILDREN);
         // No need to invalidate the new kid's old bounds, so we just use
         // nsSVGUtils::ScheduleBoundsUpdate.
         nsSVGUtils::ScheduleBoundsUpdate(kid);
+        if (isFirstReflow) {
+          // Add back the NS_FRAME_FIRST_REFLOW bit:
+          kid->AddStateBits(NS_FRAME_FIRST_REFLOW);
+        }
       }
     }
   }
@@ -163,7 +168,8 @@ nsSVGDisplayContainerFrame::IsSVGTransformed(gfxMatrix *aOwnTransform,
 
   nsSVGElement *content = static_cast<nsSVGElement*>(mContent);
   const SVGAnimatedTransformList *list = content->GetAnimatedTransformList();
-  if (list && !list->GetAnimValue().IsEmpty()) {
+  if ((list && !list->GetAnimValue().IsEmpty()) ||
+      content->GetAnimateMotionTransform()) {
     if (aOwnTransform) {
       *aOwnTransform = content->PrependLocalTransformsTo(gfxMatrix(),
                                   nsSVGElement::eUserSpaceToParent);
@@ -271,6 +277,15 @@ nsSVGDisplayContainerFrame::UpdateBounds()
     nsSVGEffects::UpdateEffects(this);
   }
 
+  // We only invalidate if we are dirty, if our outer-<svg> has already had its
+  // initial reflow (since if it hasn't, its entire area will be invalidated
+  // when it gets that initial reflow), and if our parent is not dirty (since
+  // if it is, then it will invalidate its entire new area, which will include
+  // our new area).
+  bool invalidate = (mState & NS_FRAME_IS_DIRTY) &&
+    !(GetParent()->GetStateBits() &
+       (NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_DIRTY));
+
   FinishAndStoreOverflow(overflowRects, mRect.Size());
 
   // Remove state bits after FinishAndStoreOverflow so that it doesn't
@@ -278,10 +293,7 @@ nsSVGDisplayContainerFrame::UpdateBounds()
   mState &= ~(NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_DIRTY |
               NS_FRAME_HAS_DIRTY_CHILDREN);
 
-  if (!(GetParent()->GetStateBits() & NS_FRAME_FIRST_REFLOW)) {
-    // We only invalidate if our outer-<svg> has already had its
-    // initial reflow (since if it hasn't, its entire area will be
-    // invalidated when it gets that initial reflow):
+  if (invalidate) {
     // XXXSDL Let FinishAndStoreOverflow do this.
     nsSVGUtils::InvalidateBounds(this, true);
   }

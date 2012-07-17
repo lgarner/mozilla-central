@@ -24,7 +24,7 @@ var _nextPortId = 1;
 // Retrieves a reference to a WorkerHandle associated with a FrameWorker and a
 // new ClientPort.
 function getFrameWorkerHandle(url, clientWindow, name) {
-  // first create the client port we are going to use.  Laster we will
+  // first create the client port we are going to use.  Later we will
   // message the worker to create the worker port.
   let portid = _nextPortId++;
   let clientPort = new ClientPort(portid, clientWindow);
@@ -99,7 +99,7 @@ FrameWorker.prototype = {
                      'atob', 'btoa', 'clearInterval', 'clearTimeout', 'dump',
                      'setInterval', 'setTimeout', 'XMLHttpRequest',
                      'MozBlobBuilder', 'FileReader', 'Blob',
-                     'navigator', 'location'];
+                     'location'];
     workerAPI.forEach(function(fn) {
       try {
         // XXX Need to unwrap for this to work - find out why!
@@ -109,6 +109,25 @@ FrameWorker.prototype = {
         Cu.reportError("FrameWorker: failed to import API "+fn+"\n"+e+"\n");
       }
     });
+    // the "navigator" object in a worker is a subset of the full navigator;
+    // specifically, just the interfaces 'NavigatorID' and 'NavigatorOnLine'
+    let navigator = {
+      __exposedProps__: {
+        "appName": "r",
+        "appVersion": "r",
+        "platform": "r",
+        "userAgent": "r",
+        "onLine": "r"
+      },
+      // interface NavigatorID
+      appName: workerWindow.navigator.appName,
+      appVersion: workerWindow.navigator.appVersion,
+      platform: workerWindow.navigator.platform,
+      userAgent: workerWindow.navigator.userAgent,
+      // interface NavigatorOnLine
+      get onLine() workerWindow.navigator.onLine
+    };
+    sandbox.navigator = navigator;
 
     // and we delegate ononline and onoffline events to the worker.
     // See http://www.whatwg.org/specs/web-apps/current-work/multipage/workers.html#workerglobalscope
@@ -136,6 +155,7 @@ FrameWorker.prototype = {
     let worker = this;
 
     workerWindow.addEventListener("load", function loadListener() {
+      workerWindow.removeEventListener("load", loadListener);
       // the iframe has loaded the js file as text - first inject the magic
       // port-handling code into the sandbox.
       function getProtoSource(ob) {
@@ -209,14 +229,12 @@ FrameWorker.prototype = {
       }
     }
 
+    delete workerCache[this.url];
+
     // let pending events get delivered before actually removing the frame
     Services.tm.mainThread.dispatch(function deleteWorkerFrame() {
       // now nuke the iframe itself and forget everything about this worker.
-      let doc = Cc["@mozilla.org/appshell/appShellService;1"]
-                      .getService(Ci.nsIAppShellService)
-                      .hiddenDOMWindow.document;
-      doc.documentElement.removeChild(this.frame);
-      delete workerCache[this.url];
+      this.frame.parentNode.removeChild(this.frame);
     }.bind(this), Ci.nsIThread.DISPATCH_NORMAL);
   }
 };

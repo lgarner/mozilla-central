@@ -112,21 +112,6 @@ NewObjectCache::newObjectFromHit(JSContext *cx, EntryIndex entry_)
         return obj;
     }
 
-    /* Copy the entry to the stack first in case it is purged by a GC. */
-    size_t nbytes = entry->nbytes;
-    char stackObject[sizeof(JSObject_Slots16)];
-    JS_ASSERT(nbytes <= sizeof(stackObject));
-    js_memcpy(&stackObject, &entry->templateObject, nbytes);
-
-    JSObject *baseobj = (JSObject *) stackObject;
-
-    obj = js_NewGCObject(cx, entry->kind);
-    if (obj) {
-        copyCachedToObject(obj, baseobj);
-        Probes::createObject(cx, obj);
-        return obj;
-    }
-
     return NULL;
 }
 
@@ -229,7 +214,7 @@ class CompartmentChecker
     {
         if (cx->compartment) {
             GlobalObject *global = GetGlobalForScopeChain(cx);
-            JS_ASSERT(cx->compartment->maybeGlobal() == global);
+            JS_ASSERT(cx->global() == global);
         }
     }
 
@@ -308,11 +293,8 @@ class CompartmentChecker
     }
 
     void check(JSScript *script) {
-        if (script) {
+        if (script)
             check(script->compartment());
-            if (!script->isCachedEval && script->globalObject)
-                check(script->globalObject);
-        }
     }
 
     void check(StackFrame *fp) {
@@ -394,10 +376,26 @@ JS_ALWAYS_INLINE bool
 CallJSNative(JSContext *cx, Native native, const CallArgs &args)
 {
 #ifdef DEBUG
-    JSBool alreadyThrowing = cx->isExceptionPending();
+    bool alreadyThrowing = cx->isExceptionPending();
 #endif
     assertSameCompartment(cx, args);
     bool ok = native(cx, args.length(), args.base());
+    if (ok) {
+        assertSameCompartment(cx, args.rval());
+        JS_ASSERT_IF(!alreadyThrowing, !cx->isExceptionPending());
+    }
+    return ok;
+}
+
+STATIC_PRECONDITION_ASSUME(ubound(args.argv_) >= argc)
+JS_ALWAYS_INLINE bool
+CallNativeImpl(JSContext *cx, NativeImpl impl, const CallArgs &args)
+{
+#ifdef DEBUG
+    bool alreadyThrowing = cx->isExceptionPending();
+#endif
+    assertSameCompartment(cx, args);
+    bool ok = impl(cx, args);
     if (ok) {
         assertSameCompartment(cx, args.rval());
         JS_ASSERT_IF(!alreadyThrowing, !cx->isExceptionPending());
@@ -476,12 +474,6 @@ CallSetter(JSContext *cx, HandleObject obj, HandleId id, StrictPropertyOp op, un
     RootedId nid(cx, INT_TO_JSID(shortid));
 
     return CallJSPropertyOpSetter(cx, op, obj, nid, strict, vp);
-}
-
-static inline HeapPtrAtom *
-FrameAtomBase(JSContext *cx, js::StackFrame *fp)
-{
-    return fp->script()->atoms;
 }
 
 }  /* namespace js */

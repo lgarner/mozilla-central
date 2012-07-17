@@ -9,11 +9,19 @@ webidl_files = \
   Function.webidl \
   EventListener.webidl \
   EventTarget.webidl \
+  Performance.webidl \
+  PerformanceNavigation.webidl \
+  PerformanceTiming.webidl \
   XMLHttpRequest.webidl \
   XMLHttpRequestEventTarget.webidl \
   XMLHttpRequestUpload.webidl \
+  $(NULL)
+
+ifdef MOZ_WEBGL
+webidl_files += \
   WebGLRenderingContext.webidl \
   $(NULL)
+endif
 
 ifdef ENABLE_TESTS
 test_webidl_files := \

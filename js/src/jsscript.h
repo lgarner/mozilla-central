@@ -128,8 +128,6 @@ class Bindings
     inline bool extensibleParents();
     bool setExtensibleParents(JSContext *cx);
 
-    bool setParent(JSContext *cx, JSObject *obj);
-
     enum {
         /* A script may have no more than this many arguments or variables. */
         BINDING_COUNT_LIMIT = 0xFFFF
@@ -409,19 +407,6 @@ struct JSScript : public js::gc::Cell
     JSPrincipals    *principals;/* principals for this script */
     JSPrincipals    *originPrincipals; /* see jsapi.h 'originPrincipals' comment */
 
-    /*
-     * A global object for the script.
-     * - All scripts returned by JSAPI functions (JS_CompileScript,
-     *   JS_CompileUTF8File, etc.) have a non-null globalObject.
-     * - A function script has a globalObject if the function comes from a
-     *   compile-and-go script.
-     * - Temporary scripts created by obj_eval, JS_EvaluateScript, and
-     *   similar functions never have the globalObject field set; for such
-     *   scripts the global should be extracted from the JS frame that
-     *   execute scripts.
-     */
-    js::HeapPtr<js::GlobalObject, JSScript*> globalObject;
-
     /* Persistent type information retained across GCs. */
     js::types::TypeScript *types;
 
@@ -429,8 +414,8 @@ struct JSScript : public js::gc::Cell
 #ifdef JS_METHODJIT
     JITScriptSet *jitInfo;
 #endif
-
     js::HeapPtrFunction function_;
+    js::HeapPtrObject   enclosingScope_;
 
     // 32-bit fields.
 
@@ -510,14 +495,9 @@ struct JSScript : public js::gc::Cell
                                                    undefined properties in this
                                                    script */
     bool            hasSingletons:1;  /* script has singleton objects */
-    bool            isOuterFunction:1; /* function is heavyweight, with inner functions */
-    bool            isInnerFunction:1; /* function is directly nested in a heavyweight
-                                        * outer function */
     bool            isActiveEval:1;   /* script came from eval(), and is still active */
     bool            isCachedEval:1;   /* script came from eval(), and is in eval cache */
     bool            uninlineable:1;   /* script is considered uninlineable by analysis */
-    bool            reentrantOuterFunction:1; /* outer function marked reentrant */
-    bool            typesPurged:1;    /* TypeScript has been purged at some point */
 #ifdef JS_METHODJIT
     bool            debugMode:1;      /* script was compiled in debug mode */
     bool            failedBoundsCheck:1; /* script has had hoisted bounds checks fail */
@@ -542,21 +522,21 @@ struct JSScript : public js::gc::Cell
     //
 
   public:
-    static JSScript *Create(JSContext *cx, bool savedCallerFun,
+    static JSScript *Create(JSContext *cx, js::HandleObject enclosingScope, bool savedCallerFun,
                             JSPrincipals *principals, JSPrincipals *originPrincipals,
                             bool compileAndGo, bool noScriptRval,
-                            js::GlobalObject *globalObject, JSVersion version,
-                            unsigned staticLevel);
+                            JSVersion version, unsigned staticLevel);
 
     // Three ways ways to initialize a JSScript.  Callers of partiallyInit()
     // and fullyInitTrivial() are responsible for notifying the debugger after
     // successfully creating any kind (function or other) of new JSScript.
     // However, callers of fullyInitFromEmitter() do not need to do this.
-    bool partiallyInit(JSContext *cx, uint32_t length, uint32_t nsrcnotes, uint32_t natoms,
-                       uint32_t nobjects, uint32_t nregexps, uint32_t ntrynotes, uint32_t nconsts,
-                       uint16_t nClosedArgs, uint16_t nClosedVars, uint32_t nTypeSets);
-    bool fullyInitTrivial(JSContext *cx);  // inits a JSOP_STOP-only script
-    bool fullyInitFromEmitter(JSContext *cx, js::BytecodeEmitter *bce);
+    static bool partiallyInit(JSContext *cx, JS::Handle<JSScript*> script,
+                              uint32_t length, uint32_t nsrcnotes, uint32_t natoms,
+                              uint32_t nobjects, uint32_t nregexps, uint32_t ntrynotes, uint32_t nconsts,
+                              uint16_t nClosedArgs, uint16_t nClosedVars, uint32_t nTypeSets);
+    static bool fullyInitTrivial(JSContext *cx, JS::Handle<JSScript*> script);  // inits a JSOP_STOP-only script
+    static bool fullyInitFromEmitter(JSContext *cx, JS::Handle<JSScript*> script, js::BytecodeEmitter *bce);
 
     void setVersion(JSVersion v) { version = v; }
 
@@ -593,15 +573,15 @@ struct JSScript : public js::gc::Cell
         return needsArgsObj() && !strictModeCode;
     }
 
-    /* Hash table chaining for JSCompartment::evalCache. */
-    JSScript *&evalHashLink() { return *globalObject.unsafeGetUnioned(); }
-
     /*
      * Original compiled function for the script, if it has a function.
      * NULL for global and eval scripts.
      */
     JSFunction *function() const { return function_; }
     void setFunction(JSFunction *fun);
+
+    /* Return whether this script was compiled for 'eval' */
+    bool isForEval() { return isCachedEval || isActiveEval; }
 
 #ifdef DEBUG
     unsigned id();
@@ -613,12 +593,10 @@ struct JSScript : public js::gc::Cell
     inline bool ensureHasTypes(JSContext *cx);
 
     /*
-     * Ensure the script has scope and bytecode analysis information.
-     * Performed when the script first runs, or first runs after a TypeScript
-     * GC purge. If scope is NULL then the script must already have types with
-     * scope information.
+     * Ensure the script has bytecode analysis information. Performed when the
+     * script first runs, or first runs after a TypeScript GC purge.
      */
-    inline bool ensureRanAnalysis(JSContext *cx, JSObject *scope);
+    inline bool ensureRanAnalysis(JSContext *cx);
 
     /* Ensure the script has type inference analysis information. */
     inline bool ensureRanInference(JSContext *cx);
@@ -630,15 +608,10 @@ struct JSScript : public js::gc::Cell
     inline bool hasGlobal() const;
     inline bool hasClearedGlobal() const;
 
-    inline js::GlobalObject * global() const;
-    inline js::types::TypeScriptNesting *nesting() const;
+    inline js::GlobalObject &global() const;
 
-    inline void clearNesting();
-
-    /* Return creation time global or null. */
-    js::GlobalObject *getGlobalObjectOrNull() const {
-        return (isCachedEval || isActiveEval) ? NULL : globalObject.get();
-    }
+    /* See StaticScopeIter comment. */
+    JSObject *enclosingStaticScope() const { return enclosingScope_; }
 
   private:
     bool makeTypes(JSContext *cx);
@@ -784,14 +757,29 @@ struct JSScript : public js::gc::Cell
         return atoms[index];
     }
 
+    js::HeapPtrAtom &getAtom(jsbytecode *pc) const {
+        JS_ASSERT(pc >= code && pc + sizeof(uint32_t) < code + length);
+        return getAtom(GET_UINT32_INDEX(pc));
+    }
+
     js::PropertyName *getName(size_t index) {
         return getAtom(index)->asPropertyName();
+    }
+
+    js::PropertyName *getName(jsbytecode *pc) const {
+        JS_ASSERT(pc >= code && pc + sizeof(uint32_t) < code + length);
+        return getAtom(GET_UINT32_INDEX(pc))->asPropertyName();
     }
 
     JSObject *getObject(size_t index) {
         js::ObjectArray *arr = objects();
         JS_ASSERT(index < arr->length);
         return arr->vector[index];
+    }
+
+    JSObject *getObject(jsbytecode *pc) {
+        JS_ASSERT(pc >= code && pc + sizeof(uint32_t) < code + length);
+        return getObject(GET_UINT32_INDEX(pc));
     }
 
     JSVersion getVersion() const {
@@ -859,8 +847,7 @@ struct JSScript : public js::gc::Cell
         return hasDebugScript ? debugScript()->breakpoints[pc - code] : NULL;
     }
 
-    js::BreakpointSite *getOrCreateBreakpointSite(JSContext *cx, jsbytecode *pc,
-                                                  js::GlobalObject *scriptGlobal);
+    js::BreakpointSite *getOrCreateBreakpointSite(JSContext *cx, jsbytecode *pc);
 
     void destroyBreakpointSite(js::FreeOp *fop, jsbytecode *pc);
 
@@ -1019,7 +1006,7 @@ inline void
 CurrentScriptFileLineOrigin(JSContext *cx, unsigned *linenop, LineOption = NOT_CALLED_FROM_JSOP_EVAL);
 
 extern JSScript *
-CloneScript(JSContext *cx, HandleScript script);
+CloneScript(JSContext *cx, HandleObject enclosingScope, HandleFunction fun, HandleScript script);
 
 /*
  * NB: after a successful XDR_DECODE, XDRScript callers must do any required
@@ -1028,7 +1015,8 @@ CloneScript(JSContext *cx, HandleScript script);
  */
 template<XDRMode mode>
 bool
-XDRScript(XDRState<mode> *xdr, JSScript **scriptp, JSScript *parentScript);
+XDRScript(XDRState<mode> *xdr, HandleObject enclosingScope, HandleScript enclosingScript,
+          HandleFunction fun, JSScript **scriptp);
 
 } /* namespace js */
 

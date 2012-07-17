@@ -7,6 +7,7 @@ package org.mozilla.gecko;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -193,7 +194,7 @@ public class AwesomeBarTabs extends TabHost {
     private String getReaderForUrl(String url) {
         // FIXME: still need to define the final way to open items from
         // reading list. For now, we're using an about:reader page.
-        return "about:reader?url=" + url;
+        return "about:reader?url=" + Uri.encode(url);
     }
 
     public void setOnUrlOpenListener(OnUrlOpenListener listener) {
@@ -238,29 +239,6 @@ public class AwesomeBarTabs extends TabHost {
 
         // Perform the actual search
         allPages.filter(searchTerm);
-    }
-
-    /**
-     * Sets suggestions associated with the current suggest engine.
-     * If there is no suggest engine, this does nothing.
-     */
-    public void setSuggestions(final ArrayList<String> suggestions) {
-        GeckoAppShell.getMainHandler().post(new Runnable() {
-            public void run() {
-                getAllPagesTab().setSuggestions(suggestions);
-            }
-        });
-    }
-
-    /**
-     * Sets search engines to be shown for user-entered queries.
-     */
-    public void setSearchEngines(final String suggestEngineName, final JSONArray engines) {
-        GeckoAppShell.getMainHandler().post(new Runnable() {
-            public void run() {
-                getAllPagesTab().setSearchEngines(suggestEngineName, engines);
-            }
-        });
     }
 
     public boolean isInReadingList() {

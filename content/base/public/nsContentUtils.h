@@ -1282,6 +1282,8 @@ public:
   static nsresult DropJSObjects(void* aScriptObjectHolder);
 
 #ifdef DEBUG
+  static bool AreJSObjectsHeld(void* aScriptObjectHolder); 
+
   static void CheckCCWrapperTraversal(nsISupports* aScriptObjectHolder,
                                       nsWrapperCache* aCache);
 #endif
@@ -1628,6 +1630,11 @@ public:
    */
   static nsresult ASCIIToUpper(nsAString& aStr);
   static nsresult ASCIIToUpper(const nsAString& aSource, nsAString& aDest);
+
+  /**
+   * Return whether aStr contains an ASCII uppercase character.
+   */
+  static bool StringContainsASCIIUpper(const nsAString& aStr);
 
   // Returns NS_OK for same origin, error (NS_ERROR_DOM_BAD_URI) if not.
   static nsresult CheckSameOrigin(nsIChannel *aOldChannel, nsIChannel *aNewChannel);

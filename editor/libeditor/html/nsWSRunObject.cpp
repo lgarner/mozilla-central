@@ -3,16 +3,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "nsTextFragment.h"
-#include "nsWSRunObject.h"
-#include "nsIDOMNode.h"
+#include "mozilla/Assertions.h"
+#include "mozilla/mozalloc.h"
+#include "nsAString.h"
+#include "nsAutoPtr.h"
+#include "nsCRT.h"
+#include "nsContentUtils.h"
+#include "nsDebug.h"
+#include "nsEditorUtils.h"
+#include "nsError.h"
 #include "nsHTMLEditor.h"
-#include "nsTextEditUtils.h"
 #include "nsIContent.h"
 #include "nsIDOMCharacterData.h"
-#include "nsCRT.h"
+#include "nsIDOMNode.h"
+#include "nsIDOMRange.h"
+#include "nsISupportsImpl.h"
 #include "nsRange.h"
-#include "nsContentUtils.h"
+#include "nsSelectionState.h"
+#include "nsString.h"
+#include "nsTextEditUtils.h"
+#include "nsTextFragment.h"
+#include "nsWSRunObject.h"
 
 const PRUnichar nbsp = 160;
 
@@ -116,9 +127,8 @@ nsWSRunObject::PrepareToDeleteNode(nsHTMLEditor *aHTMLEd,
 {
   NS_ENSURE_TRUE(aNode && aHTMLEd, NS_ERROR_NULL_POINTER);
   
-  nsCOMPtr<nsIDOMNode> parent;
   PRInt32 offset;
-  aHTMLEd->GetNodeLocation(aNode, address_of(parent), &offset);
+  nsCOMPtr<nsIDOMNode> parent = aHTMLEd->GetNodeLocation(aNode, &offset);
   
   nsWSRunObject leftWSObj(aHTMLEd, parent, offset);
   nsWSRunObject rightWSObj(aHTMLEd, parent, offset+1);

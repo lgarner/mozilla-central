@@ -10,7 +10,6 @@
 #include "jsinterp.h"
 
 #include "vm/GlobalObject.h"
-#include "vm/MethodGuard.h"
 #include "vm/Stack.h"
 #include "vm/Xdr.h"
 
@@ -25,25 +24,21 @@ using namespace js::gc;
 ArgumentsObject *
 ArgumentsObject::create(JSContext *cx, StackFrame *fp)
 {
-    JSFunction &callee = fp->callee();
-    RootedObject proto(cx, callee.global().getOrCreateObjectPrototype(cx));
+    RootedObject proto(cx, fp->callee().global().getOrCreateObjectPrototype(cx));
     if (!proto)
         return NULL;
 
-    RootedTypeObject type(cx);
-    type = proto->getNewType(cx);
+    RootedTypeObject type(cx, proto->getNewType(cx));
     if (!type)
         return NULL;
 
-    bool strict = callee.inStrictMode();
+    bool strict = fp->callee().inStrictMode();
     Class *clasp = strict ? &StrictArgumentsObjectClass : &NormalArgumentsObjectClass;
 
-    RootedShape emptyArgumentsShape(cx);
-    emptyArgumentsShape =
-        EmptyShape::getInitialShape(cx, clasp, proto,
-                                    proto->getParent(), FINALIZE_KIND,
-                                    BaseShape::INDEXED);
-    if (!emptyArgumentsShape)
+    RootedShape shape(cx, EmptyShape::getInitialShape(cx, clasp, proto,
+                                                      proto->getParent(), FINALIZE_KIND,
+                                                      BaseShape::INDEXED));
+    if (!shape)
         return NULL;
 
     unsigned numActuals = fp->numActualArgs();
@@ -59,7 +54,7 @@ ArgumentsObject::create(JSContext *cx, StackFrame *fp)
         return NULL;
 
     data->numArgs = numArgs;
-    data->callee.init(ObjectValue(callee));
+    data->callee.init(ObjectValue(fp->callee()));
     data->script = fp->script();
 
     /* Copy [0, numArgs) into data->slots. */
@@ -77,7 +72,7 @@ ArgumentsObject::create(JSContext *cx, StackFrame *fp)
     data->deletedBits = reinterpret_cast<size_t *>(dstEnd);
     ClearAllBitArrayElements(data->deletedBits, numDeletedWords);
 
-    JSObject *obj = JSObject::create(cx, FINALIZE_KIND, emptyArgumentsShape, type, NULL);
+    JSObject *obj = JSObject::create(cx, FINALIZE_KIND, shape, type, NULL);
     if (!obj)
         return NULL;
 

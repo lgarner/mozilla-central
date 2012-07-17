@@ -117,6 +117,7 @@ struct JSCompartment
     JSPrincipals                 *principals;
 
   private:
+    friend struct JSContext;
     js::GlobalObject             *global_;
   public:
     // Nb: global_ might be NULL, if (a) it's the atoms compartment, or (b) the
@@ -127,7 +128,7 @@ struct JSCompartment
     //
     // In contrast, JSObject::global() is infallible because marking a JSObject
     // always marks its global as well.
-    // TODO: add infallible JSScript::global() and JSContext::global()
+    // TODO: add infallible JSScript::global()
     //
     js::GlobalObject *maybeGlobal() const {
         JS_ASSERT_IF(global_, global_->compartment() == this);
@@ -222,6 +223,7 @@ struct JSCompartment
     size_t                       gcBytes;
     size_t                       gcTriggerBytes;
     size_t                       gcMaxMallocBytes;
+    double                       gcHeapGrowthFactor;
 
     bool                         hold;
     bool                         isSystemCompartment;
@@ -436,6 +438,12 @@ JSContext::setCompartment(JSCompartment *compartment)
 {
     this->compartment = compartment;
     this->inferenceEnabled = compartment ? compartment->types.inferenceEnabled : false;
+}
+
+inline js::Handle<js::GlobalObject*>
+JSContext::global() const
+{
+    return js::Handle<js::GlobalObject*>::fromMarkedLocation(&compartment->global_);
 }
 
 namespace js {

@@ -1063,44 +1063,44 @@ exports.check = function(checks) {
       }
 
       if (assignment == null) {
-        test.ok(false, 'Unknown parameter: ' + paramName);
+        test.ok(false, 'Unknown arg: ' + paramName);
         return;
       }
 
       if (check.value) {
         test.is(assignment.value,
                 check.value,
-                'checkStatus value for ' + paramName);
+                'arg[\'' + paramName + '\'].value');
       }
 
       if (check.name) {
         test.is(assignment.value.name,
                 check.name,
-                'checkStatus name for ' + paramName);
+                'arg[\'' + paramName + '\'].name');
       }
 
       if (check.type) {
         test.is(assignment.arg.type,
                 check.type,
-                'checkStatus type for ' + paramName);
+                'arg[\'' + paramName + '\'].type');
       }
 
       if (check.arg) {
         test.is(assignment.arg.toString(),
                 check.arg,
-                'checkStatus arg for ' + paramName);
+                'arg[\'' + paramName + '\'].arg');
       }
 
       if (check.status) {
         test.is(assignment.getStatus().toString(),
                 check.status,
-                'checkStatus status for ' + paramName);
+                'arg[\'' + paramName + '\'].status');
       }
 
       if (check.message) {
         test.is(assignment.getMessage(),
                 check.message,
-                'checkStatus message for ' + paramName);
+                'arg[\'' + paramName + '\'].message');
       }
     });
   }
@@ -1733,6 +1733,7 @@ exports.setup = function() {
   canon.addCommand(exports.tselarr);
   canon.addCommand(exports.tsm);
   canon.addCommand(exports.tsg);
+  canon.addCommand(exports.tscook);
 };
 
 exports.shutdown = function() {
@@ -1756,6 +1757,7 @@ exports.shutdown = function() {
   canon.removeCommand(exports.tselarr);
   canon.removeCommand(exports.tsm);
   canon.removeCommand(exports.tsg);
+  canon.removeCommand(exports.tscook);
 
   types.deregisterType(exports.optionType);
   types.deregisterType(exports.optionValue);
@@ -1973,6 +1975,46 @@ exports.tsg = {
     }
   ],
   exec: createExec('tsg')
+};
+
+exports.tscook = {
+  name: 'tscook',
+  description: 'param group test to catch problems with cookie command',
+  params: [
+    {
+      name: 'key',
+      type: 'string',
+      description: 'tscookKeyDesc'
+    },
+    {
+      name: 'value',
+      type: 'string',
+      description: 'tscookValueDesc'
+    },
+    {
+      group: 'tscookOptionsDesc',
+      params: [
+        {
+          name: 'path',
+          type: 'string',
+          defaultValue: '/',
+          description: 'tscookPathDesc'
+        },
+        {
+          name: 'domain',
+          type: 'string',
+          defaultValue: null,
+          description: 'tscookDomainDesc'
+        },
+        {
+          name: 'secure',
+          type: 'boolean',
+          description: 'tscookSecureDesc'
+        }
+      ]
+    }
+  ],
+  exec: createExec('tscook')
 };
 
 
@@ -2885,7 +2927,58 @@ exports.testCompleted = function(options) {
     }
   });
 
-  // Expand out to christmas tree command line
+  helpers.setInput('tscook key value --path path --');
+  helpers.check({
+    input:  'tscook key value --path path --',
+    markup: 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVII',
+    directTabText: 'domain',
+    arrowTabText: '',
+    status: 'ERROR',
+    emptyParameters: [ ],
+    args: {
+      key: { value: 'key', status: 'VALID' },
+      value: { value: 'value', status: 'VALID' },
+      path: { value: 'path', status: 'VALID' },
+      domain: { value: undefined, status: 'VALID' },
+      secure: { value: false, status: 'VALID' }
+    }
+  });
+
+  helpers.setInput('tscook key value --path path --domain domain --');
+  helpers.check({
+    input:  'tscook key value --path path --domain domain --',
+    markup: 'VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVII',
+    directTabText: 'secure',
+    arrowTabText: '',
+    status: 'ERROR',
+    emptyParameters: [ ],
+    args: {
+      key: { value: 'key', status: 'VALID' },
+      value: { value: 'value', status: 'VALID' },
+      path: { value: 'path', status: 'VALID' },
+      domain: { value: 'domain', status: 'VALID' },
+      secure: { value: false, status: 'VALID' }
+    }
+  });
+};
+
+exports.testCase = function(options) {
+  helpers.setInput('tsg AA');
+  helpers.check({
+    input:  'tsg AA',
+    markup: 'VVVVII',
+    directTabText: '',
+    arrowTabText: 'aaa',
+    status: 'ERROR',
+    emptyParameters: [ ],
+    args: {
+      solo: { value: undefined, text: 'AA', status: 'INCOMPLETE' },
+      txt1: { value: undefined, status: 'VALID' },
+      bool: { value: undefined, status: 'VALID' },
+      txt2: { value: undefined, status: 'VALID' },
+      num: { value: undefined, status: 'VALID' }
+    }
+  });
 };
 
 exports.testIncomplete = function(options) {

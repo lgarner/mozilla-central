@@ -72,6 +72,7 @@ struct JSFunction : public JSObject
     bool isNullClosure()     const { return kind() == JSFUN_NULL_CLOSURE; }
     bool isFunctionPrototype() const { return flags & JSFUN_PROTOTYPE; }
     bool isInterpretedConstructor() const { return isInterpreted() && !isFunctionPrototype(); }
+    bool isNamedLambda()     const { return (flags & JSFUN_LAMBDA) && atom; }
 
     uint16_t kind()          const { return flags & JSFUN_KINDMASK; }
     void setKind(uint16_t k) {
@@ -253,17 +254,30 @@ JSFunction::toExtended() const
     return static_cast<const js::FunctionExtended *>(this);
 }
 
-inline bool
-js_IsNamedLambda(JSFunction *fun) { return (fun->flags & JSFUN_LAMBDA) && fun->atom; }
-
 namespace js {
 
 template<XDRMode mode>
 bool
-XDRInterpretedFunction(XDRState<mode> *xdr, JSObject **objp, JSScript *parentScript);
+XDRInterpretedFunction(XDRState<mode> *xdr, HandleObject enclosingScope,
+                       HandleScript enclosingScript, JSObject **objp);
 
 extern JSObject *
-CloneInterpretedFunction(JSContext *cx, JSFunction *fun);
+CloneInterpretedFunction(JSContext *cx, HandleObject enclosingScope, HandleFunction fun);
+
+/*
+ * Report an error that call.thisv is not compatible with the specified class,
+ * assuming that the method (clasp->name).prototype.<name of callee function>
+ * is what was called.
+ */
+extern void
+ReportIncompatibleMethod(JSContext *cx, CallReceiver call, Class *clasp);
+
+/*
+ * Report an error that call.thisv is not an acceptable this for the callee
+ * function.
+ */
+extern void
+ReportIncompatible(JSContext *cx, CallReceiver call);
 
 } /* namespace js */
 

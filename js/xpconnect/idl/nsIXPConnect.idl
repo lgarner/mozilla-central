@@ -423,9 +423,6 @@ interface nsIXPConnect : nsISupports
     *     as an nsIXPConnectWrappedNative.
     *  2) The xpcom object is in fact a nsIXPConnectWrappedJS and thus already
     *     has an underlying JSObject.
-    *  3) The xpcom object implements nsIScriptObjectOwner; i.e. is an idlc
-    *     style DOM object for which we can call GetScriptObject to get the
-    *     JSObject it uses to represent itself into JavaScript.
     *
     * It *might* be possible to QueryInterface the nsIXPConnectJSObjectHolder
     * returned by the method into a nsIXPConnectWrappedNative or a
@@ -672,6 +669,13 @@ interface nsIXPConnect : nsISupports
      * @param aHolder The object that hold the rooted JS objects.
      */
     [noscript] void removeJSHolder(in voidPtr aHolder);
+
+    /**
+     * Test to see if a JS holder is in our hashtable.
+     * Only available in debug builds.
+     * @param aHolder The object to test for.
+     */
+    [noscript] bool testJSHolder(in voidPtr aHolder);
 
     /**
      * Note aJSContext as a child to the cycle collector.

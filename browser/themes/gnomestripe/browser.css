@@ -586,11 +586,11 @@ toolbar[mode="full"] .toolbarbutton-1 > .toolbarbutton-menubutton-button {
 }
 
 @conditionalForwardWithUrlbar@:not([switchingtabs]) > #forward-button {
-  -moz-transition: @forwardTransitionLength@ ease-out;
+  transition: @forwardTransitionLength@ ease-out;
 }
 
 @conditionalForwardWithUrlbar@ > #forward-button[disabled] {
-  -moz-transform: scale(0);
+  transform: scale(0);
   opacity: 0;
   pointer-events: none;
 }
@@ -938,8 +938,8 @@ toolbar[iconsize="small"] #feed-button {
 }
 
 @conditionalForwardWithUrlbar@:not([switchingtabs]) + #urlbar-container > #urlbar {
-  -moz-transition: margin-left @forwardTransitionLength@ ease-out,
-                   margin-right @forwardTransitionLength@ ease-out;
+  transition: margin-left @forwardTransitionLength@ ease-out,
+              margin-right @forwardTransitionLength@ ease-out;
 }
 
 @conditionalForwardWithUrlbar@[forwarddisabled] + #urlbar-container > #urlbar:-moz-locale-dir(ltr) {
@@ -1223,7 +1223,7 @@ toolbar[iconsize="small"] #feed-button {
 
 #notification-popup-box:-moz-locale-dir(rtl),
 .notification-anchor-icon:-moz-locale-dir(rtl) {
-  -moz-transform: scaleX(-1);
+  transform: scaleX(-1);
 }
 
 .notification-anchor-icon {
@@ -1290,7 +1290,7 @@ toolbar[iconsize="small"] #feed-button {
 }
 
 .ac-comment {
-  font-size: 1.15em;
+  font-size: 1.05em;
 }
 
 .ac-extra > .ac-comment {
@@ -1300,6 +1300,7 @@ toolbar[iconsize="small"] #feed-button {
 .ac-url-text,
 .ac-action-text {
   color: -moz-nativehyperlinktext;
+  font-size: 0.9em;
 }
 
 richlistitem[type~="action"][actiontype="switchtab"] > .ac-url-box > .ac-action-icon {
@@ -1349,7 +1350,7 @@ richlistitem[type~="action"][actiontype="switchtab"] > .ac-url-box > .ac-action-
 
 #go-button:-moz-locale-dir(rtl) > .toolbarbutton-icon,
 #urlbar-go-button:-moz-locale-dir(rtl) > .toolbarbutton-icon {
-  -moz-transform: scaleX(-1);
+  transform: scaleX(-1);
 }
 
 #urlbar-reload-button {
@@ -1363,6 +1364,20 @@ richlistitem[type~="action"][actiontype="switchtab"] > .ac-url-box > .ac-action-
 /* Popup blocker button */
 #page-report-button {
   list-style-image: url("chrome://browser/skin/Info.png");
+}
+
+/* social recommending panel */
+
+#share-button {
+  list-style-image: url(chrome://browser/skin/share-button.png);
+}
+
+#share-button:not([shared]):not([disabled]):hover {
+  list-style-image: url(chrome://browser/skin/share-button-active.png);
+}
+
+#share-button[shared] {
+  list-style-image: url(chrome://browser/skin/share-button-shared.png);
 }
 
 /* Star button */
@@ -1642,13 +1657,13 @@ richlistitem[type~="action"][actiontype="switchtab"] > .ac-url-box > .ac-action-
 .tabbrowser-arrowscrollbox > .scrollbutton-down {
   -moz-border-start: 2px solid transparent;
   -moz-border-end: 0;
-  -moz-transition: 1s box-shadow ease-out;
+  transition: 1s box-shadow ease-out;
   border-radius: 4px;
 }
 
 .tabbrowser-arrowscrollbox > .scrollbutton-down[notifybgtab] {
   box-shadow: 0 0 5px 5px Highlight inset;
-  -moz-transition: none;
+  transition: none;
 }
 
 .tabbrowser-arrowscrollbox > .scrollbutton-up:not([disabled]):-moz-locale-dir(ltr),
@@ -1719,7 +1734,7 @@ toolbarbutton.chevron {
 }
 
 toolbarbutton.chevron:-moz-locale-dir(rtl) > .toolbarbutton-icon {
-  -moz-transform: scaleX(-1);
+  transform: scaleX(-1);
 }
 
 toolbarbutton.chevron > .toolbarbutton-text,
@@ -1810,7 +1825,7 @@ toolbar[mode="text"] toolbarbutton.chevron > .toolbarbutton-icon {
 }
 
 .allTabs-preview-label {
-  -moz-transform: translate(0, 2px);
+  transform: translate(0, 2px);
 }
 
 /* Application button menu */
@@ -2077,7 +2092,7 @@ html|*#highlighter-nodeinfobar-pseudo-classes {
   width: 14px;
   height: 14px;
   -moz-margin-start: -moz-calc(50% - 7px);
-  -moz-transform: rotate(-45deg);
+  transform: rotate(-45deg);
   border: 1px solid transparent;
   background-clip: padding-box;
   background-repeat: no-repeat;
@@ -2185,7 +2200,7 @@ html|*#highlighter-nodeinfobar-pseudo-classes {
 
 #inspector-breadcrumbs > .scrollbutton-up > .toolbarbutton-icon:-moz-locale-dir(rtl),
 #inspector-breadcrumbs > .scrollbutton-down > .toolbarbutton-icon:-moz-locale-dir(ltr) {
-  -moz-transform: scaleX(-1);
+  transform: scaleX(-1);
 }
 
 .inspector-breadcrumbs-button {
@@ -2509,7 +2524,7 @@ stack[anonid=browserStack][responsivemode] {
   width: 7px;
   height: 24px;
   cursor: ew-resize;
-  -moz-transform: translate(12px, -12px);
+  transform: translate(12px, -12px);
   background-image: url("chrome://browser/skin/devtools/responsive-vertical-resizer.png");
 }
 
@@ -2517,7 +2532,7 @@ stack[anonid=browserStack][responsivemode] {
   width: 16px;
   height: 16px;
   cursor: se-resize;
-  -moz-transform: translate(12px, 12px);
+  transform: translate(12px, 12px);
   background-image: url("chrome://browser/skin/devtools/responsive-se-resizer.png");
 }
 

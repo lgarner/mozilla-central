@@ -1797,15 +1797,15 @@ ProfileLockedDialog(nsIToolkitProfile* aProfile, nsIProfileUnlocker* aUnlocker,
   nsresult rv = aProfile->GetRootDir(getter_AddRefs(profileDir));
   if (NS_FAILED(rv)) return rv;
 
-  nsCOMPtr<nsIFile> profileLocalDir;
-  rv = aProfile->GetLocalDir(getter_AddRefs(profileLocalDir));
-  if (NS_FAILED(rv)) return rv;
-
   bool exists;
-  profileLocalDir->Exists(&exists);
+  profileDir->Exists(&exists);
   if (!exists) {
     return ProfileMissingDialog(aNative);
   }
+
+  nsCOMPtr<nsIFile> profileLocalDir;
+  rv = aProfile->GetLocalDir(getter_AddRefs(profileLocalDir));
+  if (NS_FAILED(rv)) return rv;
 
   return ProfileLockedDialog(profileDir, profileLocalDir, aUnlocker, aNative,
                              aResult);
@@ -3937,7 +3937,9 @@ int
 XRE_main(int argc, char* argv[], const nsXREAppData* aAppData, PRUint32 aFlags)
 {
   XREMain main;
-  return main.XRE_main(argc, argv, aAppData);
+  int result = main.XRE_main(argc, argv, aAppData);
+  mozilla::RecordShutdownEndTimeStamp();
+  return result;
 }
 
 nsresult

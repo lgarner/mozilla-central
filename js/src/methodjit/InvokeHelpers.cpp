@@ -259,7 +259,8 @@ UncachedInlineCall(VMFrame &f, InitialFrameFlags initial,
         return false;
 
     /* Try to compile if not already compiled. */
-    CompileStatus status = CanMethodJIT(cx, newscript, newscript->code, construct, CompileRequest_Interpreter);
+    CompileStatus status = CanMethodJIT(cx, newscript, newscript->code, construct,
+                                        CompileRequest_Interpreter, f.fp());
     if (status == Compile_Error) {
         /* A runtime exception was thrown, get out. */
         return false;
@@ -561,7 +562,7 @@ js_InternalThrow(VMFrame &f)
      */
     cx->jaegerRuntime().setLastUnfinished(Jaeger_Unfinished);
 
-    if (!script->ensureRanAnalysis(cx, NULL)) {
+    if (!script->ensureRanAnalysis(cx)) {
         js_ReportOutOfMemory(cx);
         return NULL;
     }
@@ -610,7 +611,7 @@ stubs::CreateThis(VMFrame &f, JSObject *proto)
 void JS_FASTCALL
 stubs::ScriptDebugPrologue(VMFrame &f)
 {
-    Probes::enterJSFun(f.cx, f.fp()->maybeFun(), f.fp()->script());
+    Probes::enterScript(f.cx, f.script(), f.script()->function(), f.fp());
     JSTrapStatus status = js::ScriptDebugPrologue(f.cx, f.fp());
     switch (status) {
       case JSTRAP_CONTINUE:
@@ -629,7 +630,6 @@ stubs::ScriptDebugPrologue(VMFrame &f)
 void JS_FASTCALL
 stubs::ScriptDebugEpilogue(VMFrame &f)
 {
-    Probes::exitJSFun(f.cx, f.fp()->maybeFun(), f.fp()->script());
     if (!js::ScriptDebugEpilogue(f.cx, f.fp(), JS_TRUE))
         THROW();
 }
@@ -637,13 +637,13 @@ stubs::ScriptDebugEpilogue(VMFrame &f)
 void JS_FASTCALL
 stubs::ScriptProbeOnlyPrologue(VMFrame &f)
 {
-    Probes::enterJSFun(f.cx, f.fp()->fun(), f.fp()->script());
+    Probes::enterScript(f.cx, f.script(), f.script()->function(), f.fp());
 }
 
 void JS_FASTCALL
 stubs::ScriptProbeOnlyEpilogue(VMFrame &f)
 {
-    Probes::exitJSFun(f.cx, f.fp()->fun(), f.fp()->script());
+    Probes::exitScript(f.cx, f.script(), f.script()->function(), f.fp());
 }
 
 void JS_FASTCALL
@@ -658,7 +658,7 @@ stubs::CrossChunkShim(VMFrame &f, void *edge_)
     JS_ASSERT(script->code + edge->target == f.pc());
 
     CompileStatus status = CanMethodJIT(f.cx, script, f.pc(), f.fp()->isConstructing(),
-                                        CompileRequest_Interpreter);
+                                        CompileRequest_Interpreter, f.fp());
     if (status == Compile_Error)
         THROW();
 
@@ -736,7 +736,7 @@ js_InternalInterpret(void *returnData, void *returnType, void *returnReg, js::VM
     JSOp op = JSOp(*pc);
     const JSCodeSpec *cs = &js_CodeSpec[op];
 
-    if (!script->ensureRanAnalysis(cx, NULL)) {
+    if (!script->ensureRanAnalysis(cx)) {
         js_ReportOutOfMemory(cx);
         return js_InternalThrow(f);
     }
@@ -868,8 +868,7 @@ js_InternalInterpret(void *returnData, void *returnType, void *returnReg, js::VM
             return js_InternalThrow(f);
         fp->thisValue() = ObjectValue(*obj);
 
-        if (Probes::callTrackingActive(cx))
-            Probes::enterJSFun(f.cx, f.fp()->maybeFun(), f.fp()->script());
+        Probes::enterScript(f.cx, f.script(), f.script()->function(), fp);
 
         if (script->debugMode) {
             JSTrapStatus status = js::ScriptDebugPrologue(f.cx, f.fp());
@@ -925,8 +924,8 @@ js_InternalInterpret(void *returnData, void *returnType, void *returnReg, js::VM
         }
         /* FALLTHROUGH */
       case REJOIN_EVAL_PROLOGUE:
+        Probes::enterScript(cx, f.script(), f.script()->function(), fp);
         if (cx->compartment->debugMode()) {
-            Probes::enterJSFun(cx, fp->maybeFun(), fp->script());
             JSTrapStatus status = ScriptDebugPrologue(cx, fp);
             switch (status) {
               case JSTRAP_CONTINUE:

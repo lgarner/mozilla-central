@@ -95,7 +95,6 @@
 
 #include "gc/Marking.h"
 #include "vm/ArgumentsObject.h"
-#include "vm/MethodGuard.h"
 #include "vm/NumericConversions.h"
 #include "vm/StringBuffer.h"
 
@@ -480,7 +479,6 @@ SetArrayElement(JSContext *cx, HandleObject obj, double index, const Value &v)
     }
 
     RootedId id(cx);
-
     if (!IndexToId(cx, obj, index, NULL, id.address(), JS_TRUE))
         return JS_FALSE;
     JS_ASSERT(!JSID_IS_VOID(id));
@@ -1444,17 +1442,18 @@ class ArraySharpDetector
     }
 };
 
-static JSBool
-array_toSource(JSContext *cx, unsigned argc, Value *vp)
+static bool
+IsArray(const Value &v)
 {
-    JS_CHECK_RECURSION(cx, return false);
+    return v.isObject() && v.toObject().isArray();
+}
 
-    CallArgs args = CallArgsFromVp(argc, vp);
-    RootedObject obj(cx, ToObject(cx, &args.thisv()));
-    if (!obj)
-        return false;
-    if (!obj->isArray())
-        return HandleNonGenericMethodClassMismatch(cx, args, array_toSource, &ArrayClass);
+static bool
+array_toSource_impl(JSContext *cx, CallArgs args)
+{
+    JS_ASSERT(IsArray(args.thisv()));
+
+    Rooted<JSObject*> obj(cx, &args.thisv().toObject());
 
     ArraySharpDetector detector(cx);
     if (!detector.init(obj))
@@ -1516,6 +1515,14 @@ array_toSource(JSContext *cx, unsigned argc, Value *vp)
 
     args.rval().setString(str);
     return true;
+}
+
+static JSBool
+array_toSource(JSContext *cx, unsigned argc, Value *vp)
+{
+    JS_CHECK_RECURSION(cx, return false);
+    CallArgs args = CallArgsFromVp(argc, vp);
+    return CallNonGenericMethod(cx, IsArray, array_toSource_impl, args);
 }
 #endif
 
@@ -1816,38 +1823,6 @@ InitArrayElements(JSContext *cx, HandleObject obj, uint32_t start, uint32_t coun
 
     return true;
 }
-
-#if 0
-static JSBool
-InitArrayObject(JSContext *cx, JSObject *obj, uint32_t length, const Value *vector)
-{
-    JS_ASSERT(obj->isArray());
-
-    JS_ASSERT(obj->isDenseArray());
-    obj->setArrayLength(cx, length);
-    if (!vector || !length)
-        return true;
-
-    if (!InitArrayTypes(cx, obj->getType(cx), vector, length))
-        return false;
-
-    /* Avoid ensureDenseArrayElements to skip sparse array checks there. */
-    if (!obj->ensureElements(cx, length))
-        return false;
-
-    obj->setDenseArrayInitializedLength(length);
-
-    bool hole = false;
-    for (uint32_t i = 0; i < length; i++) {
-        obj->setDenseArrayElement(i, vector[i]);
-        hole |= vector[i].isMagic(JS_ARRAY_HOLE);
-    }
-    if (hole)
-        obj->markDenseArrayNotPacked(cx);
-
-    return true;
-}
-#endif
 
 /*
  * Perl-inspired join, reverse, and sort.
@@ -3687,17 +3662,14 @@ js_InitArrayClass(JSContext *cx, JSObject *obj)
 {
     JS_ASSERT(obj->isNative());
 
-    Rooted<GlobalObject*> global(cx);
-    global = &obj->asGlobal();
+    Rooted<GlobalObject*> global(cx, &obj->asGlobal());
 
-    RootedObject arrayProto(cx);
-    arrayProto = global->createBlankPrototype(cx, &SlowArrayClass);
+    RootedObject arrayProto(cx, global->createBlankPrototype(cx, &SlowArrayClass));
     if (!arrayProto || !AddLengthProperty(cx, arrayProto))
         return NULL;
     arrayProto->setArrayLength(cx, 0);
 
-    RootedFunction ctor(cx);
-    ctor = global->createConstructor(cx, js_Array, CLASS_NAME(cx, Array), 1);
+    RootedFunction ctor(cx, global->createConstructor(cx, js_Array, CLASS_NAME(cx, Array), 1));
     if (!ctor)
         return NULL;
 
@@ -3762,14 +3734,14 @@ NewArray(JSContext *cx, uint32_t length, JSObject *proto_)
     NewObjectCache::EntryIndex entry = -1;
     if (cache.lookupGlobal(&ArrayClass, parent_, kind, &entry)) {
         JSObject *obj = cache.newObjectFromHit(cx, entry);
-        if (!obj)
-            return NULL;
-        /* Fixup the elements pointer and length, which may be incorrect. */
-        obj->setFixedElements();
-        obj->setArrayLength(cx, length);
-        if (allocateCapacity && !EnsureNewArrayElements(cx, obj, length))
-            return NULL;
-        return obj;
+        if (obj) {
+            /* Fixup the elements pointer and length, which may be incorrect. */
+            obj->setFixedElements();
+            obj->setArrayLength(cx, length);
+            if (allocateCapacity && !EnsureNewArrayElements(cx, obj, length))
+                return NULL;
+            return obj;
+        }
     }
 
     Rooted<GlobalObject*> parent(cx, parent_);
@@ -3778,9 +3750,7 @@ NewArray(JSContext *cx, uint32_t length, JSObject *proto_)
     if (!proto && !FindProto(cx, &ArrayClass, parent, &proto))
         return NULL;
 
-    RootedTypeObject type(cx);
-
-    type = proto->getNewType(cx);
+    RootedTypeObject type(cx, proto->getNewType(cx));
     if (!type)
         return NULL;
 
@@ -3788,9 +3758,8 @@ NewArray(JSContext *cx, uint32_t length, JSObject *proto_)
      * Get a shape with zero fixed slots, regardless of the size class.
      * See JSObject::createDenseArray.
      */
-    RootedShape shape(cx);
-    shape = EmptyShape::getInitialShape(cx, &ArrayClass, proto,
-                                        parent, gc::FINALIZE_OBJECT0);
+    RootedShape shape(cx, EmptyShape::getInitialShape(cx, &ArrayClass, proto,
+                                                      parent, gc::FINALIZE_OBJECT0));
     if (!shape)
         return NULL;
 

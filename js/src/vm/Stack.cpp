@@ -222,6 +222,42 @@ StackFrame::pcQuadratic(const ContextStack &stack, size_t maxDepth)
     return regs.fp()->script()->code;
 }
 
+static inline void
+AssertDynamicScopeMatchesStaticScope(JSScript *script, JSObject *scope)
+{
+#ifdef DEBUG
+    for (StaticScopeIter i(script->enclosingStaticScope()); !i.done(); i++) {
+        if (i.hasDynamicScopeObject()) {
+            /*
+             * 'with' does not participate in the static scope of the script,
+             * but it does in the dynamic scope, so skip them here.
+             */
+            while (scope->isWith())
+                scope = &scope->asWith().enclosingScope();
+
+            switch (i.type()) {
+              case StaticScopeIter::BLOCK:
+                JS_ASSERT(i.block() == scope->asClonedBlock().staticBlock());
+                scope = &scope->asClonedBlock().enclosingScope();
+                break;
+              case StaticScopeIter::FUNCTION:
+                JS_ASSERT(i.funScript() == scope->asCall().callee().script());
+                scope = &scope->asCall().enclosingScope();
+                break;
+              case StaticScopeIter::NAMED_LAMBDA:
+                scope = &scope->asDeclEnv().enclosingScope();
+                break;
+            }
+        }
+    }
+
+    /*
+     * Ideally, we'd JS_ASSERT(!scope->isScope()) but the enclosing lexical
+     * scope chain stops at eval() boundaries. See StaticScopeIter comment.
+     */
+#endif
+}
+
 bool
 StackFrame::prologue(JSContext *cx, bool newType)
 {
@@ -237,13 +273,17 @@ StackFrame::prologue(JSContext *cx, bool newType)
             pushOnScopeChain(*callobj);
             flags_ |= HAS_CALL_OBJ;
         }
+        Probes::enterScript(cx, script(), NULL, this);
         return true;
     }
 
-    if (isGlobalFrame())
+    if (isGlobalFrame()) {
+        Probes::enterScript(cx, script(), NULL, this);
         return true;
+    }
 
     JS_ASSERT(isNonEvalFunctionFrame());
+    AssertDynamicScopeMatchesStaticScope(script(), scopeChain());
 
     if (fun()->isHeavyweight()) {
         CallObject *callobj = CallObject::createForFunction(cx, this);
@@ -251,11 +291,6 @@ StackFrame::prologue(JSContext *cx, bool newType)
             return false;
         pushOnScopeChain(*callobj);
         flags_ |= HAS_CALL_OBJ;
-    }
-
-    if (script()->nesting()) {
-        types::NestingPrologue(cx, this);
-        flags_ |= HAS_NESTING;
     }
 
     if (isConstructing()) {
@@ -266,7 +301,7 @@ StackFrame::prologue(JSContext *cx, bool newType)
         functionThis() = ObjectValue(*obj);
     }
 
-    Probes::enterJSFun(cx, fun(), script());
+    Probes::enterScript(cx, script(), script()->function(), this);
     return true;
 }
 
@@ -276,6 +311,8 @@ StackFrame::epilogue(JSContext *cx)
     JS_ASSERT(!isDummyFrame());
     JS_ASSERT(!isYielding());
     JS_ASSERT(!hasBlockChain());
+
+    Probes::exitScript(cx, script(), script()->function(), this);
 
     if (isEvalFrame()) {
         if (isStrictEvalFrame()) {
@@ -299,20 +336,15 @@ StackFrame::epilogue(JSContext *cx)
     }
 
     JS_ASSERT(isNonEvalFunctionFrame());
-    if (fun()->isHeavyweight()) {
+
+    if (fun()->isHeavyweight())
         JS_ASSERT_IF(hasCallObj(), scopeChain()->asCall().callee().script() == script());
-    } else {
-        JS_ASSERT(!scopeChain()->isCall() || scopeChain()->asCall().isForEval() ||
-                  scopeChain()->asCall().callee().script() != script());
-    }
+    else
+        AssertDynamicScopeMatchesStaticScope(script(), scopeChain());
 
     if (cx->compartment->debugMode())
         cx->runtime->debugScopes->onPopCall(this, cx);
 
-    Probes::exitJSFun(cx, fun(), script());
-
-    if (script()->nesting() && (flags_ & HAS_NESTING))
-        types::NestingEpilogue(this);
 
     if (isConstructing() && returnValue().isPrimitive())
         setReturnValue(ObjectValue(constructorThis()));
@@ -343,10 +375,13 @@ StackFrame::pushBlock(JSContext *cx, StaticBlockObject &block)
             return false;
 
         pushOnScopeChain(*clone);
+
+        blockChain_ = blockHandle;
+    } else {
+        blockChain_ = &block;
     }
 
     flags_ |= HAS_BLOCKCHAIN;
-    blockChain_ = &block;
     return true;
 }
 

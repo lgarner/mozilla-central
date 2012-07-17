@@ -4453,6 +4453,17 @@ nsContentUtils::DropJSObjects(void* aScriptObjectHolder)
   return rv;
 }
 
+#ifdef DEBUG
+/* static */
+bool
+nsContentUtils::AreJSObjectsHeld(void* aScriptHolder)
+{
+  bool isHeld = false;
+  sXPConnect->TestJSHolder(aScriptHolder, &isHeld);
+  return isHeld;
+}
+#endif
+
 /* static */
 void
 nsContentUtils::NotifyInstalledMenuKeyboardListener(bool aInstalling)
@@ -5622,6 +5633,23 @@ nsContentUtils::EqualsLiteralIgnoreASCIICase(const nsAString& aStr1,
   }
   
   return true;
+}
+
+/* static */
+bool
+nsContentUtils::StringContainsASCIIUpper(const nsAString& aStr)
+{
+  const PRUnichar* iter = aStr.BeginReading();
+  const PRUnichar* end = aStr.EndReading();
+  while (iter != end) {
+    PRUnichar c = *iter;
+    if (c >= 'A' && c <= 'Z') {
+      return true;
+    }
+    ++iter;
+  }
+
+  return false;
 }
 
 /* static */

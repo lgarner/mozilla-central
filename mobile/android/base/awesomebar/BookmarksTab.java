@@ -17,6 +17,7 @@ import android.app.Activity;
 import android.database.Cursor;
 import android.util.Log;
 import android.widget.SimpleCursorAdapter;
+import android.view.LayoutInflater;
 import android.view.ViewGroup;
 import android.content.Intent;
 import android.widget.LinearLayout;
@@ -75,7 +76,7 @@ public class BookmarksTab extends AwesomeBarTab {
 
     public ListView getListView() {
         if (mView == null) {
-            mView = new ListView(mContext, null, R.style.AwesomeBarList);
+            mView = (ListView) (LayoutInflater.from(mContext).inflate(R.layout.awesomebar_list, null));
             ((Activity)mContext).registerForContextMenu(mView);
             mView.setTag(TAG);
             mView.setOnTouchListener(mListListener);
@@ -196,7 +197,11 @@ public class BookmarksTab extends AwesomeBarTab {
             return;
         }
 
-        listener.onUrlOpen(cursor.getString(cursor.getColumnIndexOrThrow(URLColumns.URL)));
+        String url = cursor.getString(cursor.getColumnIndexOrThrow(URLColumns.URL));
+        if (isInReadingList()) {
+            url = getReaderForUrl(url);
+        }
+        listener.onUrlOpen(url);
     }
 
     private class BookmarksListAdapter extends SimpleCursorAdapter {
@@ -380,6 +385,10 @@ public class BookmarksTab extends AwesomeBarTab {
         return adapter.moveToParentFolder();
     }
 
+    /**
+     * Whether the user is in the Reading List bookmarks directory in the
+     * AwesomeScreen UI.
+     */
     public boolean isInReadingList() {
         return mInReadingList;
     }

@@ -4,96 +4,101 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include <string.h>
+
+#include "mozilla/Preferences.h"
+#include "mozilla/Selection.h"
 #include "mozilla/Util.h"
-
-#include "nsHTMLEditor.h"
-#include "nsHTMLEditRules.h"
-#include "nsTextEditUtils.h"
-#include "nsHTMLEditUtils.h"
-#include "nsWSRunObject.h"
-
-#include "nsIDOMNode.h"
-#include "nsIDOMDocument.h"
-#include "nsIDOMComment.h"
-#include "nsIDOMNodeList.h"
-#include "nsIDocument.h"
-#include "nsIDOMMouseEvent.h"
-#include "nsISelection.h"
-#include "nsISelectionPrivate.h"
-#include "nsIDOMHTMLAnchorElement.h"
-#include "nsIDOMHTMLImageElement.h"
-#include "nsISelectionController.h"
-#include "nsIFileChannel.h"
-
-#include "nsIDocumentObserver.h"
-#include "nsIDocumentStateListener.h"
-
-#include "nsIEnumerator.h"
-#include "nsIContent.h"
-#include "nsIContentIterator.h"
-#include "nsIDOMRange.h"
-#include "nsIDOMDOMStringList.h"
-#include "nsIDOMDragEvent.h"
+#include "nsAString.h"
+#include "nsAutoPtr.h"
 #include "nsCOMArray.h"
-#include "nsIFile.h"
-#include "nsIURL.h"
-#include "nsIComponentManager.h"
-#include "nsIServiceManager.h"
-#include "nsIDocumentEncoder.h"
-#include "nsIDOMDocumentFragment.h"
-#include "nsIPresShell.h"
-#include "nsPresContext.h"
-#include "nsXPCOM.h"
-#include "nsISupportsPrimitives.h"
-#include "nsLinebreakConverter.h"
-#include "nsHtml5Module.h"
-#include "nsTreeSanitizer.h"
-
-// netwerk
-#include "nsIURI.h"
-#include "nsNetUtil.h"
-#include "nsIMIMEService.h"
-
-// Drag & Drop, Clipboard
+#include "nsCOMPtr.h"
+#include "nsCRT.h"
+#include "nsCRTGlue.h"
+#include "nsComponentManagerUtils.h"
+#include "nsContentUtils.h"
+#include "nsDebug.h"
+#include "nsDependentSubstring.h"
+#include "nsEditProperty.h"
+#include "nsEditRules.h"
+#include "nsEditor.h"
+#include "nsEditorUtils.h"
+#include "nsError.h"
+#include "nsGUIEvent.h"
+#include "nsGkAtoms.h"
+#include "nsHTMLEditUtils.h"
+#include "nsHTMLEditor.h"
 #include "nsIClipboard.h"
-#include "nsITransferable.h"
-#include "nsIDragService.h"
-#include "nsIDOMUIEvent.h"
-#include "nsIOutputStream.h"
-#include "nsIInputStream.h"
-#include "nsDirectoryServiceDefs.h"
-
-// for relativization
-#include "nsUnicharUtils.h"
-#include "nsIDOMTreeWalker.h"
-#include "nsIDOMNodeFilter.h"
-#include "nsIDOMNamedNodeMap.h"
-#include "nsIDOMHTMLLinkElement.h"
-#include "nsIDOMHTMLObjectElement.h"
+#include "nsIContent.h"
+#include "nsIContentFilter.h"
+#include "nsIDOMComment.h"
+#include "nsIDOMDOMStringList.h"
+#include "nsIDOMDataTransfer.h"
+#include "nsIDOMDocument.h"
+#include "nsIDOMDocumentFragment.h"
+#include "nsIDOMElement.h"
+#include "nsIDOMHTMLAnchorElement.h"
+#include "nsIDOMHTMLBodyElement.h"
+#include "nsIDOMHTMLEmbedElement.h"
 #include "nsIDOMHTMLFrameElement.h"
 #include "nsIDOMHTMLIFrameElement.h"
+#include "nsIDOMHTMLImageElement.h"
 #include "nsIDOMHTMLInputElement.h"
+#include "nsIDOMHTMLLinkElement.h"
+#include "nsIDOMHTMLObjectElement.h"
 #include "nsIDOMHTMLScriptElement.h"
-#include "nsIDOMHTMLEmbedElement.h"
 #include "nsIDOMHTMLTableCellElement.h"
-#include "nsIDOMHTMLTableRowElement.h"
 #include "nsIDOMHTMLTableElement.h"
-#include "nsIDOMHTMLBodyElement.h"
-
-// Misc
-#include "nsEditorUtils.h"
-#include "nsIContentFilter.h"
-#include "nsEventDispatcher.h"
-#include "plbase64.h"
-#include "prmem.h"
-#include "nsStreamUtils.h"
-#include "nsIPrincipal.h"
+#include "nsIDOMHTMLTableRowElement.h"
+#include "nsIDOMNode.h"
+#include "nsIDOMRange.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeItem.h"
-#include "nsContentUtils.h"
-#include "mozilla/Preferences.h"
+#include "nsIDocument.h"
+#include "nsIEditor.h"
+#include "nsIEditorIMESupport.h"
+#include "nsIEditorMailSupport.h"
+#include "nsIFile.h"
+#include "nsIInputStream.h"
+#include "nsIMIMEService.h"
+#include "nsINameSpaceManager.h"
+#include "nsINode.h"
 #include "nsIParserUtils.h"
-#include "nsILoadContext.h"
+#include "nsIPlaintextEditor.h"
+#include "nsIPrincipal.h"
+#include "nsISelection.h"
+#include "nsISupportsImpl.h"
+#include "nsISupportsPrimitives.h"
+#include "nsISupportsUtils.h"
+#include "nsITransferable.h"
+#include "nsIURI.h"
+#include "nsIVariant.h"
+#include "nsLinebreakConverter.h"
+#include "nsLiteralString.h"
+#include "nsNetUtil.h"
+#include "nsPlaintextEditor.h"
+#include "nsRange.h"
+#include "nsReadableUtils.h"
+#include "nsSelectionState.h"
+#include "nsServiceManagerUtils.h"
+#include "nsStreamUtils.h"
+#include "nsString.h"
+#include "nsStringFwd.h"
+#include "nsStringIterator.h"
+#include "nsSubstringTuple.h"
+#include "nsTextEditRules.h"
+#include "nsTextEditUtils.h"
+#include "nsTreeSanitizer.h"
+#include "nsWSRunObject.h"
+#include "nsXPCOM.h"
+#include "nscore.h"
+#include "plbase64.h"
+#include "prmem.h"
+#include "prtypes.h"
+
+class nsIAtom;
+class nsILoadContext;
+class nsISupports;
 
 using namespace mozilla;
 
@@ -541,9 +546,8 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
               rv = IsEmptyNode(parentNode, &isEmpty, true);
               if (NS_SUCCEEDED(rv) && isEmpty)
               {
-                nsCOMPtr<nsIDOMNode> listNode;
                 PRInt32 newOffset;
-                GetNodeLocation(parentNode, address_of(listNode), &newOffset);
+                nsCOMPtr<nsIDOMNode> listNode = GetNodeLocation(parentNode, &newOffset);
                 if (listNode)
                 {
                   DeleteNode(parentNode);
@@ -618,7 +622,7 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
       }
       if (lastInsertNode)
       {
-        GetNodeLocation(lastInsertNode, address_of(parentNode), &offsetOfNewNode);
+        parentNode = GetNodeLocation(lastInsertNode, &offsetOfNewNode);
         offsetOfNewNode++;
       }
     }
@@ -657,7 +661,7 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
       else // we need to find a container for selection.  Look up.
       {
         tmp = selNode;
-        GetNodeLocation(tmp, address_of(selNode), &selOffset);
+        selNode = GetNodeLocation(tmp, &selOffset);
         ++selOffset;  // want to be *after* last leaf node in paste
       }
 
@@ -677,8 +681,7 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
         {
           // don't leave selection past an invisible break;
           // reset {selNode,selOffset} to point before break
-          GetNodeLocation(wsRunObj.mStartReasonNode, address_of(selNode),
-                          &selOffset);
+          selNode = GetNodeLocation(wsRunObj.mStartReasonNode, &selOffset);
           // we want to be inside any inline style prior to break
           nsWSRunObject wsRunObj(this, selNode, selOffset);
           wsRunObj.PriorVisibleNode(selNode, selOffset, address_of(visNode),
@@ -693,8 +696,7 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
           {
             // prior visible thing is an image or some other non-text thingy.  
             // We want to be right after it.
-            GetNodeLocation(wsRunObj.mStartReasonNode, address_of(selNode),
-                            &selOffset);
+            selNode = GetNodeLocation(wsRunObj.mStartReasonNode, &selOffset);
             ++selOffset;
           }
         }
@@ -713,7 +715,7 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
         PRInt32 linkOffset;
         rv = SplitNodeDeep(link, selNode, selOffset, &linkOffset, true, address_of(leftLink));
         NS_ENSURE_SUCCESS(rv, rv);
-        GetNodeLocation(leftLink, address_of(selNode), &selOffset);
+        selNode = GetNodeLocation(leftLink, &selOffset);
         selection->Collapse(selNode, selOffset+1);
       }
     }
@@ -2009,9 +2011,8 @@ nsHTMLEditor::InsertAsPlaintextQuotation(const nsAString & aQuotedText,
   // Set the selection to just after the inserted node:
   if (NS_SUCCEEDED(rv) && newNode)
   {
-    nsCOMPtr<nsIDOMNode> parent;
     PRInt32 offset;
-    GetNodeLocation(newNode, address_of(parent), &offset);
+    nsCOMPtr<nsIDOMNode> parent = GetNodeLocation(newNode, &offset);
     if (parent) {
       selection->Collapse(parent, offset + 1);
     }
@@ -2094,9 +2095,8 @@ nsHTMLEditor::InsertAsCitedQuotation(const nsAString & aQuotedText,
   // Set the selection to just after the inserted node:
   if (NS_SUCCEEDED(rv) && newNode)
   {
-    nsCOMPtr<nsIDOMNode> parent;
     PRInt32 offset;
-    GetNodeLocation(newNode, address_of(parent), &offset);
+    nsCOMPtr<nsIDOMNode> parent = GetNodeLocation(newNode, &offset);
     if (parent) {
       selection->Collapse(parent, offset + 1);
     }

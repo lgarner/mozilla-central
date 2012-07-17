@@ -93,7 +93,8 @@ nsSVGPathGeometryFrame::IsSVGTransformed(gfxMatrix *aOwnTransform,
 
   nsSVGElement *content = static_cast<nsSVGElement*>(mContent);
   const SVGAnimatedTransformList *list = content->GetAnimatedTransformList();
-  if (list && !list->GetAnimValue().IsEmpty()) {
+  if ((list && !list->GetAnimValue().IsEmpty()) ||
+      content->GetAnimateMotionTransform()) {
     if (aOwnTransform) {
       *aOwnTransform = content->PrependLocalTransformsTo(gfxMatrix(),
                                   nsSVGElement::eUserSpaceToParent);
@@ -221,10 +222,22 @@ nsSVGPathGeometryFrame::UpdateBounds()
     return;
   }
 
-  gfxRect extent = GetBBoxContribution(gfxMatrix(),
-    nsSVGUtils::eBBoxIncludeFill | nsSVGUtils::eBBoxIgnoreFillIfNone |
-    nsSVGUtils::eBBoxIncludeStroke | nsSVGUtils::eBBoxIgnoreStrokeIfNone |
-    nsSVGUtils::eBBoxIncludeMarkers);
+  PRUint32 flags = nsSVGUtils::eBBoxIncludeFill |
+                   nsSVGUtils::eBBoxIncludeStroke |
+                   nsSVGUtils::eBBoxIncludeMarkers;
+  // Our "visual" overflow rect needs to be valid for building display lists
+  // for hit testing, which means that for certain values of 'pointer-events'
+  // it needs to include the geometry of the fill or stroke even when the fill/
+  // stroke don't actually render (e.g. when stroke="none" or
+  // stroke-opacity="0"). GetHitTestFlags() accounts for 'pointer-events'.
+  PRUint16 hitTestFlags = GetHitTestFlags();
+  if ((hitTestFlags & SVG_HIT_TEST_FILL)) {
+   flags |= nsSVGUtils::eBBoxIncludeFillGeometry;
+  }
+  if ((hitTestFlags & SVG_HIT_TEST_STROKE)) {
+   flags |= nsSVGUtils::eBBoxIncludeStrokeGeometry;
+  }
+  gfxRect extent = GetBBoxContribution(gfxMatrix(), flags);
   mRect = nsLayoutUtils::RoundGfxRectToAppRect(extent,
             PresContext()->AppUnitsPerCSSPixel());
 
@@ -239,6 +252,15 @@ nsSVGPathGeometryFrame::UpdateBounds()
     nsSVGEffects::UpdateEffects(this);
   }
 
+  // We only invalidate if we are dirty, if our outer-<svg> has already had its
+  // initial reflow (since if it hasn't, its entire area will be invalidated
+  // when it gets that initial reflow), and if our parent is not dirty (since
+  // if it is, then it will invalidate its entire new area, which will include
+  // our new area).
+  bool invalidate = (mState & NS_FRAME_IS_DIRTY) &&
+    !(GetParent()->GetStateBits() &
+       (NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_DIRTY));
+
   nsRect overflow = nsRect(nsPoint(0,0), mRect.Size());
   nsOverflowAreas overflowAreas(overflow, overflow);
   FinishAndStoreOverflow(overflowAreas, mRect.Size());
@@ -246,12 +268,8 @@ nsSVGPathGeometryFrame::UpdateBounds()
   mState &= ~(NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_DIRTY |
               NS_FRAME_HAS_DIRTY_CHILDREN);
 
-  // XXXSDL get rid of this in favor of the invalidate call in
-  // FinishAndStoreOverflow?
-  if (!(GetParent()->GetStateBits() & NS_FRAME_FIRST_REFLOW)) {
-    // We only invalidate if our outer-<svg> has already had its
-    // initial reflow (since if it hasn't, its entire area will be
-    // invalidated when it gets that initial reflow):
+  if (invalidate) {
+    // XXXSDL Let FinishAndStoreOverflow do this.
     nsSVGUtils::InvalidateBounds(this, true);
   }
 }
@@ -306,15 +324,15 @@ nsSVGPathGeometryFrame::GetBBoxContribution(const gfxMatrix &aToBBoxUserspace,
   gfxRect pathExtents = tmpCtx->GetUserPathExtent();
 
   // Account for fill:
-  if ((aFlags & nsSVGUtils::eBBoxIncludeFill) != 0 &&
-      ((aFlags & nsSVGUtils::eBBoxIgnoreFillIfNone) == 0 ||
+  if ((aFlags & nsSVGUtils::eBBoxIncludeFillGeometry) ||
+      ((aFlags & nsSVGUtils::eBBoxIncludeFill) &&
        GetStyleSVG()->mFill.mType != eStyleSVGPaintType_None)) {
     bbox = pathExtents;
   }
 
   // Account for stroke:
-  if ((aFlags & nsSVGUtils::eBBoxIncludeStroke) != 0 &&
-      ((aFlags & nsSVGUtils::eBBoxIgnoreStrokeIfNone) == 0 || HasStroke())) {
+  if ((aFlags & nsSVGUtils::eBBoxIncludeStrokeGeometry) ||
+      ((aFlags & nsSVGUtils::eBBoxIncludeStroke) && HasStroke())) {
     // We can't use tmpCtx->GetUserStrokeExtent() since it doesn't work for
     // device space extents. Instead we approximate the stroke extents from
     // pathExtents using PathExtentsToMaxStrokeExtents.

@@ -113,17 +113,16 @@ GlobalObject::initFunctionAndObjectClasses(JSContext *cx)
         JS_ASSERT(proto == functionProto);
         functionProto->flags |= JSFUN_PROTOTYPE;
 
-        Rooted<JSScript*> script(cx);
-        script = JSScript::Create(cx,
-                                  /* savedCallerFun = */ false,
-                                  /* principals = */ NULL,
-                                  /* originPrincipals = */ NULL,
-                                  /* compileAndGo = */ false,
-                                  /* noScriptRval = */ true,
-                                  /* globalObject = */ NULL,
-                                  JSVERSION_DEFAULT,
-                                  /* staticLevel = */ 0);
-        if (!script || !script->fullyInitTrivial(cx))
+        Rooted<JSScript*> script(cx, JSScript::Create(cx,
+                                                      /* enclosingScope = */ NullPtr(),
+                                                      /* savedCallerFun = */ false,
+                                                      /* principals = */ NULL,
+                                                      /* originPrincipals = */ NULL,
+                                                      /* compileAndGo = */ false,
+                                                      /* noScriptRval = */ true,
+                                                      JSVERSION_DEFAULT,
+                                                      /* staticLevel = */ 0));
+        if (!script || !JSScript::fullyInitTrivial(cx, script))
             return NULL;
 
         functionProto->initScript(script);
@@ -316,11 +315,13 @@ GlobalObject::clear(JSContext *cx)
     setSlot(RUNTIME_CODEGEN_ENABLED, UndefinedValue());
 
     /*
-     * Clear the original-eval and [[ThrowTypeError]] slots, in case throwing
-     * trying to execute a script for this global must reinitialize standard
-     * classes.  See bug 470150.
+     * Clear all slots storing function values, in case throwing trying to
+     * execute a script for this global must reinitialize standard classes.
+     * See bug 470150.
      */
+    setSlot(BOOLEAN_VALUEOF, UndefinedValue());
     setSlot(EVAL, UndefinedValue());
+    setSlot(CREATE_DATAVIEW_FOR_THIS, UndefinedValue());
     setSlot(THROWTYPEERROR, UndefinedValue());
 
     /*

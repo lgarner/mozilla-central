@@ -106,6 +106,8 @@ using mozilla::dom::gonk::SystemWorkerManager;
 #ifdef MOZ_WIDGET_GONK
 #include "AudioManager.h"
 using mozilla::dom::gonk::AudioManager;
+#include "nsVolumeService.h"
+using mozilla::system::nsVolumeService;
 #endif
 #include "nsDOMMutationObserver.h"
 
@@ -218,12 +220,17 @@ static void Shutdown();
 #include "mozilla/dom/sms/SmsRequestManager.h"
 #include "mozilla/dom/sms/SmsServicesFactory.h"
 #include "nsIPowerManagerService.h"
+#include "nsIAlarmHalService.h"
 
 using namespace mozilla::dom::sms;
 
 #include "mozilla/dom/power/PowerManagerService.h"
 
 using mozilla::dom::power::PowerManagerService;
+
+#include "mozilla/dom/alarm/AlarmHalService.h"
+
+using mozilla::dom::alarm::AlarmHalService;
 
 // Transformiix
 /* 5d5d92cd-6bf8-11d9-bf4a-000a95dc234c */
@@ -260,6 +267,7 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsDOMMutationObserver)
 
 #ifdef MOZ_WIDGET_GONK
 NS_GENERIC_FACTORY_CONSTRUCTOR(AudioManager)
+NS_GENERIC_FACTORY_CONSTRUCTOR(nsVolumeService)
 #endif
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsDeviceSensors)
 
@@ -274,6 +282,8 @@ NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsISmsDatabaseService, SmsServicesFacto
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIPowerManagerService,
                                          PowerManagerService::GetInstance)
 NS_GENERIC_FACTORY_CONSTRUCTOR(SmsRequestManager)
+NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIAlarmHalService,
+                                         AlarmHalService::GetInstance)
 
 //-----------------------------------------------------------------------------
 
@@ -735,6 +745,7 @@ NS_DEFINE_NAMED_CID(SYSTEMWORKERMANAGER_CID);
 #endif
 #ifdef MOZ_WIDGET_GONK
 NS_DEFINE_NAMED_CID(NS_AUDIOMANAGER_CID);
+NS_DEFINE_NAMED_CID(NS_VOLUMESERVICE_CID);
 #endif
 #ifdef ENABLE_EDITOR_API_LOG
 NS_DEFINE_NAMED_CID(NS_HTMLEDITOR_CID);
@@ -775,6 +786,7 @@ NS_DEFINE_NAMED_CID(SMS_DATABASE_SERVICE_CID);
 NS_DEFINE_NAMED_CID(SMS_REQUEST_MANAGER_CID);
 NS_DEFINE_NAMED_CID(NS_POWERMANAGERSERVICE_CID);
 NS_DEFINE_NAMED_CID(OSFILECONSTANTSSERVICE_CID);
+NS_DEFINE_NAMED_CID(NS_ALARMHALSERVICE_CID);
 
 static nsresult
 CreateWindowCommandTableConstructor(nsISupports *aOuter,
@@ -1004,6 +1016,7 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
 #endif
 #ifdef MOZ_WIDGET_GONK
   { &kNS_AUDIOMANAGER_CID, true, NULL, AudioManagerConstructor },
+  { &kNS_VOLUMESERVICE_CID, true, NULL, nsVolumeServiceConstructor },
 #endif
 #ifdef ENABLE_EDITOR_API_LOG
   { &kNS_HTMLEDITOR_CID, false, NULL, nsHTMLEditorLogConstructor },
@@ -1043,6 +1056,7 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
   { &kSMS_REQUEST_MANAGER_CID, false, NULL, SmsRequestManagerConstructor },
   { &kNS_POWERMANAGERSERVICE_CID, false, NULL, nsIPowerManagerServiceConstructor },
   { &kOSFILECONSTANTSSERVICE_CID, true, NULL, OSFileConstantsServiceConstructor },
+  { &kNS_ALARMHALSERVICE_CID, false, NULL, nsIAlarmHalServiceConstructor },
   { NULL }
 };
 
@@ -1138,6 +1152,7 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
 #endif
 #ifdef MOZ_WIDGET_GONK
   { NS_AUDIOMANAGER_CONTRACTID, &kNS_AUDIOMANAGER_CID },
+  { NS_VOLUMESERVICE_CONTRACTID, &kNS_VOLUMESERVICE_CID },
 #endif
 #ifdef ENABLE_EDITOR_API_LOG
   { "@mozilla.org/editor/htmleditor;1", &kNS_HTMLEDITOR_CID },
@@ -1176,6 +1191,7 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
   { SMS_REQUEST_MANAGER_CONTRACTID, &kSMS_REQUEST_MANAGER_CID },
   { POWERMANAGERSERVICE_CONTRACTID, &kNS_POWERMANAGERSERVICE_CID },
   { OSFILECONSTANTSSERVICE_CONTRACTID, &kOSFILECONSTANTSSERVICE_CID },
+  { ALARMHALSERVICE_CONTRACTID, &kNS_ALARMHALSERVICE_CID },
   { NULL }
 };
 

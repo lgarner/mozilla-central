@@ -112,16 +112,11 @@ namespace gc {
  */
 const size_t GC_ALLOCATION_THRESHOLD = 30 * 1024 * 1024;
 
-/*
- * A GC is triggered once the number of newly allocated arenas is
- * GC_HEAP_GROWTH_FACTOR times the number of live arenas after the last GC
- * starting after the lower limit of GC_ALLOCATION_THRESHOLD. This number is
- * used for non-incremental GCs.
- */
-const float GC_HEAP_GROWTH_FACTOR = 3.0f;
-
 /* Perform a Full GC every 20 seconds if MaybeGC is called */
 static const uint64_t GC_IDLE_FULL_SPAN = 20 * 1000 * 1000;
+
+/* Increase the IGC marking slice time if we are in highFrequencyGC mode. */
+const int IGC_MARK_SLICE_MULTIPLIER = 2;
 
 #ifdef JS_GC_ZEAL
 static void
@@ -527,6 +522,21 @@ ChunkPool::expireAndFree(JSRuntime *rt, bool releaseAll)
 Chunk::allocate(JSRuntime *rt)
 {
     Chunk *chunk = static_cast<Chunk *>(AllocChunk());
+
+#ifdef JSGC_ROOT_ANALYSIS
+    // Our poison pointers are not guaranteed to be invalid on 64-bit
+    // architectures, and often are valid. We can't just reserve the full
+    // poison range, because it might already have been taken up by something
+    // else (shared library, previous allocation). So we'll just loop and
+    // discard poison pointers until we get something valid.
+    //
+    // This leaks all of these poisoned pointers. It would be better if they
+    // were marked as uncommitted, but it's a little complicated to avoid
+    // clobbering pre-existing unrelated mappings.
+    while (IsPoisonedPtr(chunk))
+        chunk = static_cast<Chunk *>(AllocChunk());
+#endif
+
     if (!chunk)
         return NULL;
     chunk->init();
@@ -741,7 +751,7 @@ Chunk::releaseArena(ArenaHeader *aheader)
     JS_ASSERT(rt->gcBytes >= ArenaSize);
     JS_ASSERT(comp->gcBytes >= ArenaSize);
     if (rt->gcHelperThread.sweeping())
-        comp->reduceGCTriggerBytes(GC_HEAP_GROWTH_FACTOR * ArenaSize);
+        comp->reduceGCTriggerBytes(comp->gcHeapGrowthFactor * ArenaSize);
     rt->gcBytes -= ArenaSize;
     comp->gcBytes -= ArenaSize;
 
@@ -1238,6 +1248,15 @@ js_AddGCThingRoot(JSContext *cx, void **rp, const char *name)
 JS_FRIEND_API(JSBool)
 js_AddRootRT(JSRuntime *rt, jsval *vp, const char *name)
 {
+    /*
+     * Sometimes Firefox will hold weak references to objects and then convert
+     * them to strong references by calling AddRoot (e.g., via PreserveWrapper,
+     * or ModifyBusyCount in workers). We need a read barrier to cover these
+     * cases.
+     */
+    if (rt->gcIncrementalState == MARK)
+        IncrementalValueBarrier(*vp);
+
     return !!rt->gcRootsHash.put((void *)vp,
                                  RootInfo(name, JS_GC_ROOT_VALUE_PTR));
 }
@@ -1245,6 +1264,15 @@ js_AddRootRT(JSRuntime *rt, jsval *vp, const char *name)
 JS_FRIEND_API(JSBool)
 js_AddGCThingRootRT(JSRuntime *rt, void **rp, const char *name)
 {
+    /*
+     * Sometimes Firefox will hold weak references to objects and then convert
+     * them to strong references by calling AddRoot (e.g., via PreserveWrapper,
+     * or ModifyBusyCount in workers). We need a read barrier to cover these
+     * cases.
+     */
+    if (rt->gcIncrementalState == MARK)
+        IncrementalReferenceBarrier(*rp);
+
     return !!rt->gcRootsHash.put((void *)rp,
                                  RootInfo(name, JS_GC_ROOT_GCTHING_PTR));
 }
@@ -1327,18 +1355,54 @@ js_MapGCRoots(JSRuntime *rt, JSGCRootMapFun map, void *data)
 }
 
 static size_t
-ComputeTriggerBytes(size_t lastBytes, size_t maxBytes, JSGCInvocationKind gckind)
+ComputeTriggerBytes(JSCompartment *comp, size_t lastBytes, size_t maxBytes, JSGCInvocationKind gckind)
 {
     size_t base = gckind == GC_SHRINK ? lastBytes : Max(lastBytes, GC_ALLOCATION_THRESHOLD);
-    float trigger = float(base) * GC_HEAP_GROWTH_FACTOR;
+    float trigger = float(base) * comp->gcHeapGrowthFactor;
     return size_t(Min(float(maxBytes), trigger));
 }
 
 void
 JSCompartment::setGCLastBytes(size_t lastBytes, size_t lastMallocBytes, JSGCInvocationKind gckind)
 {
-    gcTriggerBytes = ComputeTriggerBytes(lastBytes, rt->gcMaxBytes, gckind);
-    gcTriggerMallocAndFreeBytes = ComputeTriggerBytes(lastMallocBytes, SIZE_MAX, gckind);
+    /*
+     * The heap growth factor depends on the heap size after a GC and the GC frequency.
+     * For low frequency GCs (more than 1sec between GCs) we let the heap grow to 150%.
+     * For high frequency GCs we let the heap grow depending on the heap size:
+     *   lastBytes < highFrequencyLowLimit: 300%
+     *   lastBytes > highFrequencyHighLimit: 150%
+     *   otherwise: linear interpolation between 150% and 300% based on lastBytes
+     */
+
+    if (!rt->gcDynamicHeapGrowth) {
+        gcHeapGrowthFactor = 3.0;
+    } else if (lastBytes < 1 * 1024 * 1024) {
+        gcHeapGrowthFactor = rt->gcLowFrequencyHeapGrowth;
+    } else {
+        JS_ASSERT(rt->gcHighFrequencyHighLimitBytes > rt->gcHighFrequencyLowLimitBytes);
+        uint64_t now = PRMJ_Now();
+        if (rt->gcLastGCTime && rt->gcLastGCTime + rt->gcHighFrequencyTimeThreshold * PRMJ_USEC_PER_MSEC > now) {
+            if (lastBytes <= rt->gcHighFrequencyLowLimitBytes) {
+                gcHeapGrowthFactor = rt->gcHighFrequencyHeapGrowthMax;
+            } else if (lastBytes >= rt->gcHighFrequencyHighLimitBytes) {
+                gcHeapGrowthFactor = rt->gcHighFrequencyHeapGrowthMin;
+            } else {
+                double k = (rt->gcHighFrequencyHeapGrowthMin - rt->gcHighFrequencyHeapGrowthMax)
+                           / (double)(rt->gcHighFrequencyHighLimitBytes - rt->gcHighFrequencyLowLimitBytes);
+                gcHeapGrowthFactor = (k * (lastBytes - rt->gcHighFrequencyLowLimitBytes)
+                                     + rt->gcHighFrequencyHeapGrowthMax);
+                JS_ASSERT(gcHeapGrowthFactor <= rt->gcHighFrequencyHeapGrowthMax
+                          && gcHeapGrowthFactor >= rt->gcHighFrequencyHeapGrowthMin);
+                
+            }
+            rt->gcHighFrequencyGC = true;
+        } else {
+            gcHeapGrowthFactor = rt->gcLowFrequencyHeapGrowth;
+            rt->gcHighFrequencyGC = false;
+        }
+    }
+    gcTriggerBytes = ComputeTriggerBytes(this, lastBytes, rt->gcMaxBytes, gckind);
+    gcTriggerMallocAndFreeBytes = ComputeTriggerBytes(this, lastMallocBytes, SIZE_MAX, gckind);
 }
 
 void
@@ -1346,7 +1410,7 @@ JSCompartment::reduceGCTriggerBytes(size_t amount)
 {
     JS_ASSERT(amount > 0);
     JS_ASSERT(gcTriggerBytes >= amount);
-    if (gcTriggerBytes - amount < GC_ALLOCATION_THRESHOLD * GC_HEAP_GROWTH_FACTOR)
+    if (gcTriggerBytes - amount < GC_ALLOCATION_THRESHOLD * gcHeapGrowthFactor)
         return;
     gcTriggerBytes -= amount;
 }
@@ -1696,6 +1760,15 @@ js_LockGCThingRT(JSRuntime *rt, void *thing)
 {
     if (!thing)
         return true;
+
+    /*
+     * Sometimes Firefox will hold weak references to objects and then convert
+     * them to strong references by calling AddRoot (e.g., via PreserveWrapper,
+     * or ModifyBusyCount in workers). We need a read barrier to cover these
+     * cases.
+     */
+    if (rt->gcIncrementalState == MARK)
+        IncrementalReferenceBarrier(thing);
 
     if (GCLocks::Ptr p = rt->gcLocksHash.lookupWithDefault(thing, 0)) {
         p->value++;
@@ -2478,10 +2551,11 @@ MaybeGC(JSContext *cx)
         GCSlice(rt, GC_NORMAL, gcreason::MAYBEGC);
         return;
     }
+    double factor = rt->gcHighFrequencyGC ? 0.75 : 0.9;
 
     JSCompartment *comp = cx->compartment;
-    if (comp->gcBytes > 8192 &&
-        comp->gcBytes >= 3 * (comp->gcTriggerBytes / 4) &&
+    if (comp->gcBytes > 1024 * 1024 &&
+        comp->gcBytes >= factor * comp->gcTriggerBytes &&
         rt->gcIncrementalState == NO_INCREMENTAL &&
         !rt->gcHelperThread.sweeping())
     {
@@ -3009,7 +3083,7 @@ PurgeRuntime(JSTracer *trc)
     rt->newObjectCache.purge();
     rt->nativeIterCache.purge();
     rt->toSourceCache.purge();
-    rt->evalCache.purge();
+    rt->evalCache.clear();
 
     for (ContextIter acx(rt); !acx.done(); acx.next())
         acx->purge();
@@ -3037,6 +3111,18 @@ BeginMarkPhase(JSRuntime *rt, bool isIncremental)
 {
     int64_t currentTime = PRMJ_Now();
 
+    /*
+     * At the end of each incremental slice, we call prepareForIncrementalGC,
+     * which marks objects in all arenas that we're currently allocating
+     * into. This can cause leaks if unreachable objects are in these
+     * arenas. This purge call ensures that we only mark arenas that have had
+     * allocations after the incremental GC started.
+     */
+    if (isIncremental) {
+        for (GCCompartmentsIter c(rt); !c.done(); c.next())
+            c->arenas.purge();
+    }
+
     rt->gcIsFull = true;
     for (CompartmentsIter c(rt); !c.done(); c.next()) {
         if (!c->isCollecting())
@@ -3052,7 +3138,7 @@ BeginMarkPhase(JSRuntime *rt, bool isIncremental)
     /* For non-incremental GC the following sweep discards the jit code. */
     if (isIncremental) {
         for (GCCompartmentsIter c(rt); !c.done(); c.next()) {
-            gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_DISCARD_CODE);
+            gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_MARK_DISCARD_CODE);
             c->discardJitCode(rt->defaultFreeOp());
         }
     }
@@ -3110,19 +3196,30 @@ MarkGrayAndWeak(JSRuntime *rt)
 {
     GCMarker *gcmarker = &rt->gcMarker;
 
-    JS_ASSERT(gcmarker->isDrained());
-    MarkWeakReferences(gcmarker);
-
-    gcmarker->setMarkColorGray();
-    if (gcmarker->hasBufferedGrayRoots()) {
-        gcmarker->markBufferedGrayRoots();
-    } else {
-        if (JSTraceDataOp op = rt->gcGrayRootsTraceOp)
-            (*op)(gcmarker, rt->gcGrayRootsData);
+    {
+        gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_MARK_WEAK);
+        JS_ASSERT(gcmarker->isDrained());
+        MarkWeakReferences(gcmarker);
     }
-    SliceBudget budget;
-    gcmarker->drainMarkStack(budget);
-    MarkWeakReferences(gcmarker);
+
+    {
+        gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_MARK_GRAY);
+        gcmarker->setMarkColorGray();
+        if (gcmarker->hasBufferedGrayRoots()) {
+            gcmarker->markBufferedGrayRoots();
+        } else {
+            if (JSTraceDataOp op = rt->gcGrayRootsTraceOp)
+                (*op)(gcmarker, rt->gcGrayRootsData);
+        }
+        SliceBudget budget;
+        gcmarker->drainMarkStack(budget);
+    }
+
+    {
+        gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_MARK_GRAY_WEAK);
+        MarkWeakReferences(gcmarker);
+    }
+
     JS_ASSERT(gcmarker->isDrained());
 }
 
@@ -3136,7 +3233,6 @@ EndMarkPhase(JSRuntime *rt, bool isIncremental)
 {
     {
         gcstats::AutoPhase ap1(rt->gcStats, gcstats::PHASE_MARK);
-        gcstats::AutoPhase ap2(rt->gcStats, gcstats::PHASE_MARK_OTHER);
         MarkGrayAndWeak(rt);
     }
 
@@ -3315,6 +3411,7 @@ SweepPhase(JSRuntime *rt, JSGCInvocationKind gckind, bool *startBackgroundSweep)
         c->arenas.purge();
 
     FreeOp fop(rt, *startBackgroundSweep, false);
+
     {
         gcstats::AutoPhase ap(rt->gcStats, gcstats::PHASE_FINALIZE_START);
         if (rt->gcFinalizeCallback)
@@ -3325,7 +3422,10 @@ SweepPhase(JSRuntime *rt, JSGCInvocationKind gckind, bool *startBackgroundSweep)
     WeakMapBase::sweepAll(&rt->gcMarker);
     rt->debugScopes->sweep();
 
-    SweepAtomState(rt);
+    {
+        gcstats::AutoPhase ap2(rt->gcStats, gcstats::PHASE_SWEEP_ATOMS);
+        SweepAtomState(rt);
+    }
 
     /* Collect watch points associated with unreachable objects. */
     WatchpointMap::sweepAll(rt);
@@ -3414,6 +3514,7 @@ SweepPhase(JSRuntime *rt, JSGCInvocationKind gckind, bool *startBackgroundSweep)
 
     for (CompartmentsIter c(rt); !c.done(); c.next())
         c->setGCLastBytes(c->gcBytes, c->gcMallocAndFreeBytes, gckind);
+    rt->gcLastGCTime = PRMJ_Now();
 }
 
 /*
@@ -3923,7 +4024,10 @@ GC(JSRuntime *rt, JSGCInvocationKind gckind, gcreason::Reason reason)
 void
 GCSlice(JSRuntime *rt, JSGCInvocationKind gckind, gcreason::Reason reason)
 {
-    Collect(rt, true, rt->gcSliceBudget, gckind, reason);
+    int sliceBudget = rt->gcHighFrequencyGC && rt->gcDynamicMarkSlice
+                      ? rt->gcSliceBudget * IGC_MARK_SLICE_MULTIPLIER
+                      : rt->gcSliceBudget;
+    Collect(rt, true, sliceBudget, gckind, reason);
 }
 
 void
@@ -4261,6 +4365,18 @@ JS::CheckStackRoots(JSContext *cx)
     // a portion of a function, so the callers were already assuming that GC
     // could happen.)
     JS_ASSERT(!cx->rootingUnnecessary);
+
+    // GCs can't happen when analysis/inference/compilation are active.
+    if (cx->compartment->activeAnalysis)
+        return;
+
+    // Can switch to the atoms compartment during analysis.
+    if (IsAtomsCompartment(cx->compartment)) {
+        for (CompartmentsIter c(rt); !c.done(); c.next()) {
+            if (c.get()->activeAnalysis)
+                return;
+        }
+    }
 
     AutoCopyFreeListToArenas copy(rt);
 
@@ -4681,7 +4797,7 @@ MaybeVerifyBarriers(JSContext *cx, bool always)
 
 } /* namespace gc */
 
-static void ReleaseAllJITCode(FreeOp *fop)
+void ReleaseAllJITCode(FreeOp *fop)
 {
 #ifdef JS_METHODJIT
     for (CompartmentsIter c(fop->runtime()); !c.done(); c.next()) {

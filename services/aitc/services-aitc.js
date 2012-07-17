@@ -1,8 +1,9 @@
-// Root logger
-pref("services.aitc.log.dump", false);
+pref("dom.mozApps.used", false); // Set to true by DOMApplicationRegistry
+
+pref("services.aitc.log.dump", false); // Root logger
 pref("services.aitc.log.level", "All");
 
-pref("services.aitc.browserid.url", "https://browserid.org/sign_in");
+pref("services.aitc.browserid.url", "https://login.persona.org/sign_in");
 pref("services.aitc.browserid.log.level", "Debug");
 
 pref("services.aitc.client.log.level", "Debug");

@@ -43,7 +43,6 @@
 #include "jsinferinlines.h"
 #include "jsobjinlines.h"
 
-#include "vm/MethodGuard-inl.h"
 #include "vm/Stack-inl.h"
 #include "vm/String-inl.h"
 
@@ -483,19 +482,16 @@ static inline JSObject *
 NewIteratorObject(JSContext *cx, unsigned flags)
 {
     if (flags & JSITER_ENUMERATE) {
-        RootedTypeObject type(cx);
-        type = cx->compartment->getEmptyType(cx);
+        RootedTypeObject type(cx, cx->compartment->getEmptyType(cx));
         if (!type)
             return NULL;
 
-        RootedShape emptyEnumeratorShape(cx);
-        emptyEnumeratorShape = EmptyShape::getInitialShape(cx, &IteratorClass, NULL, NULL,
-                                                           ITERATOR_FINALIZE_KIND);
-        if (!emptyEnumeratorShape)
+        RootedShape shape(cx, EmptyShape::getInitialShape(cx, &IteratorClass, NULL, NULL,
+                                                          ITERATOR_FINALIZE_KIND));
+        if (!shape)
             return NULL;
 
-        JSObject *obj = JSObject::create(cx, ITERATOR_FINALIZE_KIND,
-                                         emptyEnumeratorShape, type, NULL);
+        JSObject *obj = JSObject::create(cx, ITERATOR_FINALIZE_KIND, shape, type, NULL);
         if (!obj)
             return NULL;
 
@@ -618,7 +614,7 @@ VectorToValueIterator(JSContext *cx, HandleObject obj, unsigned flags, AutoIdVec
         types::MarkTypeObjectFlags(cx, obj, types::OBJECT_FLAG_ITERATED);
     }
 
-    JSObject *iterobj = NewIteratorObject(cx, flags);
+    RootedObject iterobj(cx, NewIteratorObject(cx, flags));
     if (!iterobj)
         return false;
 
@@ -817,22 +813,23 @@ js_ThrowStopIteration(JSContext *cx)
 {
     JS_ASSERT(!JS_IsExceptionPending(cx));
     RootedValue v(cx);
-    RootedObject null(cx);
-    if (js_FindClassObject(cx, null, JSProto_StopIteration, &v))
+    if (js_FindClassObject(cx, NullPtr(), JSProto_StopIteration, &v))
         cx->setPendingException(v);
     return JS_FALSE;
 }
 
-static JSBool
-iterator_next(JSContext *cx, unsigned argc, Value *vp)
+static bool
+IsIterator(const Value &v)
 {
-    CallArgs args = CallArgsFromVp(argc, vp);
+    return v.isObject() && v.toObject().hasClass(&IteratorClass);
+}
 
-    RootedObject thisObj(cx);
-    if (!NonGenericMethodGuard(cx, args, iterator_next, &IteratorClass, thisObj.address()))
-        return false;
-    if (!thisObj)
-        return true;
+static bool
+iterator_next_impl(JSContext *cx, CallArgs args)
+{
+    JS_ASSERT(IsIterator(args.thisv()));
+
+    Rooted<JSObject*> thisObj(cx, &args.thisv().toObject());
 
     if (!js_IteratorMore(cx, thisObj, &args.rval()))
         return false;
@@ -843,6 +840,13 @@ iterator_next(JSContext *cx, unsigned argc, Value *vp)
     }
 
     return js_IteratorNext(cx, thisObj, &args.rval());
+}
+
+static JSBool
+iterator_next(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    return CallNonGenericMethod(cx, IsIterator, iterator_next_impl, args);
 }
 
 #define JSPROP_ROPERM   (JSPROP_READONLY | JSPROP_PERMANENT)
@@ -1602,64 +1606,63 @@ CloseGenerator(JSContext *cx, JSObject *obj)
     return SendToGenerator(cx, JSGENOP_CLOSE, obj, gen, UndefinedValue());
 }
 
-/*
- * Common subroutine of generator_(next|send|throw|close) methods.
- */
-static JSBool
-generator_op(JSContext *cx, Native native, JSGeneratorOp op, Value *vp, unsigned argc)
+static bool
+IsGenerator(const Value &v)
 {
-    CallArgs args = CallArgsFromVp(argc, vp);
+    return v.isObject() && v.toObject().hasClass(&GeneratorClass);
+}
 
-    JSObject *thisObj;
-    if (!NonGenericMethodGuard(cx, args, native, &GeneratorClass, &thisObj))
-        return false;
-    if (!thisObj)
-        return true;
+static bool
+generator_send_impl(JSContext *cx, CallArgs args)
+{
+    JS_ASSERT(IsGenerator(args.thisv()));
+
+    Rooted<JSObject*> thisObj(cx, &args.thisv().toObject());
 
     JSGenerator *gen = (JSGenerator *) thisObj->getPrivate();
-    if (!gen) {
+    if (!gen || gen->state == JSGEN_CLOSED) {
         /* This happens when obj is the generator prototype. See bug 352885. */
-        goto closed_generator;
+        return js_ThrowStopIteration(cx);
     }
 
-    if (gen->state == JSGEN_NEWBORN) {
-        switch (op) {
-          case JSGENOP_NEXT:
-          case JSGENOP_THROW:
-            break;
-
-          case JSGENOP_SEND:
-            if (args.hasDefined(0)) {
-                js_ReportValueError(cx, JSMSG_BAD_GENERATOR_SEND,
-                                    JSDVG_SEARCH_STACK, args[0], NULL);
-                return false;
-            }
-            break;
-
-          default:
-            JS_ASSERT(op == JSGENOP_CLOSE);
-            SetGeneratorClosed(cx, gen);
-            args.rval().setUndefined();
-            return true;
-        }
-    } else if (gen->state == JSGEN_CLOSED) {
-      closed_generator:
-        switch (op) {
-          case JSGENOP_NEXT:
-          case JSGENOP_SEND:
-            return js_ThrowStopIteration(cx);
-          case JSGENOP_THROW:
-            cx->setPendingException(args.length() >= 1 ? args[0] : UndefinedValue());
-            return false;
-          default:
-            JS_ASSERT(op == JSGENOP_CLOSE);
-            args.rval().setUndefined();
-            return true;
-        }
+    if (gen->state == JSGEN_NEWBORN && args.hasDefined(0)) {
+        js_ReportValueError(cx, JSMSG_BAD_GENERATOR_SEND,
+                            JSDVG_SEARCH_STACK, args[0], NULL);
+        return false;
     }
 
-    bool undef = ((op == JSGENOP_SEND || op == JSGENOP_THROW) && args.length() != 0);
-    if (!SendToGenerator(cx, op, thisObj, gen, undef ? args[0] : UndefinedValue()))
+    if (!SendToGenerator(cx, JSGENOP_SEND, thisObj, gen,
+                         args.length() > 0 ? args[0] : UndefinedValue()))
+    {
+        return false;
+    }
+
+    args.rval() = gen->fp->returnValue();
+    return true;
+
+}
+
+static JSBool
+generator_send(JSContext *cx, unsigned argc, Value *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    return CallNonGenericMethod(cx, IsGenerator, generator_send_impl, args);
+}
+
+static bool
+generator_next_impl(JSContext *cx, CallArgs args)
+{
+    JS_ASSERT(IsGenerator(args.thisv()));
+
+    Rooted<JSObject*> thisObj(cx, &args.thisv().toObject());
+
+    JSGenerator *gen = (JSGenerator *) thisObj->getPrivate();
+    if (!gen || gen->state == JSGEN_CLOSED) {
+        /* This happens when obj is the generator prototype. See bug 352885. */
+        return js_ThrowStopIteration(cx);
+    }
+
+    if (!SendToGenerator(cx, JSGENOP_NEXT, thisObj, gen, UndefinedValue()))
         return false;
 
     args.rval() = gen->fp->returnValue();
@@ -1667,27 +1670,76 @@ generator_op(JSContext *cx, Native native, JSGeneratorOp op, Value *vp, unsigned
 }
 
 static JSBool
-generator_send(JSContext *cx, unsigned argc, Value *vp)
-{
-    return generator_op(cx, generator_send, JSGENOP_SEND, vp, argc);
-}
-
-static JSBool
 generator_next(JSContext *cx, unsigned argc, Value *vp)
 {
-    return generator_op(cx, generator_next, JSGENOP_NEXT, vp, argc);
+    CallArgs args = CallArgsFromVp(argc, vp);
+    return CallNonGenericMethod(cx, IsGenerator, generator_next_impl, args);
+}
+
+static bool
+generator_throw_impl(JSContext *cx, CallArgs args)
+{
+    JS_ASSERT(IsGenerator(args.thisv()));
+
+    Rooted<JSObject*> thisObj(cx, &args.thisv().toObject());
+
+    JSGenerator *gen = (JSGenerator *) thisObj->getPrivate();
+    if (!gen || gen->state == JSGEN_CLOSED) {
+        /* This happens when obj is the generator prototype. See bug 352885. */
+        cx->setPendingException(args.length() >= 1 ? args[0] : UndefinedValue());
+        return false;
+    }
+
+    if (!SendToGenerator(cx, JSGENOP_THROW, thisObj, gen,
+                         args.length() > 0 ? args[0] : UndefinedValue()))
+    {
+        return false;
+    }
+
+    args.rval() = gen->fp->returnValue();
+    return true;
+
 }
 
 static JSBool
 generator_throw(JSContext *cx, unsigned argc, Value *vp)
 {
-    return generator_op(cx, generator_throw, JSGENOP_THROW, vp, argc);
+    CallArgs args = CallArgsFromVp(argc, vp);
+    return CallNonGenericMethod(cx, IsGenerator, generator_throw_impl, args);
+}
+
+static bool
+generator_close_impl(JSContext *cx, CallArgs args)
+{
+    JS_ASSERT(IsGenerator(args.thisv()));
+
+    Rooted<JSObject*> thisObj(cx, &args.thisv().toObject());
+
+    JSGenerator *gen = (JSGenerator *) thisObj->getPrivate();
+    if (!gen || gen->state == JSGEN_CLOSED) {
+        /* This happens when obj is the generator prototype. See bug 352885. */
+        args.rval().setUndefined();
+        return true;
+    }
+
+    if (gen->state == JSGEN_NEWBORN) {
+        SetGeneratorClosed(cx, gen);
+        args.rval().setUndefined();
+        return true;
+    }
+
+    if (!SendToGenerator(cx, JSGENOP_CLOSE, thisObj, gen, UndefinedValue()))
+        return false;
+
+    args.rval() = gen->fp->returnValue();
+    return true;
 }
 
 static JSBool
 generator_close(JSContext *cx, unsigned argc, Value *vp)
 {
-    return generator_op(cx, generator_close, JSGENOP_CLOSE, vp, argc);
+    CallArgs args = CallArgsFromVp(argc, vp);
+    return CallNonGenericMethod(cx, IsGenerator, generator_close_impl, args);
 }
 
 static JSFunctionSpec generator_methods[] = {
@@ -1715,8 +1767,7 @@ InitIteratorClass(JSContext *cx, Handle<GlobalObject*> global)
 
     iteratorProto->setNativeIterator(ni);
 
-    RootedFunction ctor(cx);
-    ctor = global->createConstructor(cx, Iterator, CLASS_NAME(cx, Iterator), 2);
+    RootedFunction ctor(cx, global->createConstructor(cx, Iterator, CLASS_NAME(cx, Iterator), 2));
     if (!ctor)
         return false;
 

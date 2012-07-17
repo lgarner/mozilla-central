@@ -50,6 +50,7 @@ DIRS += \
   battery \
   browser-element \
   contacts \
+  alarm \
   devicestorage \
   file \
   media \
@@ -66,6 +67,7 @@ DIRS += \
   indexedDB \
   system \
   ipc \
+  identity \
   workers \
   $(NULL)
 

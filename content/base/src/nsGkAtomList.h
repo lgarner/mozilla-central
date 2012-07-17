@@ -3,6 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// IWYU pragma: private, include "nsGkAtoms.h"
+
 /*
   This file contains the list of all atoms used by gklayout;
   see nsGkAtoms for access to the atoms.
@@ -1750,6 +1752,7 @@ GK_ATOM(svgLinearGradientFrame, "SVGLinearGradientFrame")
 GK_ATOM(svgMarkerFrame, "SVGMarkerFrame")
 GK_ATOM(svgMaskFrame, "SVGMaskFrame")
 GK_ATOM(svgOuterSVGFrame, "SVGOuterSVGFrame")
+GK_ATOM(svgOuterSVGAnonChildFrame, "SVGOuterSVGAnonChildFrame")
 GK_ATOM(svgPathGeometryFrame, "SVGPathGeometryFrame")
 GK_ATOM(svgPatternFrame, "SVGPatternFrame")
 GK_ATOM(svgRadialGradientFrame, "SVGRadialGradientFrame")

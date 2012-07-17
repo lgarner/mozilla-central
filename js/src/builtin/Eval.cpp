@@ -10,6 +10,7 @@
 
 #include "builtin/Eval.h"
 #include "frontend/BytecodeCompiler.h"
+#include "mozilla/HashFunctions.h"
 #include "vm/GlobalObject.h"
 
 #include "jsinterpinlines.h"
@@ -30,108 +31,42 @@ AssertInnerizedScopeChain(JSContext *cx, JSObject &scopeobj)
 #endif
 }
 
-void
-EvalCache::purge()
+static bool
+IsEvalCacheCandidate(JSScript *script)
 {
-    // Purge all scripts from the eval cache. In addition to removing them from
-    // table_, null out the evalHashLink field of any script removed. Since
-    // evalHashLink is in a union with globalObject, this allows the GC to
-    // indiscriminately use the union as a nullable globalObject pointer.
-    for (size_t i = 0; i < ArrayLength(table_); ++i) {
-        for (JSScript **listHeadp = &table_[i]; *listHeadp; ) {
-            JSScript *script = *listHeadp;
-            JS_ASSERT(GetGCThingTraceKind(script) == JSTRACE_SCRIPT);
-            *listHeadp = script->evalHashLink();
-            script->evalHashLink() = NULL;
-        }
-    }
+    // Make sure there are no inner objects which might use the wrong parent
+    // and/or call scope by reusing the previous eval's script. Skip the
+    // script's first object, which entrains the eval's scope.
+    return script->savedCallerFun &&
+           !script->hasSingletons &&
+           script->objects()->length == 1 &&
+           !script->hasRegexps();
 }
 
-JSScript **
-EvalCache::bucket(JSLinearString *str)
+/* static */ HashNumber
+EvalCacheHashPolicy::hash(const EvalCacheLookup &l)
 {
-    const jschar *s = str->chars();
-    size_t n = str->length();
-
-    if (n > 100)
-        n = 100;
-    uint32_t h;
-    for (h = 0; n; s++, n--)
-        h = JS_ROTATE_LEFT32(h, 4) ^ *s;
-
-    h *= JS_GOLDEN_RATIO;
-    h >>= 32 - SHIFT;
-    JS_ASSERT(h < ArrayLength(table_));
-    return &table_[h];
+    return AddToHash(HashString(l.str->chars(), l.str->length()),
+                     l.caller,
+                     l.staticLevel,
+                     l.version,
+                     l.compartment);
 }
 
-static JSScript *
-EvalCacheLookup(JSContext *cx, JSLinearString *str, StackFrame *caller, unsigned staticLevel,
-                JSPrincipals *principals, JSObject &scopeobj, JSScript **bucket)
+/* static */ bool
+EvalCacheHashPolicy::match(JSScript *script, const EvalCacheLookup &l)
 {
-    // Cache local eval scripts indexed by source qualified by scope.
-    // 
-    // An eval cache entry should never be considered a hit unless its
-    // strictness matches that of the new eval code. The existing code takes
-    // care of this, because hits are qualified by the function from which
-    // eval was called, whose strictness doesn't change. (We don't cache evals
-    // in eval code, so the calling function corresponds to the calling script,
-    // and its strictness never varies.) Scripts produced by calls to eval from
-    // global code aren't cached.
-    // 
-    // FIXME bug 620141: Qualify hits by calling script rather than function.
-    // Then we wouldn't need the unintuitive !isEvalFrame() hack in EvalKernel
-    // to avoid caching nested evals in functions (thus potentially mismatching
-    // on strict mode), and we could cache evals in global code if desired.
-    unsigned count = 0;
-    JSScript **scriptp = bucket;
+    JS_ASSERT(IsEvalCacheCandidate(script));
 
-    JSVersion version = cx->findVersion();
-    JSScript *script;
-    JSSubsumePrincipalsOp subsume = cx->runtime->securityCallbacks->subsumePrincipals;
-    while ((script = *scriptp) != NULL) {
-        if (script->savedCallerFun &&
-            script->staticLevel == staticLevel &&
-            script->getVersion() == version &&
-            !script->hasSingletons &&
-            (!subsume || script->principals == principals ||
-             (subsume(principals, script->principals) &&
-              subsume(script->principals, principals))))
-        {
-            // Get the prior (cache-filling) eval's saved caller function.
-            // See frontend::CompileScript.
-            JSFunction *fun = script->getCallerFunction();
+    // Get the source string passed for safekeeping in the atom map
+    // by the prior eval to frontend::CompileScript.
+    JSAtom *keyStr = script->atoms[0];
 
-            if (fun == caller->fun()) {
-                /*
-                 * Get the source string passed for safekeeping in the atom map
-                 * by the prior eval to frontend::CompileScript.
-                 */
-                JSAtom *src = script->atoms[0];
-
-                if (src == str || EqualStrings(src, str)) {
-                    // Source matches. Make sure there are no inner objects
-                    // which might use the wrong parent and/or call scope by
-                    // reusing the previous eval's script. Skip the script's
-                    // first object, which entrains the eval's scope.
-                    JS_ASSERT(script->objects()->length >= 1);
-                    if (script->objects()->length == 1 &&
-                        !script->hasRegexps()) {
-                        JS_ASSERT(staticLevel == script->staticLevel);
-                        *scriptp = script->evalHashLink();
-                        script->evalHashLink() = NULL;
-                        return script;
-                    }
-                }
-            }
-        }
-
-        static const unsigned EVAL_CACHE_CHAIN_LIMIT = 4;
-        if (++count == EVAL_CACHE_CHAIN_LIMIT)
-            return NULL;
-        scriptp = &script->evalHashLink();
-    }
-    return NULL;
+    return EqualStrings(keyStr, l.str) &&
+           script->getCallerFunction() == l.caller &&
+           script->staticLevel == l.staticLevel &&
+           script->getVersion() == l.version &&
+           script->compartment() == l.compartment;
 }
 
 // There are two things we want to do with each script executed in EvalKernel:
@@ -141,39 +76,50 @@ EvalCacheLookup(JSContext *cx, JSLinearString *str, StackFrame *caller, unsigned
 // NB: Although the eval cache keeps a script alive wrt to the JS engine, from
 // a jsdbgapi user's perspective, we want each eval() to create and destroy a
 // script. This hides implementation details and means we don't have to deal
-// with calls to JS_GetScriptObject for scripts in the eval cache (currently,
-// script->object aliases script->evalHashLink()).
+// with calls to JS_GetScriptObject for scripts in the eval cache.
 class EvalScriptGuard
 {
-    JSContext *cx_;
-    JSLinearString *str_;
-    JSScript **bucket_;
+    JSContext *context;
     Rooted<JSScript*> script_;
 
+    /* Components of the EvalCacheLookup for this eval. */
+    Rooted<JSLinearString*> str;
+    RootedFunction caller;
+    unsigned staticLevel;
+
   public:
-    EvalScriptGuard(JSContext *cx, JSLinearString *str)
-      : cx_(cx),
-        str_(str),
-        script_(cx) {
-        bucket_ = cx->runtime->evalCache.bucket(str);
-    }
+    EvalScriptGuard(JSContext *cx)
+      : context(cx), script_(cx),
+        str(cx), caller(cx), staticLevel(0)
+    {}
 
     ~EvalScriptGuard() {
         if (script_) {
-            CallDestroyScriptHook(cx_->runtime->defaultFreeOp(), script_);
+            CallDestroyScriptHook(context->runtime->defaultFreeOp(), script_);
             script_->isActiveEval = false;
             script_->isCachedEval = true;
-            script_->evalHashLink() = *bucket_;
-            *bucket_ = script_;
+            if (str && IsEvalCacheCandidate(script_)) {
+                EvalCacheLookup key(str, caller, staticLevel,
+                                    context->findVersion(), context->compartment);
+                EvalCache::AddPtr p = context->runtime->evalCache.lookupForAdd(key);
+                if (p)
+                    context->runtime->evalCache.add(p, script_);
+            }
         }
     }
 
-    void lookupInEvalCache(StackFrame *caller, unsigned staticLevel,
-                           JSPrincipals *principals, JSObject &scopeobj) {
-        if (JSScript *found = EvalCacheLookup(cx_, str_, caller, staticLevel,
-                                              principals, scopeobj, bucket_)) {
-            js_CallNewScriptHook(cx_, found, NULL);
-            script_ = found;
+    void lookupInEvalCache(JSLinearString *str, JSFunction *caller, unsigned staticLevel)
+    {
+        this->str = str;
+        this->caller = caller;
+        this->staticLevel = staticLevel;
+        EvalCacheLookup key(str, caller, staticLevel,
+                            context->findVersion(), context->compartment);
+        EvalCache::Ptr p = context->runtime->evalCache.lookupForAdd(key);
+        if (p) {
+            script_ = *p;
+            context->runtime->evalCache.remove(p);
+            js_CallNewScriptHook(context, script_, NULL);
             script_->isCachedEval = false;
             script_->isActiveEval = true;
         }
@@ -247,11 +193,6 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, StackFrame *c
         if (!ComputeThis(cx, caller))
             return false;
         thisv = caller->thisValue();
-
-#ifdef DEBUG
-        jsbytecode *callerPC = caller->pcQuadratic(cx);
-        JS_ASSERT(callerPC && JSOp(*callerPC) == JSOP_EVAL);
-#endif
     } else {
         JS_ASSERT(args.callee().global() == *scopeobj);
         staticLevel = 0;
@@ -310,12 +251,12 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, StackFrame *c
         }
     }
 
-    EvalScriptGuard esg(cx, linearStr);
+    EvalScriptGuard esg(cx);
 
     JSPrincipals *principals = PrincipalsForCompiledCode(args, cx);
 
     if (evalType == DIRECT_EVAL && caller->isNonEvalFunctionFrame())
-        esg.lookupInEvalCache(caller, staticLevel, principals, *scopeobj);
+        esg.lookupInEvalCache(linearStr, caller->fun(), staticLevel);
 
     if (!esg.foundScript()) {
         unsigned lineno;
@@ -327,10 +268,9 @@ EvalKernel(JSContext *cx, const CallArgs &args, EvalType evalType, StackFrame *c
 
         bool compileAndGo = true;
         bool noScriptRval = false;
-        bool needScriptGlobal = false;
         JSScript *compiled = frontend::CompileScript(cx, scopeobj, caller,
                                                      principals, originPrincipals,
-                                                     compileAndGo, noScriptRval, needScriptGlobal,
+                                                     compileAndGo, noScriptRval,
                                                      chars, length, filename,
                                                      lineno, cx->findVersion(), linearStr,
                                                      staticLevel);
@@ -351,15 +291,14 @@ static inline bool
 WarnOnTooManyArgs(JSContext *cx, const CallArgs &args)
 {
     if (args.length() > 1) {
-        if (JSScript *script = cx->stack.currentScript()) {
-            if (!script->warnedAboutTwoArgumentEval) {
-                static const char TWO_ARGUMENT_WARNING[] =
-                    "Support for eval(code, scopeObject) has been removed. "
-                    "Use |with (scopeObject) eval(code);| instead.";
-                if (!JS_ReportWarning(cx, TWO_ARGUMENT_WARNING))
-                    return false;
-                script->warnedAboutTwoArgumentEval = true;
-            }
+        Rooted<JSScript*> script(cx, cx->stack.currentScript());
+        if (script && !script->warnedAboutTwoArgumentEval) {
+            static const char TWO_ARGUMENT_WARNING[] =
+                "Support for eval(code, scopeObject) has been removed. "
+                "Use |with (scopeObject) eval(code);| instead.";
+            if (!JS_ReportWarning(cx, TWO_ARGUMENT_WARNING))
+                return false;
+            script->warnedAboutTwoArgumentEval = true;
         } else {
             // In the case of an indirect call without a caller frame, avoid a
             // potential warning-flood by doing nothing.
@@ -388,8 +327,6 @@ js::DirectEval(JSContext *cx, const CallArgs &args)
     JS_ASSERT(caller->isScriptFrame());
     JS_ASSERT(IsBuiltinEvalForScope(caller->scopeChain(), args.calleev()));
     JS_ASSERT(JSOp(*cx->regs().pc) == JSOP_EVAL);
-
-    AutoFunctionCallProbe callProbe(cx, args.callee().toFunction(), caller->script());
 
     if (!WarnOnTooManyArgs(cx, args))
         return false;

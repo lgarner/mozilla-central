@@ -392,7 +392,7 @@ MarionetteDriverActor.prototype = {
   getLogs: function MDA_getLogs() {
     this.sendResponse(this.marionetteLog.getLogs());
   },
-
+  
   /**
    * Log some performance data
    */
@@ -756,6 +756,13 @@ MarionetteDriverActor.prototype = {
     else {
       this.sendAsync("getUrl", {});
     }
+  },
+
+  /**
+   * Gets the current title of the window
+   */
+  getTitle: function MDA_getTitle() {
+    this.sendAsync("getTitle", {});
   },
 
   /**
@@ -1186,6 +1193,45 @@ MarionetteDriverActor.prototype = {
   },
 
   /**
+   * Closes the Browser Window.
+   *
+   * If it is B2G it returns straight away and does not do anything
+   *
+   * If is desktop it calculates how many windows are open and if there is only 
+   * 1 then it deletes the session otherwise it closes the window
+   */
+  closeWindow: function MDA_closeWindow() {
+    if (appName == "B2G") {
+      // We can't close windows so just return
+      this.sendOk();
+    }
+    else {
+      // Get the total number of windows
+      let numOpenWindows = 0;
+      let winEnum = this.getWinEnumerator();
+      while (winEnum.hasMoreElements()) {
+        numOpenWindows += 1;
+        winEnum.getNext(); 
+      }
+
+      // if there is only 1 window left, delete the session
+      if (numOpenWindows === 1){
+        this.deleteSession();
+        return;
+      }
+
+      try{
+        this.messageManager.removeDelayedFrameScript("chrome://marionette/content/marionette-listener.js"); 
+        this.getCurrentWindow().close();
+        this.sendOk();
+      }
+      catch (e) {
+        this.sendError("Could not close window: " + e.message, 13, e.stack);
+      }
+    }
+  }, 
+
+  /**
    * Deletes the session.
    * 
    * If it is a desktop environment, it will close the session's tab and close all listeners
@@ -1374,6 +1420,7 @@ MarionetteDriverActor.prototype.requestTypes = {
   "isElementSelected": MarionetteDriverActor.prototype.isElementSelected,
   "sendKeysToElement": MarionetteDriverActor.prototype.sendKeysToElement,
   "clearElement": MarionetteDriverActor.prototype.clearElement,
+  "getTitle": MarionetteDriverActor.prototype.getTitle,
   "goUrl": MarionetteDriverActor.prototype.goUrl,
   "getUrl": MarionetteDriverActor.prototype.getUrl,
   "goBack": MarionetteDriverActor.prototype.goBack,
@@ -1385,7 +1432,8 @@ MarionetteDriverActor.prototype.requestTypes = {
   "switchToWindow": MarionetteDriverActor.prototype.switchToWindow,
   "deleteSession": MarionetteDriverActor.prototype.deleteSession,
   "emulatorCmdResult": MarionetteDriverActor.prototype.emulatorCmdResult,
-  "importScript": MarionetteDriverActor.prototype.importScript
+  "importScript": MarionetteDriverActor.prototype.importScript,
+  "closeWindow": MarionetteDriverActor.prototype.closeWindow
 };
 
 /**
