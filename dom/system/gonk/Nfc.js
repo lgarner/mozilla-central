@@ -54,6 +54,7 @@ const NFC_CID =
 
 function Nfc() {
   this.requestMap = new Array();
+  this.requestMap[0] = "dummyEntry"; 
   this.worker = new ChromeWorker("resource://gre/modules/nfc_worker.js");
   this.worker.onerror = this.onerror.bind(this);
   this.worker.onmessage = this.onmessage.bind(this);
@@ -113,8 +114,8 @@ Nfc.prototype = {
                           records)
   },
 
-  handleTagLost: function handleTagLost(handle) {
-     this._deliverCallback("tagLost", handle);
+  handleTagLost: function handleTagLost(message) {
+     this._deliverCallback("tagLost", message);
   },
 
   requestMap: null,
@@ -128,16 +129,16 @@ Nfc.prototype = {
     var domrequest = this.requestMap[idx];
     debug("Found request: " + domrequest);
     if (response.status = "OK") {
-      Services.DOMRequest.fireSuccess(domrequest, true);
+      Services.DOMRequest.fireSuccess(domrequest, response);
     } else {
-      Services.DOMRequest.fireError(domrequest, false);
+      Services.DOMRequest.fireError(domrequest, response);
     }
     // Locate and remove:
     if (domrequest) {
       debug("Removing request");
-      for (var i = 0; i < requestMap.length; i++) {
-        if (requestMap[idx] == domrequest) {
-          requestMap.splice(i, 1);
+      for (var i = 0; i < this.requestMap.length; i++) {
+        if (this.requestMap[i] == domrequest) {
+          this.requestMap.splice(i, 1);
           break;
         }
       }
@@ -212,14 +213,10 @@ Nfc.prototype = {
     var payload;
     var i;
 
-    debug("XXXXXXXXXXXXXXXX check requestMap XXX");
     // Get ID:
     if (typeof this.requestMap === 'undefined') {
-      debug("XXXXXXXXXXXXXXXX undefined requestMap XXX");
-      // this.requestMap = new Array();
+      debug("Error: Undefined requestMap XXX");
     }
-    debug("XXXXXXXXXXXXXXXX requestMap is defined XXX");
-    debug("XXXXXXXXXXXXXXXX requestMap.length: " + this.requestMap.length + " XXX");
     var rid = this.requestMap.length;
     debug("XXXXXXXXXXXXXXXX request id: " + rid + " XXX");
     if (typeof aDomRequest === 'undefined') {
