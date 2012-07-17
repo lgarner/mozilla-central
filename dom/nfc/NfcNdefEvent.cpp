@@ -48,9 +48,9 @@ USING_NFC_NAMESPACE
 
 // static
 already_AddRefed<NfcNdefEvent>
-NfcNdefEvent::Create(const JS::Value& aNdefRecords)
+NfcNdefEvent::Create(const JS::Value& aNdefMessages)
 {
-  nsRefPtr<NfcNdefEvent> event = new NfcNdefEvent(aNdefRecords);
+  nsRefPtr<NfcNdefEvent> event = new NfcNdefEvent(aNdefMessages);
 
   return event.forget();
 }
@@ -76,8 +76,8 @@ NS_IMPL_RELEASE_INHERITED(NfcNdefEvent, nsDOMEvent)
 DOMCI_DATA(NfcNdefEvent, NfcNdefEvent)
 
 NS_IMETHODIMP
-NfcNdefEvent::GetNdefRecords(jsval* aNdefRecords)
+NfcNdefEvent::GetNdefMessages(jsval* aNdefMessages)
 {
-  aNdefRecords->setObjectOrNull(JSVAL_TO_OBJECT(mNdefRecords));
+  aNdefMessages->setObjectOrNull(JSVAL_TO_OBJECT(mNdefMessages));
   return NS_OK;
 }
