@@ -265,6 +265,7 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
                 { (PRFuncPtr*) &mSymbols.fReadBuffer, { "ReadBuffer", NULL } },
                 { (PRFuncPtr*) &mSymbols.fMapBuffer, { "MapBuffer", NULL } },
                 { (PRFuncPtr*) &mSymbols.fUnmapBuffer, { "UnmapBuffer", NULL } },
+                { (PRFuncPtr*) &mSymbols.fPointParameterf, { "PointParameterf", NULL } },
                 { NULL, { NULL } },
             };
 
@@ -1273,12 +1274,12 @@ PRUint32 TiledTextureImage::GetTileCount()
 }
 
 GLContext::GLFormats
-GLContext::ChooseGLFormats(ContextFormat& aCF)
+GLContext::ChooseGLFormats(ContextFormat& aCF, ColorByteOrder aByteOrder)
 {
     GLFormats formats;
 
     if (aCF.alpha) {
-        if (mIsGLES2 && IsExtensionSupported(EXT_texture_format_BGRA8888)) {
+        if (mIsGLES2 && IsExtensionSupported(EXT_texture_format_BGRA8888) && aByteOrder != ForceRGBA) {
             formats.texColor = LOCAL_GL_BGRA;
         } else {
             formats.texColor = LOCAL_GL_RGBA;
@@ -1771,7 +1772,7 @@ already_AddRefed<gfxImageSurface>
 GLContext::GetTexImage(GLuint aTexture, bool aYInvert, ShaderProgramType aShader)
 {
     MakeCurrent();
-    fFinish();
+    GuaranteeResolve();
     fActiveTexture(LOCAL_GL_TEXTURE0);
     fBindTexture(LOCAL_GL_TEXTURE_2D, aTexture);
 

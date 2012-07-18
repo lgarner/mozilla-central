@@ -14,7 +14,6 @@
 #include "nsIScriptContext.h"
 #include "nsDOMJSUtils.h" // for GetScriptContextFromJSContext
 #include "nsIScriptGlobalObject.h"
-#include "nsContentUtils.h"
 #include "xpcpublic.h"
 
 namespace mozilla {
@@ -25,9 +24,10 @@ class DOMSVGPointList;
 class DOMSVGStringList;
 class DOMSVGTransformList;
 }
+
+class nsContentList;
 class nsGlobalWindow;
 class nsICanvasRenderingContextInternal;
-class nsIDOMDocument;
 class nsIDOMHTMLOptionsCollection;
 class nsIDOMSVGLength;
 class nsIDOMSVGLengthList;
@@ -384,7 +384,7 @@ public:
 
   static JSBool GlobalScopePolluterNewResolve(JSContext *cx, JSHandleObject obj,
                                               JSHandleId id, unsigned flags,
-                                              JSObject **objp);
+                                              JSMutableHandleObject objp);
   static JSBool GlobalScopePolluterGetProperty(JSContext *cx, JSHandleObject obj,
                                                JSHandleId id, jsval *vp);
   static JSBool SecurityCheckOnAddDelProp(JSContext *cx, JSHandleObject obj, JSHandleId id,
@@ -562,6 +562,8 @@ public:
                        JSObject *globalObj, JSObject **parentObj);
   NS_IMETHOD PostCreate(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                         JSObject *obj);
+  NS_IMETHOD PostTransplant(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                            JSObject *obj);
 
   static nsIClassInfo *doCreate(nsDOMClassInfoData* aData)
   {
@@ -749,6 +751,8 @@ public:
   NS_IMETHOD GetFlags(PRUint32* aFlags);
   NS_IMETHOD PostCreate(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                         JSObject *obj);
+  NS_IMETHOD  PostTransplant(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                             JSObject *obj);
 
   static nsIClassInfo *doCreate(nsDOMClassInfoData* aData)
   {
@@ -778,17 +782,17 @@ public:
   static JSBool DocumentAllGetProperty(JSContext *cx, JSHandleObject obj, JSHandleId id,
                                        jsval *vp);
   static JSBool DocumentAllNewResolve(JSContext *cx, JSHandleObject obj, JSHandleId id,
-                                      unsigned flags, JSObject **objp);
+                                      unsigned flags, JSMutableHandleObject objp);
   static void ReleaseDocument(JSFreeOp *fop, JSObject *obj);
   static JSBool CallToGetPropMapper(JSContext *cx, unsigned argc, jsval *vp);
   static JSBool DocumentAllHelperGetProperty(JSContext *cx, JSHandleObject obj,
                                              JSHandleId id, jsval *vp);
   static JSBool DocumentAllHelperNewResolve(JSContext *cx, JSHandleObject obj,
                                             JSHandleId id, unsigned flags,
-                                            JSObject **objp);
+                                            JSMutableHandleObject objp);
   static JSBool DocumentAllTagsNewResolve(JSContext *cx, JSHandleObject obj,
                                           JSHandleId id, unsigned flags,
-                                          JSObject **objp);
+                                          JSMutableHandleObject objp);
 
   NS_IMETHOD NewResolve(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                         JSObject *obj, jsid id, PRUint32 flags,
@@ -903,6 +907,8 @@ public:
                        JSObject *globalObj, JSObject **parentObj);
   NS_IMETHOD PostCreate(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                         JSObject *obj);
+  NS_IMETHOD PostTransplant(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
+                            JSObject *obj);
   NS_IMETHOD GetProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,
                          JSObject *obj, jsid id, jsval *vp, bool *_retval);
   NS_IMETHOD SetProperty(nsIXPConnectWrappedNative *wrapper, JSContext *cx,

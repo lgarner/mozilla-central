@@ -53,12 +53,24 @@ static NS_DEFINE_CID(kStreamListenerTeeCID, NS_STREAMLISTENERTEE_CID);
 static NS_DEFINE_CID(kStreamTransportServiceCID,
                      NS_STREAMTRANSPORTSERVICE_CID);
 
+enum CacheDisposition {
+    kCacheHit = 1,
+    kCacheHitViaReval = 2,
+    kCacheMissedViaReval = 3,
+    kCacheMissed = 4
+};
+
 const mozilla::Telemetry::ID UNKNOWN_DEVICE
     = static_cast<mozilla::Telemetry::ID>(0);
 void
 AccumulateCacheHitTelemetry(mozilla::Telemetry::ID deviceHistogram,
-                            PRUint32 hitOrMiss)
+                            CacheDisposition hitOrMiss)
 {
+    // If we had a cache hit, or we revalidated an entry, then we should know
+    // the device for the entry already. But, sometimes this assertion fails!
+    // (Bug 769497).
+    // MOZ_ASSERT(deviceHistogram != UNKNOWN_DEVICE || hitOrMiss == kCacheMissed);
+
     mozilla::Telemetry::Accumulate(
             mozilla::Telemetry::HTTP_CACHE_DISPOSITION_2, hitOrMiss);
     if (deviceHistogram != UNKNOWN_DEVICE) {
@@ -189,7 +201,7 @@ public:
         , mHasQueryString(HasQueryString(channel->mRequestHead.Method(),
                                          channel->mURI))
         , mLoadFlags(channel->mLoadFlags)
-        , mCacheForOfflineUse(channel->mCacheForOfflineUse)
+        , mCacheForOfflineUse(!!channel->mApplicationCacheForWrite)
         , mFallbackChannel(channel->mFallbackChannel)
         , mClientID(clientID)
         , mStoragePolicy(storagePolicy)
@@ -298,7 +310,6 @@ nsHttpChannel::nsHttpChannel()
     , mAuthRetryPending(false)
     , mResuming(false)
     , mInitedCacheEntry(false)
-    , mCacheForOfflineUse(false)
     , mFallbackChannel(false)
     , mCustomConditionalRequest(false)
     , mFallingBack(false)
@@ -438,7 +449,7 @@ nsHttpChannel::Connect()
 
     // if cacheForOfflineUse has been set, open up an offline cache
     // entry to update
-    if (mCacheForOfflineUse) {
+    if (mApplicationCacheForWrite) {
         rv = OpenOfflineCacheEntryForWriting();
         if (NS_FAILED(rv)) return rv;
 
@@ -881,8 +892,11 @@ nsresult
 nsHttpChannel::CallOnStartRequest()
 {
     mTracingEnabled = false;
+    bool shouldSniff = mResponseHead && (mResponseHead->ContentType().IsEmpty() ||
+        ((mResponseHead->ContentType().EqualsLiteral(APPLICATION_OCTET_STREAM) &&
+        (mLoadFlags & LOAD_TREAT_APPLICATION_OCTET_STREAM_AS_UNKNOWN))));
 
-    if (mResponseHead && mResponseHead->ContentType().IsEmpty()) {
+    if (shouldSniff) {
         NS_ASSERTION(mConnectionInfo, "Should have connection info here");
         if (!mContentTypeHint.IsEmpty())
             mResponseHead->SetContentType(mContentTypeHint);
@@ -981,7 +995,7 @@ nsHttpChannel::CallOnStartRequest()
                 rv = InstallOfflineCacheListener();
                 if (NS_FAILED(rv)) return rv;
             }
-        } else if (mCacheForOfflineUse) {
+        } else if (mApplicationCacheForWrite) {
             LOG(("offline cache is up to date, not updating"));
             CloseOfflineCacheEntry();
         }
@@ -1004,7 +1018,7 @@ nsHttpChannel::ProcessFailedSSLConnect(PRUint32 httpStatus)
     // body of the reply, and instead give the user a (hopefully helpful) 
     // boilerplate error page, based on just the HTTP status of the reply.
 
-    NS_ABORT_IF_FALSE(mConnectionInfo->UsingSSL(),
+    NS_ABORT_IF_FALSE(mConnectionInfo->UsingConnect(),
                       "SSL connect failed but not using SSL?");
     nsresult rv;
     switch (httpStatus) 
@@ -1306,7 +1320,7 @@ nsHttpChannel::ProcessResponse()
         break;
     }
 
-    PRUint32 cacheDisposition;
+    CacheDisposition cacheDisposition;
     if (!mDidReval)
         cacheDisposition = kCacheMissed;
     else if (successfulReval)
@@ -1314,8 +1328,7 @@ nsHttpChannel::ProcessResponse()
     else
         cacheDisposition = kCacheMissedViaReval;
 
-    AccumulateCacheHitTelemetry(mCacheEntry ? mCacheEntryDeviceTelemetryID
-                                            : UNKNOWN_DEVICE,
+    AccumulateCacheHitTelemetry(mCacheEntryDeviceTelemetryID,
                                 cacheDisposition);
 
     return rv;
@@ -1354,7 +1367,7 @@ nsHttpChannel::ContinueProcessResponse(nsresult rv)
         InitCacheEntry();
         CloseCacheEntry(false);
 
-        if (mCacheForOfflineUse) {
+        if (mApplicationCacheForWrite) {
             // Store response in the offline cache
             InitOfflineCacheEntry();
             CloseOfflineCacheEntry();
@@ -2255,8 +2268,7 @@ nsHttpChannel::ProcessFallback(bool *waitingForRedirectCallback)
         mOfflineCacheAccess = 0;
     }
 
-    mCacheForOfflineUse = false;
-    mOfflineCacheClientID.Truncate();
+    mApplicationCacheForWrite = nsnull;
     mOfflineCacheEntry = 0;
     mOfflineCacheAccess = 0;
 
@@ -2490,7 +2502,7 @@ nsHttpChannel::OnOfflineCacheEntryAvailable(nsICacheEntryDescriptor *aEntry,
     if (NS_SUCCEEDED(aEntryStatus))
         return NS_OK;
 
-    if (!mCacheForOfflineUse && !mFallbackChannel) {
+    if (!mApplicationCacheForWrite && !mFallbackChannel) {
         nsCAutoString cacheKey;
         GenerateCacheKey(mPostID, cacheKey);
 
@@ -2627,7 +2639,14 @@ nsHttpChannel::OpenOfflineCacheEntryForWriting()
     nsCAutoString cacheKey;
     GenerateCacheKey(mPostID, cacheKey);
 
-    NS_ENSURE_TRUE(!mOfflineCacheClientID.IsEmpty(),
+    NS_ENSURE_TRUE(mApplicationCacheForWrite,
+                   NS_ERROR_NOT_AVAILABLE);
+
+    nsCAutoString offlineCacheClientID;
+    rv = mApplicationCacheForWrite->GetClientID(offlineCacheClientID);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    NS_ENSURE_TRUE(!offlineCacheClientID.IsEmpty(),
                    NS_ERROR_NOT_AVAILABLE);
 
     nsCOMPtr<nsICacheSession> session;
@@ -2635,14 +2654,19 @@ nsHttpChannel::OpenOfflineCacheEntryForWriting()
         do_GetService(NS_CACHESERVICE_CONTRACTID, &rv);
     if (NS_FAILED(rv)) return rv;
 
-    rv = serv->CreateSession(mOfflineCacheClientID.get(),
+    rv = serv->CreateSession(offlineCacheClientID.get(),
                              nsICache::STORE_OFFLINE,
                              nsICache::STREAM_BASED,
                              getter_AddRefs(session));
     if (NS_FAILED(rv)) return rv;
 
-    if (mProfileDirectory) {
-        rv = session->SetProfileDirectory(mProfileDirectory);
+    nsCOMPtr<nsIFile> profileDirectory;
+    rv = mApplicationCacheForWrite->GetProfileDirectory(
+            getter_AddRefs(profileDirectory));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    if (profileDirectory) {
+        rv = session->SetProfileDirectory(profileDirectory);
         if (NS_FAILED(rv)) return rv;
     }
 
@@ -2884,11 +2908,7 @@ HttpCacheQuery::OnCacheEntryAvailable(nsICacheEntryDescriptor *entry,
     mCacheAccess = access;
     mStatus = status;
 
-    nsresult rv = CheckCache();
-    if (NS_FAILED(rv))
-        NS_WARNING("cache check failed");
-
-    if (mCachedContentIsValid) {
+    if (mCacheEntry) {
         char* cacheDeviceID = nsnull;
         mCacheEntry->GetDeviceID(&cacheDeviceID);
         if (cacheDeviceID) {
@@ -2906,8 +2926,16 @@ HttpCacheQuery::OnCacheEntryAvailable(nsICacheEntryDescriptor *entry,
             }
 
             delete cacheDeviceID;
+        } else {
+            // If we can read from the entry, it must have a device, but
+            // sometimes we don't (Bug 769497).
+            // MOZ_ASSERT(!(mCacheAccess & nsICache::ACCESS_READ));
         }
     }
+
+    nsresult rv = CheckCache();
+    if (NS_FAILED(rv))
+        NS_WARNING("cache check failed");
 
     rv = NS_DispatchToMainThread(this);
     return rv;
@@ -3278,7 +3306,7 @@ HttpCacheQuery::MustValidateBasedOnQueryUrl() const
 bool
 nsHttpChannel::ShouldUpdateOfflineCacheEntry()
 {
-    if (!mCacheForOfflineUse || !mOfflineCacheEntry) {
+    if (!mApplicationCacheForWrite || !mOfflineCacheEntry) {
         return false;
     }
 
@@ -3469,7 +3497,7 @@ nsHttpChannel::ReadFromCache(bool alreadyMarkedValid)
     }
     
     if ((mLoadFlags & LOAD_ONLY_IF_MODIFIED) && !mCachedContentIsPartial) {
-        if (!mCacheForOfflineUse) {
+        if (!mApplicationCacheForWrite) {
             LOG(("Skipping read from cache based on LOAD_ONLY_IF_MODIFIED "
                  "load flag\n"));
             MOZ_ASSERT(!mCacheInputStream);
@@ -3480,7 +3508,7 @@ nsHttpChannel::ReadFromCache(bool alreadyMarkedValid)
         
         if (!ShouldUpdateOfflineCacheEntry()) {
             LOG(("Skipping read from cache based on LOAD_ONLY_IF_MODIFIED "
-                 "load flag (mCacheForOfflineUse case)\n"));
+                 "load flag (mApplicationCacheForWrite not null case)\n"));
             mCacheInputStream.CloseAndRelease();
             // TODO: Bug 759040 - We should call HandleAsyncNotModified directly
             // here, to avoid event dispatching latency.
@@ -3971,11 +3999,12 @@ nsHttpChannel::SetupReplacementChannel(nsIURI       *newURI,
                     cachingChannel->SetCacheKey(cacheKey);
                 }
             }
+        }
 
-            // cacheClientID, cacheForOfflineUse
-            cachingChannel->SetOfflineCacheClientID(mOfflineCacheClientID);
-            cachingChannel->SetCacheForOfflineUse(mCacheForOfflineUse);
-            cachingChannel->SetProfileDirectory(mProfileDirectory);
+        nsCOMPtr<nsIApplicationCacheChannel> appCacheChannel = do_QueryInterface(newChannel);
+        if (appCacheChannel) {
+            // app cache for write
+            appCacheChannel->SetApplicationCacheForWrite(mApplicationCacheForWrite);
         }
     }
 
@@ -5361,62 +5390,6 @@ nsHttpChannel::SetCacheAsFile(bool value)
     return mCacheEntry->SetStoragePolicy(policy);
 }
 
-
-NS_IMETHODIMP
-nsHttpChannel::GetCacheForOfflineUse(bool *value)
-{
-    *value = mCacheForOfflineUse;
-
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpChannel::SetCacheForOfflineUse(bool value)
-{
-    ENSURE_CALLED_BEFORE_ASYNC_OPEN();
-
-    mCacheForOfflineUse = value;
-
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpChannel::GetOfflineCacheClientID(nsACString &value)
-{
-    value = mOfflineCacheClientID;
-
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpChannel::SetOfflineCacheClientID(const nsACString &value)
-{
-    ENSURE_CALLED_BEFORE_ASYNC_OPEN();
-
-    mOfflineCacheClientID = value;
-
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpChannel::GetProfileDirectory(nsIFile **_result)
-{
-    NS_ENSURE_ARG(_result);
-
-    if (!mProfileDirectory)
-        return NS_ERROR_NOT_AVAILABLE;
-
-    NS_ADDREF(*_result = mProfileDirectory);
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpChannel::SetProfileDirectory(nsIFile *value)
-{
-    mProfileDirectory = value;
-    return NS_OK;
-}
-
 NS_IMETHODIMP
 nsHttpChannel::GetCacheFile(nsIFile **cacheFile)
 {
@@ -5519,12 +5492,17 @@ nsHttpChannel::OnCacheEntryAvailableInternal(nsICacheEntryDescriptor *entry,
                 }
                 return NS_ERROR_DOCUMENT_NOT_CACHED;
             }
+            if (mCanceled)
+                // If the request was canceled then don't continue without using
+                // the cache entry. See bug #764337
+                return rv;
+
             // proceed without using the cache
         }
 
-        // if cacheForOfflineUse has been set, open up an offline cache entry
+        // if app cache for write has been set, open up an offline cache entry
         // to update
-        if (mCacheForOfflineUse) {
+        if (mApplicationCacheForWrite) {
             rv = OpenOfflineCacheEntryForWriting();
             if (mOnCacheEntryAvailableCallback) {
                 NS_ASSERTION(NS_SUCCEEDED(rv), "Unexpected state");
@@ -5610,6 +5588,7 @@ nsHttpChannel::DoAuthRetry(nsAHttpConnection *conn)
 //-----------------------------------------------------------------------------
 // nsHttpChannel::nsIApplicationCacheChannel
 //-----------------------------------------------------------------------------
+
 NS_IMETHODIMP
 nsHttpChannel::GetApplicationCache(nsIApplicationCache **out)
 {
@@ -5623,6 +5602,22 @@ nsHttpChannel::SetApplicationCache(nsIApplicationCache *appCache)
     ENSURE_CALLED_BEFORE_ASYNC_OPEN();
 
     mApplicationCache = appCache;
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsHttpChannel::GetApplicationCacheForWrite(nsIApplicationCache **out)
+{
+    NS_IF_ADDREF(*out = mApplicationCacheForWrite);
+    return NS_OK;
+}
+
+NS_IMETHODIMP
+nsHttpChannel::SetApplicationCacheForWrite(nsIApplicationCache *appCache)
+{
+    ENSURE_CALLED_BEFORE_ASYNC_OPEN();
+
+    mApplicationCacheForWrite = appCache;
     return NS_OK;
 }
 

@@ -3,13 +3,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "DeleteNodeTxn.h"
 #include "DeleteRangeTxn.h"
 #include "DeleteTextTxn.h"
-#include "DeleteElementTxn.h"
+#include "mozilla/Assertions.h"
+#include "mozilla/Selection.h"
+#include "mozilla/mozalloc.h"
+#include "nsCOMPtr.h"
+#include "nsDebug.h"
+#include "nsEditor.h"
+#include "nsError.h"
+#include "nsIContent.h"
 #include "nsIContentIterator.h"
-#include "nsComponentManagerUtils.h"
+#include "nsIDOMCharacterData.h"
+#include "nsINode.h"
+#include "nsAString.h"
 
-#include "mozilla/Util.h"
+class nsIDOMRange;
 
 using namespace mozilla;
 
@@ -160,8 +170,8 @@ DeleteRangeTxn::CreateTxnsToDeleteBetween(nsINode* aNode,
 
   nsresult res = NS_OK;
   for (PRInt32 i = aStartOffset; i < aEndOffset; ++i) {
-    nsRefPtr<DeleteElementTxn> txn = new DeleteElementTxn();
-    res = txn->Init(mEditor, child->AsDOMNode(), mRangeUpdater);
+    nsRefPtr<DeleteNodeTxn> txn = new DeleteNodeTxn();
+    res = txn->Init(mEditor, child, mRangeUpdater);
     if (NS_SUCCEEDED(res)) {
       AppendChild(txn);
     }
@@ -217,9 +227,9 @@ DeleteRangeTxn::CreateTxnsToDeleteNodesBetween()
     nsCOMPtr<nsINode> node = iter->GetCurrentNode();
     NS_ENSURE_TRUE(node, NS_ERROR_NULL_POINTER);
 
-    nsRefPtr<DeleteElementTxn> txn = new DeleteElementTxn();
+    nsRefPtr<DeleteNodeTxn> txn = new DeleteNodeTxn();
 
-    res = txn->Init(mEditor, node->AsDOMNode(), mRangeUpdater);
+    res = txn->Init(mEditor, node, mRangeUpdater);
     NS_ENSURE_SUCCESS(res, res);
     AppendChild(txn);
 

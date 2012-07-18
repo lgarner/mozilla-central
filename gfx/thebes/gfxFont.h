@@ -441,7 +441,7 @@ private:
         typedef KeyClass::KeyTypePointer KeyTypePointer;
 
         FontTableHashEntry(KeyTypePointer aTag)
-            : KeyClass(aTag), mBlob() { };
+            : KeyClass(aTag), mBlob() { }
         // Copying transfers blob association.
         FontTableHashEntry(FontTableHashEntry& toCopy)
             : KeyClass(toCopy), mBlob(toCopy.mBlob)
@@ -642,6 +642,17 @@ public:
     // so we can use simplified style-matching;
     // if so set the mIsSimpleFamily flag (defaults to False before we've checked)
     void CheckForSimpleFamily();
+
+    // check whether the family has any faces that are marked as Italic
+    bool HasItalicFace() const {
+        size_t count = mAvailableFonts.Length();
+        for (size_t i = 0; i < count; ++i) {
+            if (mAvailableFonts[i] && mAvailableFonts[i]->IsItalic()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     // For memory reporter
     virtual void SizeOfExcludingThis(nsMallocSizeOfFun aMallocSizeOf,

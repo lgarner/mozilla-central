@@ -537,7 +537,7 @@ public:
     virtual nsresult FinishTraverse();
     virtual nsCycleCollectionParticipant *GetParticipant();
     virtual bool NeedCollect();
-    virtual void Collect(PRUint32 reason, PRUint32 kind);
+    virtual void Collect(PRUint32 reason);
 
     XPCCallContext *GetCycleCollectionContext()
     {
@@ -763,6 +763,7 @@ public:
 
     nsresult AddJSHolder(void* aHolder, nsScriptObjectTracer* aTracer);
     nsresult RemoveJSHolder(void* aHolder);
+    nsresult TestJSHolder(void* aHolder, bool* aRetval);
 
     static void SuspectWrappedNative(XPCWrappedNative *wrapper,
                                      nsCycleCollectionTraversalCallback &cb);
@@ -3886,8 +3887,11 @@ class NS_STACK_CLASS AutoResolveName
 public:
     AutoResolveName(XPCCallContext& ccx, jsid name
                     MOZ_GUARD_OBJECT_NOTIFIER_PARAM) :
-          mOld(XPCJSRuntime::Get()->SetResolveName(name)),
-          mCheck(name) {
+          mOld(XPCJSRuntime::Get()->SetResolveName(name))
+#ifdef DEBUG
+          ,mCheck(name)
+#endif
+    {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
     ~AutoResolveName()
@@ -3901,7 +3905,9 @@ public:
 
 private:
     jsid mOld;
+#ifdef DEBUG
     jsid mCheck;
+#endif
     MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 

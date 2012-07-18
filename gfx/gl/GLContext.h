@@ -47,6 +47,7 @@ namespace mozilla {
 namespace gl {
 class GLContext;
 
+typedef uintptr_t SharedTextureHandle;
 
 enum ShaderProgramType {
     RGBALayerProgramType,
@@ -54,6 +55,7 @@ enum ShaderProgramType {
     RGBXLayerProgramType,
     BGRXLayerProgramType,
     RGBARectLayerProgramType,
+    RGBAExternalLayerProgramType,
     ColorLayerProgramType,
     YCbCrLayerProgramType,
     ComponentAlphaPass1ProgramType,
@@ -98,6 +100,11 @@ public:
         ForceSingleTile  = 0x4
     };
 
+    enum TextureShareType {
+        ThreadShared     = 0x0,
+        ProcessShared    = 0x1
+    };
+
     typedef gfxASurface::gfxContentType ContentType;
 
     virtual ~TextureImage() {}
@@ -132,7 +139,7 @@ public:
      * |aRegion| is an inout param.
      */
     virtual void GetUpdateRegion(nsIntRegion& aForRegion) {
-    };
+    }
     /**
      * Finish the active update and synchronize with the server, if
      * necessary.
@@ -147,11 +154,11 @@ public:
      * These functions iterate over each sub texture image tile.
      */
     virtual void BeginTileIteration() {
-    };
+    }
 
     virtual bool NextTile() {
         return false;
-    };
+    }
 
     // Function prototype for a tile iteration callback. Returning false will
     // cause iteration to be interrupted (i.e. the corresponding NextTile call
@@ -163,17 +170,17 @@ public:
     // Sets a callback to be called every time NextTile is called.
     virtual void SetIterationCallback(TileIterationCallback aCallback,
                                       void* aCallbackData) {
-    };
+    }
 
     virtual nsIntRect GetTileRect() {
         return nsIntRect(nsIntPoint(0,0), mSize);
-    };
+    }
 
     virtual GLuint GetTextureID() = 0;
 
     virtual PRUint32 GetTileCount() {
         return 1;
-    };
+    }
 
     /**
      * Set this TextureImage's size, and ensure a texture has been
@@ -204,7 +211,7 @@ public:
     virtual bool DirectUpdate(gfxASurface *aSurf, const nsIntRegion& aRegion, const nsIntPoint& aFrom = nsIntPoint(0,0)) = 0;
 
     virtual void BindTexture(GLenum aTextureUnit) = 0;
-    virtual void ReleaseTexture() {};
+    virtual void ReleaseTexture() {}
 
     void BindTextureAndApplyFilter(GLenum aTextureUnit) {
         BindTexture(aTextureUnit);
@@ -299,7 +306,7 @@ protected:
 
     virtual nsIntRect GetSrcTileRect() {
         return nsIntRect(nsIntPoint(0,0), mSize);
-    };
+    }
 
     nsIntSize mSize;
     GLenum mWrapMode;
@@ -344,7 +351,7 @@ public:
     virtual void GetUpdateRegion(nsIntRegion& aForRegion);
     virtual void EndUpdate();
     virtual bool DirectUpdate(gfxASurface* aSurf, const nsIntRegion& aRegion, const nsIntPoint& aFrom = nsIntPoint(0,0));
-    virtual GLuint GetTextureID() { return mTexture; };
+    virtual GLuint GetTextureID() { return mTexture; }
     // Returns a surface to draw into
     virtual already_AddRefed<gfxASurface>
       GetSurfaceForUpdate(const gfxIntSize& aSize, ImageFormat aFmt);
@@ -401,9 +408,9 @@ public:
     virtual nsIntRect GetTileRect();
     virtual GLuint GetTextureID() {
         return mImages[mCurrentImage]->GetTextureID();
-    };
+    }
     virtual bool DirectUpdate(gfxASurface* aSurf, const nsIntRegion& aRegion, const nsIntPoint& aFrom = nsIntPoint(0,0));
-    virtual bool InUpdate() const { return mInUpdate; };
+    virtual bool InUpdate() const { return mInUpdate; }
     virtual void BindTexture(GLenum);
     virtual void ApplyFilter();
 
@@ -497,8 +504,7 @@ public:
     GLContext(const ContextFormat& aFormat,
               bool aIsOffscreen = false,
               GLContext *aSharedContext = nsnull)
-      : mFlushGuaranteesResolve(false),
-        mUserBoundDrawFBO(0),
+      : mUserBoundDrawFBO(0),
         mUserBoundReadFBO(0),
         mInternalBoundDrawFBO(0),
         mInternalBoundReadFBO(0),
@@ -735,6 +741,7 @@ public:
      */
     void ApplyFilterToBoundTexture(gfxPattern::GraphicsFilter aFilter);
 
+    virtual bool BindExternalBuffer(GLuint texture, void* buffer) { return false; }
 
     /*
      * Offscreen support API
@@ -784,23 +791,11 @@ public:
     bool IsOffscreen() {
         return mIsOffscreen;
     }
-
-private:
-    bool mFlushGuaranteesResolve;
-
-public:
-    void SetFlushGuaranteesResolve(bool aFlushGuaranteesResolve) {
-        mFlushGuaranteesResolve = aFlushGuaranteesResolve;
-    }
     
     // Before reads from offscreen texture
     void GuaranteeResolve() {
-        if (mFlushGuaranteesResolve) {
-            BlitDirtyFBOs();
-            fFlush();
-        } else {
-            fFinish();
-        }
+        BlitDirtyFBOs();
+        fFinish();
     }
 
     /*
@@ -860,7 +855,43 @@ public:
         return IsExtensionSupported(EXT_framebuffer_blit) || IsExtensionSupported(ANGLE_framebuffer_blit);
     }
 
-
+    /**
+     * Create new shared GLContext content handle, must be released by ReleaseSharedHandle.
+     */
+    virtual SharedTextureHandle CreateSharedHandle(TextureImage::TextureShareType aType) { return nsnull; }
+    /**
+     * Publish GLContext content to intermediate buffer attached to shared handle.
+     * Shared handle content is ready to be used after call returns, and no need extra Flush/Finish are required.
+     * GLContext must be current before this call
+     */
+    virtual void UpdateSharedHandle(TextureImage::TextureShareType aType,
+                                    SharedTextureHandle aSharedHandle) { }
+    /**
+     * - It is better to call ReleaseSharedHandle before original GLContext destroyed,
+     *     otherwise warning will be thrown on attempt to destroy Texture associated with SharedHandle, depends on backend implementation.
+     * - It does not require to be called on context where it was created,
+     *     because SharedHandle suppose to keep Context reference internally,
+     *     or don't require specific context at all, for example IPC SharedHandle.
+     * - Not recommended to call this between AttachSharedHandle and Draw Target call.
+     *      if it is really required for some special backend, then DetachSharedHandle API must be added with related implementation.
+     * - It is recommended to stop any possible access to SharedHandle (Attachments, pending GL calls) before calling Release,
+     *      otherwise some artifacts might appear or even crash if API backend implementation does not expect that.
+     * SharedHandle (currently EGLImage) does not require GLContext because it is EGL call, and can be destroyed
+     *   at any time, unless EGLImage have siblings (which are not expected with current API).
+     */
+    virtual void ReleaseSharedHandle(TextureImage::TextureShareType aType,
+                                     SharedTextureHandle aSharedHandle) { }
+    /**
+     * Attach Shared GL Handle to GL_TEXTURE_2D target
+     * GLContext must be current before this call
+     */
+    virtual bool AttachSharedHandle(TextureImage::TextureShareType aType,
+                                    SharedTextureHandle aSharedHandle) { return false; }
+    /**
+     * Detach Shared GL Handle from GL_TEXTURE_2D target
+     */
+    virtual void DetachSharedHandle(TextureImage::TextureShareType aType,
+                                    SharedTextureHandle aSharedHandle) { return; }
 
 private:
     GLuint mUserBoundDrawFBO;
@@ -1220,12 +1251,6 @@ public:
         BindUserReadFBO(read);
     }
 
-    void fFinish() {
-        BeforeGLReadCall();
-        raw_fFinish();
-        AfterGLReadCall();
-    }
-
     // Draw/Read
     void fBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
         BeforeGLDrawCall();
@@ -1283,7 +1308,7 @@ public:
                 TextureImage::Flags aFlags = TextureImage::NoFlags)
     {
         return nsnull;
-    };
+    }
 
     /**
      * Read the image data contained in aTexture, and return it as an ImageSurface.
@@ -1427,15 +1452,15 @@ public:
          */
         float* vertexPointer() {
             return &vertexCoords[0].x;
-        };
+        }
 
         float* texCoordPointer() {
             return &texCoords[0].u;
-        };
+        }
 
         unsigned int elements() {
             return vertexCoords.Length();
-        };
+        }
 
         typedef struct { GLfloat x,y; } vert_coord;
         typedef struct { GLfloat u,v; } tex_coord;
@@ -1703,7 +1728,12 @@ protected:
         GLsizei samples;
     };
 
-    GLFormats ChooseGLFormats(ContextFormat& aCF);
+    enum ColorByteOrder {
+      ForceRGBA,
+      DefaultByteOrder
+    };
+
+    GLFormats ChooseGLFormats(ContextFormat& aCF, GLContext::ColorByteOrder aByteOrder = GLContext::DefaultByteOrder);
     void CreateTextureForOffscreen(const GLFormats& aFormats, const gfxIntSize& aSize,
                                    GLuint& texture);
     void CreateRenderbuffersForOffscreen(const GLContext::GLFormats& aFormats, const gfxIntSize& aSize,
@@ -2205,7 +2235,7 @@ public:
         AFTER_GL_CALL;
     }
 
-    void raw_fFinish() {
+    void fFinish() {
         BEFORE_GL_CALL;
         mSymbols.fFinish();
         AFTER_GL_CALL;
@@ -2338,7 +2368,7 @@ public:
         BEFORE_GL_CALL;
         mSymbols.fGetTexImage(target, level, format, type, img);
         AFTER_GL_CALL;
-    };
+    }
 
     void fGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params)
     {  
@@ -2450,6 +2480,12 @@ public:
     void fPixelStorei(GLenum pname, GLint param) {
         BEFORE_GL_CALL;
         mSymbols.fPixelStorei(pname, param);
+        AFTER_GL_CALL;
+    }
+
+    void fPointParameterf(GLenum pname, GLfloat param) {
+        BEFORE_GL_CALL;
+        mSymbols.fPointParameterf(pname, param);
         AFTER_GL_CALL;
     }
 

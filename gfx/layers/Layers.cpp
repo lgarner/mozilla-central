@@ -7,6 +7,7 @@
 
 #include "mozilla/layers/PLayers.h"
 #include "mozilla/layers/ShadowLayers.h"
+#include "mozilla/layers/ImageBridgeChild.h" // TODO: temp
 
 #include "ImageLayers.h"
 #include "Layers.h"
@@ -205,7 +206,14 @@ LayerManager::Mutated(Layer* aLayer)
 already_AddRefed<ImageContainer>
 LayerManager::CreateImageContainer()
 {
-  nsRefPtr<ImageContainer> container = new ImageContainer();
+  nsRefPtr<ImageContainer> container = new ImageContainer(ImageContainer::DISABLE_ASYNC);
+  return container.forget();
+}
+
+already_AddRefed<ImageContainer>
+LayerManager::CreateAsynchronousImageContainer()
+{
+  nsRefPtr<ImageContainer> container = new ImageContainer(ImageContainer::ENABLE_ASYNC);
   return container.forget();
 }
 
@@ -769,12 +777,12 @@ LayerManager::Dump(FILE* aFile, const char* aPrefix)
  
   fprintf(file, "<ul><li><a ");
 #ifdef MOZ_DUMP_PAINTING
-  WriteSnapshotLinkToDumpFile(this, aFile);
+  WriteSnapshotLinkToDumpFile(this, file);
 #endif
   fprintf(file, ">");
   DumpSelf(file, aPrefix);
 #ifdef MOZ_DUMP_PAINTING
-  fprintf(aFile, "</a>");
+  fprintf(file, "</a>");
 #endif
 
   nsCAutoString pfx(aPrefix);

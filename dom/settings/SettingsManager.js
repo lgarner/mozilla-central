@@ -85,8 +85,8 @@ SettingsLock.prototype = {
           }
           break;
         case "get":
-          req = (info.name === "*") ? store.getAll()
-                                    : store.getAll(info.name);
+          req = (info.name === "*") ? store.mozGetAll()
+                                    : store.mozGetAll(info.name);
 
           req.onsuccess = function(event) {
             debug("Request for '" + info.name + "' successful. " + 
@@ -321,8 +321,12 @@ SettingsManager.prototype = {
 
     let principal = aWindow.document.nodePrincipal;
     let secMan = Cc["@mozilla.org/scriptsecuritymanager;1"].getService(Ci.nsIScriptSecurityManager);
-    let readPerm = principal == secMan.getSystemPrincipal() ? Ci.nsIPermissionManager.ALLOW_ACTION : Services.perms.testExactPermission(principal.URI, "websettings-read");
-    let readwritePerm = principal == secMan.getSystemPrincipal() ? Ci.nsIPermissionManager.ALLOW_ACTION : Services.perms.testExactPermission(principal.URI, "websettings-readwrite");
+    let readPerm = principal == secMan.getSystemPrincipal()
+                     ? Ci.nsIPermissionManager.ALLOW_ACTION
+                     : Services.perms.testExactPermissionFromPrincipal(principal, "websettings-read");
+    let readwritePerm = principal == secMan.getSystemPrincipal()
+                          ? Ci.nsIPermissionManager.ALLOW_ACTION
+                          : Services.perms.testExactPermissionFromPrincipal(principal, "websettings-readwrite");
     this.hasReadPrivileges = readPerm == Ci.nsIPermissionManager.ALLOW_ACTION;
     this.hasReadWritePrivileges = readwritePerm == Ci.nsIPermissionManager.ALLOW_ACTION;
     debug("has read privileges :" + this.hasReadPrivileges + ", has read-write privileges: " + this.hasReadWritePrivileges);

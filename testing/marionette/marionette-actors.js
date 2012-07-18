@@ -277,7 +277,6 @@ MarionetteDriverActor.prototype = {
       //add this to seenItems so we can guarantee the user will get winId as this window's id
       this.curBrowser.elementManager.seenItems[winId] = win;
     }
-    this.browsers[winId] = browser;
   },
 
   /**
@@ -393,7 +392,7 @@ MarionetteDriverActor.prototype = {
   getLogs: function MDA_getLogs() {
     this.sendResponse(this.marionetteLog.getLogs());
   },
-
+  
   /**
    * Log some performance data
    */
@@ -438,7 +437,7 @@ MarionetteDriverActor.prototype = {
    * @return Sandbox
    *        Returns the sandbox
    */
-  createExecuteSandbox: function MDA_createExecuteSandbox(aWindow, marionette, args) {
+  createExecuteSandbox: function MDA_createExecuteSandbox(aWindow, marionette, args, specialPowers) {
     try {
       args = this.curBrowser.elementManager.convertWrappedArguments(args, aWindow);
     }
@@ -457,12 +456,14 @@ MarionetteDriverActor.prototype = {
       _chromeSandbox[fn] = marionette[fn].bind(marionette);
     });
 
-    loader.loadSubScript("chrome://specialpowers/content/specialpowersAPI.js",
-                         _chromeSandbox);
-    loader.loadSubScript("chrome://specialpowers/content/SpecialPowersObserverAPI.js",
-                         _chromeSandbox);
-    loader.loadSubScript("chrome://specialpowers/content/ChromePowers.js",
-                         _chromeSandbox);
+    if (specialPowers == true) {
+      loader.loadSubScript("chrome://specialpowers/content/specialpowersAPI.js",
+                           _chromeSandbox);
+      loader.loadSubScript("chrome://specialpowers/content/SpecialPowersObserverAPI.js",
+                           _chromeSandbox);
+      loader.loadSubScript("chrome://specialpowers/content/ChromePowers.js",
+                           _chromeSandbox);
+    }
 
     return _chromeSandbox;
   },
@@ -541,7 +542,7 @@ MarionetteDriverActor.prototype = {
 
     let curWindow = this.getCurrentWindow();
     let marionette = new Marionette(this, curWindow, "chrome", this.marionetteLog, this.marionettePerf);
-    let _chromeSandbox = this.createExecuteSandbox(curWindow, marionette, aRequest.args);
+    let _chromeSandbox = this.createExecuteSandbox(curWindow, marionette, aRequest.args, aRequest.specialPowers);
     if (!_chromeSandbox)
       return;
 
@@ -688,7 +689,7 @@ MarionetteDriverActor.prototype = {
       chromeAsyncReturnFunc(marionette.generate_results(), 0);
     }
 
-    let _chromeSandbox = this.createExecuteSandbox(curWindow, marionette, aRequest.args);
+    let _chromeSandbox = this.createExecuteSandbox(curWindow, marionette, aRequest.args, aRequest.specialPowers);
     if (!_chromeSandbox)
       return;
 
@@ -758,6 +759,13 @@ MarionetteDriverActor.prototype = {
   },
 
   /**
+   * Gets the current title of the window
+   */
+  getTitle: function MDA_getTitle() {
+    this.sendAsync("getTitle", {});
+  },
+
+  /**
    * Go back in history
    */
   goBack: function MDA_goBack() {
@@ -822,9 +830,11 @@ MarionetteDriverActor.prototype = {
           //enable Marionette in that browser window
           this.startBrowser(foundWin, false);
         }
-        utils.window = foundWin;
+        else {
+          utils.window = foundWin;
+          this.curBrowser = this.browsers[winId];
+        }
         foundWin.focus();
-        this.curBrowser = this.browsers[winId];
         this.sendOk();
         return;
       }
@@ -1183,6 +1193,45 @@ MarionetteDriverActor.prototype = {
   },
 
   /**
+   * Closes the Browser Window.
+   *
+   * If it is B2G it returns straight away and does not do anything
+   *
+   * If is desktop it calculates how many windows are open and if there is only 
+   * 1 then it deletes the session otherwise it closes the window
+   */
+  closeWindow: function MDA_closeWindow() {
+    if (appName == "B2G") {
+      // We can't close windows so just return
+      this.sendOk();
+    }
+    else {
+      // Get the total number of windows
+      let numOpenWindows = 0;
+      let winEnum = this.getWinEnumerator();
+      while (winEnum.hasMoreElements()) {
+        numOpenWindows += 1;
+        winEnum.getNext(); 
+      }
+
+      // if there is only 1 window left, delete the session
+      if (numOpenWindows === 1){
+        this.deleteSession();
+        return;
+      }
+
+      try{
+        this.messageManager.removeDelayedFrameScript("chrome://marionette/content/marionette-listener.js"); 
+        this.getCurrentWindow().close();
+        this.sendOk();
+      }
+      catch (e) {
+        this.sendError("Could not close window: " + e.message, 13, e.stack);
+      }
+    }
+  }, 
+
+  /**
    * Deletes the session.
    * 
    * If it is a desktop environment, it will close the session's tab and close all listeners
@@ -1371,6 +1420,7 @@ MarionetteDriverActor.prototype.requestTypes = {
   "isElementSelected": MarionetteDriverActor.prototype.isElementSelected,
   "sendKeysToElement": MarionetteDriverActor.prototype.sendKeysToElement,
   "clearElement": MarionetteDriverActor.prototype.clearElement,
+  "getTitle": MarionetteDriverActor.prototype.getTitle,
   "goUrl": MarionetteDriverActor.prototype.goUrl,
   "getUrl": MarionetteDriverActor.prototype.getUrl,
   "goBack": MarionetteDriverActor.prototype.goBack,
@@ -1382,7 +1432,8 @@ MarionetteDriverActor.prototype.requestTypes = {
   "switchToWindow": MarionetteDriverActor.prototype.switchToWindow,
   "deleteSession": MarionetteDriverActor.prototype.deleteSession,
   "emulatorCmdResult": MarionetteDriverActor.prototype.emulatorCmdResult,
-  "importScript": MarionetteDriverActor.prototype.importScript
+  "importScript": MarionetteDriverActor.prototype.importScript,
+  "closeWindow": MarionetteDriverActor.prototype.closeWindow
 };
 
 /**

@@ -103,6 +103,10 @@ public:
     // Close the underlying transport channel.
     void Close();
 
+    // Force the channel to behave as if a channel error occurred. Valid
+    // for process links only, not thread links.
+    void CloseWithError();
+
     // Asynchronously send a message to the other side of the channel
     virtual bool Send(Message* msg);
 
@@ -146,6 +150,7 @@ public:
     
         void OnCloseChannel();
         void OnChannelOpened();
+        void OnTakeConnectedChannel();
         void OnEchoMessage(Message* msg);
 
         void AssertIOThread() const
@@ -204,7 +209,10 @@ protected:
 
     bool Connected() const {
         mMonitor->AssertCurrentThreadOwns();
-        return ChannelConnected == mChannelState;
+        // The transport layer allows us to send messages before
+        // receiving the "connected" ack from the remote side.
+        return (ChannelOpening == mChannelState ||
+                ChannelConnected == mChannelState);
     }
 
     // Return true if |msg| is a special message targeted at the IO

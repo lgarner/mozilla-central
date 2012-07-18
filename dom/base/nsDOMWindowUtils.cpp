@@ -64,6 +64,7 @@
 #include "sampler.h"
 #include "nsDOMBlobBuilder.h"
 #include "nsIDOMFileHandle.h"
+#include "nsIDOMApplicationRegistry.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -458,14 +459,14 @@ nsDOMWindowUtils::GetWidgetModifiers(PRInt32 aModifiers)
   if (aModifiers & nsIDOMWindowUtils::MODIFIER_NUMLOCK) {
     result |= widget::MODIFIER_NUMLOCK;
   }
-  if (aModifiers & nsIDOMWindowUtils::MODIFIER_SCROLL) {
-    result |= widget::MODIFIER_SCROLL;
+  if (aModifiers & nsIDOMWindowUtils::MODIFIER_SCROLLLOCK) {
+    result |= widget::MODIFIER_SCROLLLOCK;
   }
   if (aModifiers & nsIDOMWindowUtils::MODIFIER_SYMBOLLOCK) {
     result |= widget::MODIFIER_SYMBOLLOCK;
   }
-  if (aModifiers & nsIDOMWindowUtils::MODIFIER_WIN) {
-    result |= widget::MODIFIER_WIN;
+  if (aModifiers & nsIDOMWindowUtils::MODIFIER_OS) {
+    result |= widget::MODIFIER_OS;
   }
   return result;
 }
@@ -977,10 +978,10 @@ nsDOMWindowUtils::GarbageCollect(nsICycleCollectorListener *aListener,
 #endif
 
   for (int i = 0; i < 3; i++) {
-    nsJSContext::GarbageCollectNow(js::gcreason::DOM_UTILS, nsGCNormal, true);
+    nsJSContext::GarbageCollectNow(js::gcreason::DOM_UTILS);
     nsJSContext::CycleCollectNow(aListener, aExtraForgetSkippableCalls);
   }
-  nsJSContext::GarbageCollectNow(js::gcreason::DOM_UTILS, nsGCNormal, true);
+  nsJSContext::GarbageCollectNow(js::gcreason::DOM_UTILS);
 
   return NS_OK;
 }
@@ -2025,7 +2026,8 @@ nsDOMWindowUtils::ComputeAnimationDistance(nsIDOMElement* aElement,
 
   // Convert direction-dependent properties as appropriate, e.g.,
   // border-left to border-left-value.
-  nsCSSProperty property = nsCSSProps::LookupProperty(aProperty);
+  nsCSSProperty property = nsCSSProps::LookupProperty(aProperty,
+                                                      nsCSSProps::eAny);
   if (property != eCSSProperty_UNKNOWN && nsCSSProps::IsShorthand(property)) {
     nsCSSProperty subprop0 = *nsCSSProps::SubpropertyEntryFor(property);
     if (nsCSSProps::PropHasFlags(subprop0, CSS_PROPERTY_REPORT_OTHER_NAME) &&
@@ -2577,4 +2579,17 @@ nsDOMWindowUtils::SetApp(const nsAString& aManifestURL)
   NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
 
   return static_cast<nsGlobalWindow*>(window.get())->SetApp(aManifestURL);
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetApp(mozIDOMApplication** aApplication)
+{
+  if (!IsUniversalXPConnectCapable()) {
+    return NS_ERROR_DOM_SECURITY_ERR;
+  }
+
+  nsCOMPtr<nsPIDOMWindow> window = do_QueryReferent(mWindow);
+  NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
+
+  return static_cast<nsGlobalWindow*>(window.get())->GetApp(aApplication);
 }

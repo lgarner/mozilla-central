@@ -31,7 +31,6 @@
 #include "nsIFragmentContentSink.h"
 #include "nsStreamUtils.h"
 #include "nsHTMLTokenizer.h"
-#include "nsIDocument.h"
 #include "nsNetUtil.h"
 #include "nsScriptLoader.h"
 #include "nsDataHashtable.h"
@@ -793,6 +792,7 @@ DetermineParseMode(const nsString& aBuffer, nsDTDMode& aParseMode,
   if (aMimeType.EqualsLiteral(TEXT_HTML)) {
     DetermineHTMLParseMode(aBuffer, aParseMode, aDocType);
   } else if (aMimeType.EqualsLiteral(TEXT_PLAIN) ||
+             aMimeType.EqualsLiteral(TEXT_CACHE_MANIFEST) ||
              aMimeType.EqualsLiteral(TEXT_CSS) ||
              aMimeType.EqualsLiteral(APPLICATION_JAVASCRIPT) ||
              aMimeType.EqualsLiteral(APPLICATION_XJAVASCRIPT) ||

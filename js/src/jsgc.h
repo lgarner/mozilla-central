@@ -457,6 +457,9 @@ MaybeGC(JSContext *cx);
 extern void
 ShrinkGCBuffers(JSRuntime *rt);
 
+extern void
+ReleaseAllJITCode(FreeOp *op);
+
 extern JS_FRIEND_API(void)
 PrepareForFullGC(JSRuntime *rt);
 
@@ -476,6 +479,9 @@ GC(JSRuntime *rt, JSGCInvocationKind gckind, js::gcreason::Reason reason);
 
 extern void
 GCSlice(JSRuntime *rt, JSGCInvocationKind gckind, js::gcreason::Reason reason);
+
+extern void
+GCFinalSlice(JSRuntime *rt, JSGCInvocationKind gckind, js::gcreason::Reason reason);
 
 extern void
 GCDebugSlice(JSRuntime *rt, bool limit, int64_t objCount);
