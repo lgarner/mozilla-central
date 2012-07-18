@@ -233,13 +233,13 @@ NdefRecord_Validate(const jsval& aRecords, JSContext* aCx)
   }
 
   // Check object type (by name), (TODO: by signature)
-  const char *name;
   const char *ndefRecordName = "MozNdefRecord";
-  uint32_t namelen = strlen(ndefRecordName);
   for (uint32_t index = 0; index < length; index++) {
     jsval val;
+    uint32_t namelen;
     if (JS_GetElement(aCx, &obj, index, &val)) {
-      name = JS_GetClass(JSVAL_TO_OBJECT(val))->name;
+      const char *name = JS_GetClass(JSVAL_TO_OBJECT(val))->name;
+      namelen = strlen(name);
       if (strncmp(ndefRecordName, name, namelen)) {
         LOG("error: WriteNdefTag requires an MozNdefRecord array.");
         return NS_ERROR_INVALID_ARG;
