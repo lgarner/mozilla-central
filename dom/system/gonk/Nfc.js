@@ -121,9 +121,8 @@ Nfc.prototype = {
   requestMap: null,
 
   handleNdefWriteStatus: function handleNdefWriteStatus(message) {
-    debug("XXXXXXXXXXXXXX handleNdefWriteStatus () XXXXXXXXXXXXXXXX");
     let response = message.content; // Subfields of content: requestId, status, optional message
-    debug("XXXXXXXXXXXXXX handleNdefWriteStatus (" + response.requestId + ", " + response.status + ") XXXXXXXXXXXXXXXX");
+    debug("handleNdefWriteStatus (" + response.requestId + ", " + response.status + ")");
     var idx = response.requestId;
     debug("requestMap size: " + this.requestMap.length + " Index: " + idx);
     var domrequest = this.requestMap[idx];
@@ -133,16 +132,16 @@ Nfc.prototype = {
     } else {
       Services.DOMRequest.fireError(domrequest, response);
     }
+
     // Locate and remove:
     if (domrequest) {
-      debug("Removing request");
       for (var i = 0; i < this.requestMap.length; i++) {
         if (this.requestMap[i] == domrequest) {
           this.requestMap.splice(i, 1);
           break;
         }
       }
-    } // request removal
+    }
   },
 
   _deliverCallback: function _deliverCallback(name, args) {
@@ -222,14 +221,10 @@ Nfc.prototype = {
     if (typeof aDomRequest === 'undefined') {
       debug("XXXX New req is undefined!!!");
     } else {
-      debug("XXXXXXXXXXXXXXXX Success!, Have aDomRequest");
       this.requestMap[rid] = aDomRequest;
     }
     debug("XXXXXXXXXXXXXXXX assigned map idx: requestMap[" + rid +"] = " + this.requestMap[rid]);
 
-    //debug("Obj: " + req + " idx: " + rid);
-  
-    debug("XXXXXXXXXXXXXXXXXX Here! XXXXXXXXXXXXXXXXXXXXXXXXX");
     // Begin Hack: XPCOM object MozNdefRecord doesn't Stringify. Encode and JSONify an XPCOM object by parts...
     jsonStr = "[";
     debug("----  Record " + arrayRecords + " Length: " + arrayRecords.length + "----");

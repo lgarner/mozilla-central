@@ -8,6 +8,9 @@ interface nsIDOMNfc : nsIDOMEventTarget {
   attribute nsIDOMEventListener onndefdiscovered;
   attribute nsIDOMEventListener ontaglost;
 
+  [implicit_jscontext]
+  boolean validateNdefTag(in jsval records);
+
   // records is an array of 1 or more records
   [implicit_jscontext]
   nsIDOMDOMRequest writeNdefTag(in jsval records);
