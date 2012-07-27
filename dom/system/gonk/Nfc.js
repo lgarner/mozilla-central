@@ -127,7 +127,7 @@ Nfc.prototype = {
     debug("requestMap size: " + this.requestMap.length + " Index: " + idx);
     var domrequest = this.requestMap[idx];
     debug("Found request: " + domrequest);
-    if (response.status = "OK") {
+    if (response.status == "OK") {
       Services.DOMRequest.fireSuccess(domrequest, response);
     } else {
       Services.DOMRequest.fireError(domrequest, response);
