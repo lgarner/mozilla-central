@@ -214,7 +214,7 @@ public:
     NS_IMETHOD              Enable(bool aState);
     NS_IMETHOD              IsEnabled(bool *aState);
     NS_IMETHOD              SetModal(bool aState);
-    NS_IMETHOD              IsVisible(bool & aState);
+    virtual bool            IsVisible() const;
     NS_IMETHOD              SetFocus(bool aState=false);
     virtual nsIntPoint WidgetToScreenOffset();
     virtual nsIntPoint GetClientOffset();
@@ -245,7 +245,7 @@ public:
     NS_IMETHOD Invalidate(const nsIntRect &aRect);
     virtual nsresult ConfigureChildren(const nsTArray<Configuration>& aConfigurations);
     virtual LayerManager* GetLayerManager(PLayersChild* aShadowManager = nsnull,
-                                          LayersBackend aBackendHint = LayerManager::LAYERS_NONE,
+                                          LayersBackend aBackendHint = mozilla::layers::LAYERS_NONE,
                                           LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
                                           bool* aAllowRetaining = nsnull);
     NS_IMETHOD DispatchEvent(nsGUIEvent* event, nsEventStatus & aStatus) ;

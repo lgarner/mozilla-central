@@ -472,7 +472,7 @@ NS_ScriptErrorReporter(JSContext *cx,
       const PRUnichar* m = static_cast<const PRUnichar*>(report->ucmessage);
       if (m) {
         const PRUnichar* n = static_cast<const PRUnichar*>
-            (js::GetErrorTypeNameFromNumber(cx, report->errorNumber));
+            (js::GetErrorTypeName(cx, report->exnType));
         if (n) {
           msg.Assign(n);
           msg.AppendLiteral(": ");
@@ -3747,7 +3747,7 @@ SetMemoryGCPrefChangedCallback(const char* aPrefName, void* aClosure)
   PRInt32 pref = Preferences::GetInt(aPrefName, -1);
   // handle overflow and negative pref values
   if (pref > 0 && pref < 10000)
-    JS_SetGCParameter(nsJSRuntime::sRuntime, (JSGCParamKey)(long)aClosure, pref);
+    JS_SetGCParameter(nsJSRuntime::sRuntime, (JSGCParamKey)(intptr_t)aClosure, pref);
   return 0;
 }
 

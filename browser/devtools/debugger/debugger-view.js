@@ -57,6 +57,14 @@ let DebuggerView = {
 
     let variables = document.getElementById("variables");
     Prefs.variablesWidth = variables.getAttribute("width");
+
+    let bkps = document.getElementById("breakpoints");
+    let frames = document.getElementById("stackframes");
+    bkps.parentNode.removeChild(bkps);
+    frames.parentNode.removeChild(frames);
+
+    stackframes.parentNode.removeChild(stackframes);
+    variables.parentNode.removeChild(variables);
   },
 
   /**
@@ -149,6 +157,8 @@ ScriptsView.prototype = {
    */
   empty: function DVS_empty() {
     this._scripts.selectedIndex = -1;
+    this._scripts.setAttribute("label", L10N.getStr("noScriptsText"));
+    this._scripts.removeAttribute("tooltiptext");
 
     while (this._scripts.firstChild) {
       this._scripts.removeChild(this._scripts.firstChild);
@@ -425,9 +435,9 @@ ScriptsView.prototype = {
       return;
     }
 
-    let script = selectedItem.getUserData("sourceScript");
-    this._preferredScript = script;
-    DebuggerController.SourceScripts.showScript(script);
+    this._preferredScript = selectedItem;
+    this._scripts.setAttribute("tooltiptext", selectedItem.value);
+    DebuggerController.SourceScripts.showScript(selectedItem.getUserData("sourceScript"));
   },
 
   /**
@@ -438,8 +448,15 @@ ScriptsView.prototype = {
     let scripts = this._scripts;
     let [file, line, token] = this._getSearchboxInfo();
 
+    // If the webpage has no scripts, searching is redundant.
+    if (!scripts.itemCount) {
+      return;
+    }
+
     // Presume we won't find anything.
     scripts.selectedItem = this._preferredScript;
+    scripts.setAttribute("label", this._preferredScript.label);
+    scripts.setAttribute("tooltiptext", this._preferredScript.value);
 
     // If we're not searching for a file anymore, unhide all the scripts.
     if (!file) {
@@ -447,7 +464,9 @@ ScriptsView.prototype = {
         scripts.getItemAtIndex(i).hidden = false;
       }
     } else {
-      for (let i = 0, l = scripts.itemCount, found = false; i < l; i++) {
+      let found = false;
+
+      for (let i = 0, l = scripts.itemCount; i < l; i++) {
         let item = scripts.getItemAtIndex(i);
         let target = item.label.toLowerCase();
 
@@ -458,12 +477,18 @@ ScriptsView.prototype = {
           if (!found) {
             found = true;
             scripts.selectedItem = item;
+            scripts.setAttribute("label", item.label);
+            scripts.setAttribute("tooltiptext", item.value);
           }
         }
         // Hide what doesn't match our search.
         else {
           item.hidden = true;
         }
+      }
+      if (!found) {
+        scripts.setAttribute("label", L10N.getStr("noMatchingScriptsText"));
+        scripts.removeAttribute("tooltiptext");
       }
     }
     if (line > -1) {
@@ -527,6 +552,8 @@ ScriptsView.prototype = {
     this._searchbox.removeEventListener("select", this._onScriptsSearch, false);
     this._searchbox.removeEventListener("input", this._onScriptsSearch, false);
     this._searchbox.removeEventListener("keyup", this._onScriptsKeyUp, false);
+
+    this.empty();
     this._scripts = null;
     this._searchbox = null;
   }
@@ -842,6 +869,7 @@ StackFramesView.prototype = {
     frames.removeEventListener("scroll", this._onFramesScroll, false);
     window.removeEventListener("resize", this._onFramesScroll, false);
 
+    this.empty();
     this._frames = null;
   }
 };
@@ -861,6 +889,7 @@ BreakpointsView.prototype = {
    */
   empty: function DVB_empty() {
     let firstChild;
+
     while (firstChild = this._breakpoints.firstChild) {
       this._destroyContextMenu(firstChild);
       this._breakpoints.removeChild(firstChild);
@@ -1270,8 +1299,8 @@ BreakpointsView.prototype = {
     let commandsetId = "breakpointMenuCommands-" + aBreakpoint.id;
     let menupopupId = "breakpointContextMenu-" + aBreakpoint.id;
 
-    let commandsset = document.createElement("commandsset");
-    commandsset.setAttribute("id", commandsetId);
+    let commandset = document.createElement("commandset");
+    commandset.setAttribute("id", commandsetId);
 
     let menupopup = document.createElement("menupopup");
     menupopup.setAttribute("id", menupopupId);
@@ -1304,7 +1333,7 @@ BreakpointsView.prototype = {
       menuitem.setAttribute("command", commandId);
       menuitem.setAttribute("hidden", aHiddenFlag);
 
-      commandsset.appendChild(command);
+      commandset.appendChild(command);
       menupopup.appendChild(menuitem);
 
       aBreakpoint[aName] = {
@@ -1337,7 +1366,10 @@ BreakpointsView.prototype = {
 
     let popupset = document.getElementById("debugger-popups");
     popupset.appendChild(menupopup);
-    document.documentElement.appendChild(commandsset);
+    document.documentElement.appendChild(commandset);
+
+    aBreakpoint.commandsetId = commandsetId;
+    aBreakpoint.menupopupId = menupopupId;
 
     return menupopupId;
   },
@@ -1349,18 +1381,15 @@ BreakpointsView.prototype = {
    *        An element representing a breakpoint.
    */
   _destroyContextMenu: function DVB__destroyContextMenu(aBreakpoint) {
-    let commandsetId = "breakpointMenuCommands-" + aBreakpoint.id;
-    let menupopupId = "breakpointContextMenu-" + aBreakpoint.id;
-
-    let commandset = document.getElementById(commandsetId);
-    let menupopup = document.getElementById(menupopupId);
-
-    if (commandset) {
-      commandset.parentNode.removeChild(commandset);
+    if (!aBreakpoint.commandsetId || !aBreakpoint.menupopupId) {
+      return;
     }
-    if (menupopup) {
-      menupopup.parentNode.removeChild(menupopup);
-    }
+
+    let commandset = document.getElementById(aBreakpoint.commandsetId);
+    let menupopup = document.getElementById(aBreakpoint.menupopupId);
+
+    commandset.parentNode.removeChild(commandset);
+    menupopup.parentNode.removeChild(menupopup);
   },
 
   /**
@@ -1381,6 +1410,7 @@ BreakpointsView.prototype = {
     let breakpoints = this._breakpoints;
     breakpoints.removeEventListener("click", this._onBreakpointClick, false);
 
+    this.empty();
     this._breakpoints = null;
   }
 };
@@ -2482,6 +2512,8 @@ PropertiesView.prototype = {
    * Destruction function, called when the debugger is shut down.
    */
   destroy: function DVP_destroy() {
+    this.empty();
+
     this._currHierarchy = null;
     this._prevHierarchy = null;
     this._vars = null;

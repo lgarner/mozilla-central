@@ -74,12 +74,13 @@ class GlobalObject : public JSObject
     static const unsigned EVAL                    = BOOLEAN_VALUEOF + 1;
     static const unsigned CREATE_DATAVIEW_FOR_THIS = EVAL + 1;
     static const unsigned THROWTYPEERROR          = CREATE_DATAVIEW_FOR_THIS + 1;
+    static const unsigned PROTO_GETTER            = THROWTYPEERROR + 1;
 
     /*
      * Instances of the internal createArrayFromBuffer function used by the
      * typed array code, one per typed array element type.
      */
-    static const unsigned FROM_BUFFER_UINT8 = THROWTYPEERROR + 1;
+    static const unsigned FROM_BUFFER_UINT8 = PROTO_GETTER + 1;
     static const unsigned FROM_BUFFER_INT8 = FROM_BUFFER_UINT8 + 1;
     static const unsigned FROM_BUFFER_UINT16 = FROM_BUFFER_INT8 + 1;
     static const unsigned FROM_BUFFER_INT16 = FROM_BUFFER_UINT16 + 1;
@@ -90,7 +91,8 @@ class GlobalObject : public JSObject
     static const unsigned FROM_BUFFER_UINT8CLAMPED = FROM_BUFFER_FLOAT64 + 1;
 
     /* One-off properties stored after slots for built-ins. */
-    static const unsigned GENERATOR_PROTO         = FROM_BUFFER_UINT8CLAMPED + 1;
+    static const unsigned ELEMENT_ITERATOR_PROTO  = FROM_BUFFER_UINT8CLAMPED + 1;
+    static const unsigned GENERATOR_PROTO         = ELEMENT_ITERATOR_PROTO + 1;
     static const unsigned REGEXP_STATICS          = GENERATOR_PROTO + 1;
     static const unsigned FUNCTION_NS             = REGEXP_STATICS + 1;
     static const unsigned RUNTIME_CODEGEN_ENABLED = FUNCTION_NS + 1;
@@ -129,6 +131,7 @@ class GlobalObject : public JSObject
 
     inline void setThrowTypeError(JSFunction *fun);
     inline void setOriginalEval(JSObject *evalobj);
+    inline void setProtoGetter(JSFunction *protoGetter);
 
     Value getConstructor(JSProtoKey key) const {
         JS_ASSERT(key <= JSProto_LIMIT);
@@ -308,14 +311,28 @@ class GlobalObject : public JSObject
         return &self->getPrototype(key).toObject();
     }
 
-    JSObject *getOrCreateGeneratorPrototype(JSContext *cx) {
-        Value v = getSlotRef(GENERATOR_PROTO);
+    JSObject *getIteratorPrototype() {
+        return &getPrototype(JSProto_Iterator).toObject();
+    }
+
+  private:
+    JSObject *getOrCreateIteratorSubclassPrototype(JSContext *cx, unsigned slot) {
+        Value v = getSlotRef(slot);
         if (v.isObject())
             return &v.toObject();
         Rooted<GlobalObject*> self(cx, this);
-        if (!js_InitIteratorClasses(cx, this))
+        if (!initIteratorClasses(cx, self))
             return NULL;
-        return &self->getSlot(GENERATOR_PROTO).toObject();
+        return &self->getSlot(slot).toObject();
+    }
+
+  public:
+    JSObject *getOrCreateElementIteratorPrototype(JSContext *cx) {
+        return getOrCreateIteratorSubclassPrototype(cx, ELEMENT_ITERATOR_PROTO);
+    }
+
+    JSObject *getOrCreateGeneratorPrototype(JSContext *cx) {
+        return getOrCreateIteratorSubclassPrototype(cx, GENERATOR_PROTO);
     }
 
     JSObject *getOrCreateDataViewPrototype(JSContext *cx) {
@@ -347,6 +364,11 @@ class GlobalObject : public JSObject
     template<typename T>
     inline Value createArrayFromBuffer() const;
 
+    Value protoGetter() const {
+        JS_ASSERT(functionObjectClassesInitialized());
+        return getSlot(PROTO_GETTER);
+    }
+
     void clear(JSContext *cx);
 
     bool isCleared() const {
@@ -362,7 +384,9 @@ class GlobalObject : public JSObject
 
     bool getFunctionNamespace(JSContext *cx, Value *vp);
 
-    static bool initGeneratorClass(JSContext *cx, Handle<GlobalObject*> global);
+    // Implemented in jsiter.cpp.
+    static bool initIteratorClasses(JSContext *cx, Handle<GlobalObject*> global);
+
     static bool initStandardClasses(JSContext *cx, Handle<GlobalObject*> global);
 
     typedef js::Vector<js::Debugger *, 0, js::SystemAllocPolicy> DebuggerVector;
@@ -395,7 +419,8 @@ LinkConstructorAndPrototype(JSContext *cx, JSObject *ctor, JSObject *proto);
  * benefits.
  */
 extern bool
-DefinePropertiesAndBrand(JSContext *cx, JSObject *obj, JSPropertySpec *ps, JSFunctionSpec *fs);
+DefinePropertiesAndBrand(JSContext *cx, JSObject *obj,
+                         const JSPropertySpec *ps, const JSFunctionSpec *fs);
 
 typedef HashSet<GlobalObject *, DefaultHasher<GlobalObject *>, SystemAllocPolicy> GlobalObjectSet;
 

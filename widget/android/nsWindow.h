@@ -76,7 +76,7 @@ public:
     virtual float GetDPI();
     NS_IMETHOD Show(bool aState);
     NS_IMETHOD SetModal(bool aModal);
-    NS_IMETHOD IsVisible(bool & aState);
+    virtual bool IsVisible() const;
     NS_IMETHOD ConstrainPosition(bool aAllowSlop,
                                  PRInt32 *aX,
                                  PRInt32 *aY);
@@ -140,9 +140,9 @@ public:
     NS_IMETHOD OnIMESelectionChange(void);
     virtual nsIMEUpdatePreference GetIMEUpdatePreference();
 
-    LayerManager* GetLayerManager (PLayersChild* aShadowManager = nsnull, 
-                                   LayersBackend aBackendHint = LayerManager::LAYERS_NONE, 
-                                   LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT, 
+    LayerManager* GetLayerManager (PLayersChild* aShadowManager = nsnull,
+                                   LayersBackend aBackendHint = mozilla::layers::LAYERS_NONE,
+                                   LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
                                    bool* aAllowRetaining = nsnull);
 
     NS_IMETHOD ReparentNativeWidget(nsIWidget* aNewParent);
