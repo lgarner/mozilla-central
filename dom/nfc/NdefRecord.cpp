@@ -5,6 +5,13 @@
 #include "NdefRecord.h"
 #include "nsIDOMClassInfo.h"
 
+#if defined(MOZ_WIDGET_GONK)
+#include <android/log.h>
+#define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, "Gonk", args)
+#else
+#define LOG(args...) 
+#endif
+
 DOMCI_DATA(MozNdefRecord, mozilla::dom::nfc::NdefRecord)
 
 namespace mozilla {
@@ -27,44 +34,82 @@ NS_IMPL_RELEASE(NdefRecord)
 
 NdefRecord::NdefRecord()
 {
+  LOG("DOM NdefRecord: No parameter instantiation");
   tnf = 0;
   payload = JSVAL_NULL;
 }
 
-nsresult NdefRecord::NewNdefRecord(nsISupports* *aRecord)
+nsresult NdefRecord::NewNdefRecord(nsISupports* *aNewObject)
 {
-  *aRecord = new NdefRecord();
+  LOG("DOM nsNdefRecord: No parameter instantiation");
+  NS_ADDREF(*aNewObject = new NdefRecord());
   return NS_OK;
 }
 
-/********************************
- * NS_METHODIMPs
- ********************************/
+/************************************
+ * NS_METHODIMPs (Getter and Setter)
+ ************************************/
 NS_IMETHODIMP
 NdefRecord::GetTnf(char* aTnf)
 {
+  LOG("DOM NdefRecord.GetTnf");
   *aTnf = tnf;
   return NS_OK;
 }
 
 NS_IMETHODIMP
+NdefRecord::SetTnf(const char aTnf)
+{
+  LOG("DOM NdefRecord.SetTnf");
+  tnf = aTnf;
+  return NS_OK; 
+}
+
+NS_IMETHODIMP
 NdefRecord::GetType(nsAString& aType)
 {
+  LOG("DOM NdefRecord.GetType");
   aType = type;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+NdefRecord::SetType(const nsAString & aType)
+{
+  LOG("DOM NdefRecord.SetType");
+  type = aType;
   return NS_OK;
 }
 
 NS_IMETHODIMP
 NdefRecord::GetId(nsAString& aId)
 {
+  LOG("DOM NdefRecord.GetId");
   aId = id;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+NdefRecord::SetId(const nsAString& aId)
+{
+  LOG("DOM NdefRecord.SetId");
+  id = aId;
   return NS_OK;
 }
 
 NS_IMETHODIMP
 NdefRecord::GetPayload(JS::Value* aPayload)
 {
+  LOG("DOM NdefRecord.GetPayload");
   *aPayload = payload;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+NdefRecord::SetPayload(const JS::Value& aPlayload)
+{
+  LOG("DOM NdefRecord.SetPayload");
+  payload = aPlayload;
   return NS_OK;
 }
 

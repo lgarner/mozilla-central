@@ -212,43 +212,78 @@ JSONCreator(const jschar* aBuf, uint32_t aLen, void* aData)
   return true;
 }
 
+NS_IMETHODIMP
+Nfc::ValidateNdefTag(const jsval& aRecords, JSContext* aCx, bool* result)
+{
+  JSObject &obj = aRecords.toObject();
+  // Check if array
+  if (!JS_IsArrayObject(aCx, &obj)) {
+    LOG("error: MozNdefRecord object array is required.");
+    *result = false;
+    return NS_OK;
+  }
+
+  // Check length
+  uint32_t length;
+  if (!JS_GetArrayLength(aCx, &obj, &length) || (length < 1)) {
+    *result = false; 
+    return NS_OK;
+  }
+
+  if (!length) {
+    *result = false; 
+    return NS_OK;
+  }
+
+  // Check object type (by name), (TODO: by signature)
+  const char *ndefRecordName = "MozNdefRecord";
+  for (uint32_t index = 0; index < length; index++) {
+    jsval val;
+    uint32_t namelen;
+    if (JS_GetElement(aCx, &obj, index, &val)) {
+      const char *name = JS_GetClass(JSVAL_TO_OBJECT(val))->name;
+      namelen = strlen(name);
+      if (strncmp(ndefRecordName, name, namelen)) {
+        LOG("error: WriteNdefTag requires MozNdefRecord array item(s). Item[%d] is type: (%s)", index, name);
+        *result = false;
+        return NS_OK;
+      }
+    }
+  }
+  *result = true;
+  return NS_OK;
+}
+
 // TODO, we want to take well formed object arrays.
 NS_IMETHODIMP
-Nfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDomRequest)
+Nfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDomRequest_ret_val)
 {
   nsresult rv;
+  bool isValid;
   nsCOMPtr<nsIDOMRequestService> rs = do_GetService("@mozilla.org/dom/dom-request-service;1");
-
-  // First parameter needs to be an array
-  if (!aRecords.isString() &&
-      !(aRecords.isObject() &&
-      !JS_IsArrayObject(aCx, &aRecords.toObject()))) {
-    return NS_ERROR_INVALID_ARG;
-  }
-
-  if (aRecords.isObject()) { // objectArray is also an object.
-    // The Nfcd service expects json message, not an object binary. 
-    // Call javascript's Stringify method.
-    nsString json;
-    jsval v = aRecords;
-    // TODO: There is a name collision problem, need replacer for wtype --> type
-    if (!JS_Stringify(aCx, &v, nsnull, JSVAL_NULL, JSONCreator, &json))
-        return false;
-    // write the whole thing as nsString for transmission.
-    // PRInt32 requestId;
-    return mNfc->SendToNfcd(json); 
-  }
-
+  nsIDOMDOMRequest *req;
 
   nsCOMPtr<nsIDOMDOMRequest> request;
-
   rv = rs->CreateRequest(GetOwner(), getter_AddRefs(request));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  //TODO keep track of requests so requestId can be mapped back to the actual request
-  // mNfc->WriteNdefTag(aTnf, aType, aId, aPayload, requestId);
+  // First parameter needs to be an array, and of type MozNdefRecord
+  if (ValidateNdefTag(aRecords, aCx, &isValid) != NS_OK) {
+    if (!isValid) {
+      LOG("error: WriteNdefTag requires an MozNdefRecord array type.");
+      return NS_ERROR_INVALID_ARG;
+    }
+  }
 
-  request.forget(aDomRequest);
+  // Call to NFC.js
+  req = request.get();
+  if (req) {
+    mNfc->WriteNdefTag(aRecords, req);
+    NS_ASSERTION(aDomRequest_ret_val, "Null pointer?!");
+    request.forget(aDomRequest_ret_val);
+  } else {
+    return NS_ERROR_FAILURE;
+  }
 
   return NS_OK;
 }

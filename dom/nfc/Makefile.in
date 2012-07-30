@@ -60,7 +60,7 @@ XPIDLSRCS = \
   nsIDOMNfcNdefEvent.idl \
   nsIDOMNavigatorNfc.idl \
   nsIDOMNfc.idl \
-  nsIDOMNdefRecord.idl \
+  nsIDOMMozNdefRecord.idl \
   $(NULL)
 
 #LOCAL_INCLUDES = \

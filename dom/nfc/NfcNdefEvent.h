@@ -52,7 +52,7 @@ BEGIN_NFC_NAMESPACE
 class NfcNdefEvent : public nsDOMEvent,
                      public nsIDOMNfcNdefEvent
 {
-  const JS::Value& mNdefRecords;
+  const JS::Value& mNdefMessages;
 
 public:
   NS_DECL_ISUPPORTS_INHERITED
@@ -61,7 +61,7 @@ public:
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(NfcNdefEvent, nsDOMEvent)
 
   static already_AddRefed<NfcNdefEvent>
-  Create(const JS::Value& aNdefRecords);
+  Create(const JS::Value& aNdefMessages);
 
   nsresult
   Dispatch(nsIDOMEventTarget* aTarget, const nsAString& aEventType)
@@ -86,8 +86,8 @@ public:
   }
 
 private:
-  NfcNdefEvent(const JS::Value& aNdefRecords)
-  : nsDOMEvent(nsnull, nsnull), mNdefRecords(aNdefRecords)
+  NfcNdefEvent(const JS::Value& aNdefMessages)
+  : nsDOMEvent(nsnull, nsnull), mNdefMessages(aNdefMessages)
   { }
 
   ~NfcNdefEvent()
