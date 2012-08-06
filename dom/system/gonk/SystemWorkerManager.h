@@ -56,13 +56,8 @@ private:
 
   nsresult InitRIL(JSContext *cx);
   nsresult InitWifi(JSContext *cx);
-<<<<<<< HEAD
   nsresult InitNFC(JSContext *cx);
-  nsresult InitBluetooth(JSContext *cx);
   
-=======
-
->>>>>>> 7b27b11c6e7fc65ac14789f9dfba00401d06a57b
   nsCOMPtr<nsIWorkerHolder> mRILWorker;
   nsCOMPtr<nsIWorkerHolder> mNFCWorker;
   nsCOMPtr<nsIWorkerHolder> mWifiWorker;

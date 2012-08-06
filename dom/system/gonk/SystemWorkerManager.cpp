@@ -506,7 +506,6 @@ SystemWorkerManager::InitNFC(JSContext *cx)
   // hook it up to the NFC thread.
   nsresult rv;
   nsCOMPtr<nsIWorkerHolder> worker = do_CreateInstance(kNfcWorkerCID, &rv);
-  LOG("Error: %d", NS_ERROR_GET_CODE(rv));
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ENSURE_TRUE(worker, NS_ERROR_FAILURE);
 
