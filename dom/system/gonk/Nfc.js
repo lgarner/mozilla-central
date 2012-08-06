@@ -1,41 +1,17 @@
-/* ***** BEGIN LICENSE BLOCK *****
- * Version: MPL 1.1/GPL 2.0/LGPL 2.1
+/* Copyright 2012 Mozilla Foundation and Mozilla contributors
  *
- * The contents of this file are subject to the Mozilla Public License Version
- * 1.1 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- * http://www.mozilla.org/MPL/
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS" basis,
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
- * for the specific language governing rights and limitations under the
- * License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * The Original Code is Telephony.
- *
- * The Initial Developer of the Original Code is
- * the Mozilla Foundation.
- * Portions created by the Initial Developer are Copyright (C) 2011
- * the Initial Developer. All Rights Reserved.
- *
- * Contributor(s):
- *   Ben Turner <bent.mozilla@gmail.com> (Original Author)
- *   Philipp von Weitershausen <philipp@weitershausen.de>
- *   Sinker Li <thinker@codemud.net>
- *
- * Alternatively, the contents of this file may be used under the terms of
- * either the GNU General Public License Version 2 or later (the "GPL"), or
- * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
- * in which case the provisions of the GPL or the LGPL are applicable instead
- * of those above. If you wish to allow use of your version of this file only
- * under the terms of either the GPL or the LGPL, and not to allow others to
- * use your version of this file under the terms of the MPL, indicate your
- * decision by deleting the provisions above and replace them with the notice
- * and other provisions required by the GPL or the LGPL. If you do not delete
- * the provisions above, a recipient may use your version of this file under
- * the terms of any one of the MPL, the GPL or the LGPL.
- *
- * ***** END LICENSE BLOCK ***** */
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 "use strict";
 
@@ -44,13 +20,19 @@ const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 
-var NFC = {};
-Cu.import("resource://gre/modules/nfc_consts.js", NFC);
-
 const DEBUG = true; // set to true to see debug messages
 
 const NFC_CID =
   Components.ID("{2ff24790-5e74-11e1-b86c-0800200c9a66}");
+
+const NFC_IPC_MSG_NAMES = [
+  "NFC:SendToNfcd",
+  "NFC:WriteNdefTag"
+];
+ 
+XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
+                                   "@mozilla.org/parentprocessmessagemanager;1",
+                                   "nsIFrameMessageManager");
 
 function Nfc() {
   this.requestMap = new Array();
@@ -58,9 +40,13 @@ function Nfc() {
   this.worker = new ChromeWorker("resource://gre/modules/nfc_worker.js");
   this.worker.onerror = this.onerror.bind(this);
   this.worker.onmessage = this.onmessage.bind(this);
-  debug("Starting Worker\n");
-  this.currentState = {
-  };
+
+  for each (let msgname in NFC_IPC_MSG_NAMES) {
+    ppmm.addMessageListener(msgname, this);
+  }
+ 
+  Services.obs.addObserver(this, "xpcom-shutdown", false);
+  debug("Starting Worker");
 }
 Nfc.prototype = {
 
@@ -87,143 +73,33 @@ Nfc.prototype = {
     debug("Received message: " + JSON.stringify(message));
     switch (message.type) {
       case "ndefDiscovered":
-        this.handleNdefDiscovered(message);
+        ppmm.sendAsyncMessage("NFC:NdefDiscovered", message);
         break;
       case "tagLost":
-        this.handleTagLost(message);
+        ppmm.sendAsyncMessage("NFC:TagLost", message);
         break;
       case "ndefWriteStatus":
-        this.handleNdefWriteStatus(message);
+        ppmm.sendAsyncMessage("NFC:NdefWriteStatus", message);
         break;
       default:
         throw new Error("Don't know about this message type: " + message.type);
     }
   },
 
-  /**
-   * Handle data call list.
-   */
-  handleNdefDiscovered: function handleNdefDiscovered(message) {
-    let records = message.content.records;
-    for (var i = 0; i < records.length; i++) {
-      records[i].type = atob(records[i].type);
-      records[i].id = atob(records[i].id);
-      records[i].payload = atob(records[i].payload);
-    }
-    this._deliverCallback("ndefDiscovered",
-                          records)
-  },
-
-  handleTagLost: function handleTagLost(message) {
-     this._deliverCallback("tagLost", message);
-  },
-
-  requestMap: null,
-
-  handleNdefWriteStatus: function handleNdefWriteStatus(message) {
-    let response = message.content; // Subfields of content: requestId, status, optional message
-    debug("handleNdefWriteStatus (" + response.requestId + ", " + response.status + ")");
-    var idx = response.requestId;
-    debug("requestMap size: " + this.requestMap.length + " Index: " + idx);
-    var domrequest = this.requestMap[idx];
-    debug("Found request: " + domrequest);
-    if (response.status == "OK") {
-      Services.DOMRequest.fireSuccess(domrequest, response);
-    } else {
-      Services.DOMRequest.fireError(domrequest, response);
-    }
-
-    // Locate and remove:
-    if (domrequest) {
-      for (var i = 0; i < this.requestMap.length; i++) {
-        if (this.requestMap[i] == domrequest) {
-          this.requestMap.splice(i, 1);
-          break;
-        }
-      }
-    }
-  },
-
-  _deliverCallback: function _deliverCallback(name, args) {
-    // We need to worry about callback registration state mutations during the
-    // callback firing. The behaviour we want is to *not* call any callbacks
-    // that are added during the firing and to *not* call any callbacks that are
-    // removed during the firing. To address this, we make a copy of the
-    // callback list before dispatching and then double-check that each callback
-    // is still registered before calling it.
-    if (!this._callbacks) {
-      return;
-    }
-    let callbacks = this._callbacks.slice();
-    for each (let callback in callbacks) {
-      if (this._callbacks.indexOf(callback) == -1) {
-        continue;
-      }
-      let handler = callback[name];
-      if (typeof handler != "function") {
-        throw new Error("No handler for " + name);
-      }
-      try {
-        let str = JSON.stringify(args);
-        debug("Delivering message \"" + str + "\" to " + callback[name] + " callback");
-        handler.apply(callback, [ str ]);
-      } catch (e) {
-        debug("callback handler for " + name + " threw an exception: " + e);
-      }
-    }
-  },
-
-
   // nsINfcWorker
 
   worker: null,
 
-  // nsINfc
-
-  _callbacks: null,
-
-  registerCallback: function registerCallback(callback) {
-    if (this._callbacks) {
-      if (this._callbacks.indexOf(callback) != -1) {
-        throw new Error("Already registered this callback!");
-      }
-    } else {
-      this._callbacks = [];
-    }
-    this._callbacks.push(callback);
-    debug("Registered callback: " + callback);
+  sendToNfcd: function sendToNfcd(message) {
+    this.worker.postMessage({type: "directMessage", content: message});
   },
 
-  unregisterCallback: function unregisterCallback(callback) {
-    if (!this._callbacks) {
-      return;
-    }
-    let index = this._callbacks.indexOf(callback);
-    if (index != -1) {
-      this._callbacks.splice(index, 1);
-      debug("Unregistered callback: " + callback);
-    }
-  },
-
-  writeNdefTag: function writeNdefTag(arrayRecords, aDomRequest) {
+  writeNdefTag: function writeNdefTag(arrayRecords) {
     var jsonStr;
     var type;
     var id;
     var payload;
     var i;
-
-    // Get ID:
-    if (typeof this.requestMap === 'undefined') {
-      debug("Error: Undefined requestMap XXX");
-    }
-    var rid = this.requestMap.length;
-    debug("XXXXXXXXXXXXXXXX request id: " + rid + " XXX");
-    if (typeof aDomRequest === 'undefined') {
-      debug("XXXX New req is undefined!!!");
-    } else {
-      this.requestMap[rid] = aDomRequest;
-    }
-    debug("XXXXXXXXXXXXXXXX assigned map idx: requestMap[" + rid +"] = " + this.requestMap[rid]);
 
     // Begin Hack: XPCOM object MozNdefRecord doesn't Stringify. Encode and JSONify an XPCOM object by parts...
     jsonStr = "[";
@@ -234,7 +110,7 @@ Nfc.prototype = {
       payload = btoa(arrayRecords[i].payload);
       jsonStr += '{' + ' "tnf": "' + arrayRecords[i].tnf + '", "type": "' + type + '", "id": "' + id + '", "payload" :"' + payload + '"}';
       if (i+1 != arrayRecords.length) {
-        jsonStr += ", "; 
+        jsonStr += ", ";
       }
       debug("----  item [" + i + "]   ----");
     }
@@ -248,8 +124,36 @@ Nfc.prototype = {
     this.worker.postMessage({type: "writeNdefTag", content: outMessage});
   },
 
-  sendToNfcd: function sendToNfcd(message) {
-    this.worker.postMessage({type: "directMessage", content: message});
+
+  /**
+   * Process the incoming message from a content process (NfcContentHelper.js)
+   */
+  receiveMessage: function receiveMessage(message) {
+    debug("Received '" + message.name + "' message from content process");
+    switch (message.name) {
+      case "NFC:SendToNfcd":
+        // This message is sync.
+        this.sendToNfcd(message.json);
+        break;
+      case "NFC:WriteNdefTag":
+        // This message is sync.
+        this.writeNdefTag(message.json);
+        break;
+    }
+  },
+
+  // nsIObserver
+ 
+  observe: function observe(subject, topic, data) {
+    switch (topic) {
+      case "xpcom-shutdown":
+        for each (let msgname in NFC_IPC_MSG_NAMES) {
+          ppmm.removeMessageListener(msgname, this);
+        }
+        ppmm = null;
+        Services.obs.removeObserver(this, "xpcom-shutdown");
+        break;
+    }
   }
 
 };

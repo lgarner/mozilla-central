@@ -50,16 +50,20 @@ public:
   static nsIInterfaceRequestor*
   GetInterfaceRequestor();
 
+#ifdef MOZ_B2G_NFC
+  static bool DoesNfcExist();
+#endif
+
 private:
   SystemWorkerManager();
   ~SystemWorkerManager();
 
   nsresult InitRIL(JSContext *cx);
   nsresult InitWifi(JSContext *cx);
-  nsresult InitNFC(JSContext *cx);
+  nsresult InitNfc(JSContext *cx);
   
   nsCOMPtr<nsIWorkerHolder> mRILWorker;
-  nsCOMPtr<nsIWorkerHolder> mNFCWorker;
+  nsCOMPtr<nsIWorkerHolder> mNfcWorker;
   nsCOMPtr<nsIWorkerHolder> mWifiWorker;
 
   bool mShutdown;
