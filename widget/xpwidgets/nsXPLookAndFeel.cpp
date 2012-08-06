@@ -48,6 +48,9 @@ nsLookAndFeelIntPref nsXPLookAndFeel::sIntPrefs[] =
   { "ui.menusCanOverlapOSBar",
     eIntID_MenusCanOverlapOSBar,
     false, 0 },
+  { "ui.showHideScrollbars",
+    eIntID_ShowHideScrollbars,
+    false, 0 },
   { "ui.skipNavigatingDisabledMenuItem",
     eIntID_SkipNavigatingDisabledMenuItem,
     false, 0 },
@@ -218,7 +221,7 @@ PRInt32 nsXPLookAndFeel::sCachedColorBits[COLOR_CACHE_SIZE] = {0};
 bool nsXPLookAndFeel::sInitialized = false;
 bool nsXPLookAndFeel::sUseNativeColors = true;
 
-nsLookAndFeel* nsXPLookAndFeel::sInstance = nsnull;
+nsLookAndFeel* nsXPLookAndFeel::sInstance = nullptr;
 bool nsXPLookAndFeel::sShutdown = false;
 
 // static
@@ -229,7 +232,7 @@ nsXPLookAndFeel::GetInstance()
     return sInstance;
   }
 
-  NS_ENSURE_TRUE(!sShutdown, nsnull);
+  NS_ENSURE_TRUE(!sShutdown, nullptr);
 
   sInstance = new nsLookAndFeel();
   return sInstance;
@@ -244,7 +247,7 @@ nsXPLookAndFeel::Shutdown()
   }
   sShutdown = true;
   delete sInstance;
-  sInstance = nsnull;
+  sInstance = nullptr;
 }
 
 nsXPLookAndFeel::nsXPLookAndFeel() : LookAndFeel()
@@ -440,7 +443,7 @@ nsXPLookAndFeel::~nsXPLookAndFeel()
 {
   NS_ASSERTION(sInstance == this,
                "This destroying instance isn't the singleton instance");
-  sInstance = nsnull;
+  sInstance = nullptr;
 }
 
 bool

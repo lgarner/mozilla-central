@@ -376,11 +376,11 @@ class nsDiskCacheMap {
 public:
 
      nsDiskCacheMap() : 
-        mCacheDirectory(nsnull),
-        mMapFD(nsnull),
-        mRecordArray(nsnull),
+        mCacheDirectory(nullptr),
+        mMapFD(nullptr),
+        mRecordArray(nullptr),
         mBufferSize(0),
-        mBuffer(nsnull),
+        mBuffer(nullptr),
         mMaxRecordCount(16384) // this default value won't matter
     { }
 
@@ -396,7 +396,8 @@ public:
  *  Creates a new cache map file if one doesn't exist.
  *  Returns error if it detects change in format or cache wasn't closed.
  */
-    nsresult  Open( nsIFile *  cacheDirectory);
+    nsresult  Open( nsIFile *  cacheDirectory,
+                    nsDiskCache::CorruptCacheInfo *  corruptInfo);
     nsresult  Close(bool flush);
     nsresult  Trim();
 
@@ -478,7 +479,7 @@ private:
     /**
      *  Private methods
      */
-    nsresult    OpenBlockFiles();
+    nsresult    OpenBlockFiles(nsDiskCache::CorruptCacheInfo *  corruptInfo);
     nsresult    CloseBlockFiles(bool flush);
     bool        CacheFilesExist();
 

@@ -2,23 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/**
- * This file can be used in the following contexts:
- *
- *  1. included from a non-osfile worker thread using importScript
- *   (it serves to define a synchronous API for that worker thread)
- *   (bug 707679)
- *
- *  2. included from the main thread using Components.utils.import
- *   (it serves to define the asynchronous API, whose implementation
- *    resides in the worker thread)
- *   (bug 729057)
- *
- * 3. included from the osfile worker thread using importScript
- *   (it serves to define the implementation of the asynchronous API)
- *   (bug 729057)
- */
-
 {
   if (typeof Components != "undefined") {
     // We do not wish osfile_unix_back.jsm to be used directly as a main thread
@@ -28,7 +11,8 @@
 
     throw new Error("osfile_unix_back.jsm cannot be used from the main thread yet");
   }
-  importScripts("resource://gre/modules/osfile/osfile_shared.jsm");
+  importScripts("resource://gre/modules/osfile/osfile_shared_allthreads.jsm");
+  importScripts("resource://gre/modules/osfile/osfile_unix_allthreads.jsm");
   (function(exports) {
      "use strict";
      if (!exports.OS) {
@@ -42,36 +26,21 @@
      }
      exports.OS.Unix.File = {};
 
-     let LOG = OS.Shared.LOG.bind(OS.Shared, "Unix");
-
-     // Open libc
-     let libc;
-     let libc_candidates =  [ "libsystem.B.dylib",
-                              "libc.so.6",
-                              "libc.so" ];
-     for (let i = 0; i < libc_candidates.length; ++i) {
-       try {
-         libc = ctypes.open(libc_candidates[i]);
-         break;
-       } catch (x) {
-         LOG("Could not open libc "+libc_candidates[i]);
-       }
-     }
-     if (!libc) {
-       throw new Error("Could not open any libc.");
-     }
+     let LOG = exports.OS.Shared.LOG.bind(OS.Shared, "Unix", "back");
+     let libc = exports.OS.Shared.Unix.libc;
 
      /**
       * Initialize the Unix module.
       *
       * @param {function=} declareFFI
       */
+     // FIXME: Both |init| and |aDeclareFFI| are deprecated, we should remove them
      let init = function init(aDeclareFFI) {
        let declareFFI;
        if (aDeclareFFI) {
          declareFFI = aDeclareFFI.bind(null, libc);
        } else {
-         declareFFI = OS.Shared.declareFFI.bind(null, libc);
+         declareFFI = exports.OS.Shared.Unix.declareFFI;
        }
 
        // Shorthands
@@ -146,10 +115,14 @@
        /**
         * Type |mode_t|
         */
-       Types.mode_t = Object.create(
-         Types.intn_t(OS.Constants.libc.OSFILE_SIZEOF_MODE_T),
-         {name: {value: "mode_t"}});
+       Types.mode_t =
+         Types.intn_t(OS.Constants.libc.OSFILE_SIZEOF_MODE_T).withName("mode_t");
 
+       /**
+        * Type |time_t|
+        */
+       Types.time_t =
+         Types.intn_t(OS.Constants.libc.OSFILE_SIZEOF_TIME_T).withName("time_t");
 
        Types.DIR =
          new Type("DIR",
@@ -190,6 +163,36 @@
        Types.null_or_dirent_ptr =
          new Type("null_of_dirent",
                   Types.dirent.out_ptr.implementation);
+
+       // Structure |stat|
+       // Same technique
+       {
+         let stat = new OS.Shared.HollowStructure("stat",
+           OS.Constants.libc.OSFILE_SIZEOF_STAT);
+         stat.add_field_at(OS.Constants.libc.OSFILE_OFFSETOF_STAT_ST_MODE,
+                        "st_mode", Types.mode_t.implementation);
+         stat.add_field_at(OS.Constants.libc.OSFILE_OFFSETOF_STAT_ST_UID,
+                          "st_uid", ctypes.int);
+         stat.add_field_at(OS.Constants.libc.OSFILE_OFFSETOF_STAT_ST_GID,
+                          "st_gid", ctypes.int);
+
+         // Here, things get complicated with different data structures.
+         // Some platforms have |time_t st_atime| and some platforms have
+         // |timespec st_atimespec|. However, since |timespec| starts with
+         // a |time_t|, followed by nanoseconds, we just cheat and pretend
+         // that everybody has |time_t st_atime|, possibly followed by padding
+         stat.add_field_at(OS.Constants.libc.OSFILE_OFFSETOF_STAT_ST_ATIME,
+                          "st_atime", Types.time_t.implementation);
+         stat.add_field_at(OS.Constants.libc.OSFILE_OFFSETOF_STAT_ST_MTIME,
+                          "st_mtime", Types.time_t.implementation);
+         stat.add_field_at(OS.Constants.libc.OSFILE_OFFSETOF_STAT_ST_CTIME,
+                          "st_ctime", Types.time_t.implementation);
+
+         stat.add_field_at(OS.Constants.libc.OSFILE_OFFSETOF_STAT_ST_SIZE,
+                        "st_size", Types.size_t.implementation);
+         Types.stat = stat.getType();
+       }
+
 
        // Declare libc functions as functions of |OS.Unix.File|
 
@@ -315,6 +318,22 @@
                     /*fd*/     Types.fd,
                     /*length*/ Types.off_t);
 
+       if (OS.Constants.libc._DARWIN_FEATURE_64_BIT_INODE) {
+         UnixFile.fstat =
+           declareFFI("fstat$INODE64", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*path*/   Types.fd,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+       } else {
+         UnixFile.fstat =
+           declareFFI("fstat", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*path*/   Types.fd,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+       }
+
        UnixFile.lchown =
          declareFFI("lchown", ctypes.default_abi,
                     /*return*/ Types.negativeone_or_nothing,
@@ -418,11 +437,6 @@
                     /*len*/    Types.size_t,
                     /*flags*/  Types.unsigned_int); // Linux/Android-specific
 
-       UnixFile.strerror =
-         declareFFI("strerror", ctypes.default_abi,
-                    /*return*/ Types.null_or_string,
-                    /*errnum*/ Types.int);
-
        UnixFile.symlink =
          declareFFI("symlink", ctypes.default_abi,
                     /*return*/ Types.negativeone_or_nothing,
@@ -449,13 +463,88 @@
 
        // Weird cases that require special treatment
 
+       // OSes use a variety of hacks to differentiate between
+       // 32-bits and 64-bits versions of |stat|, |lstat|, |fstat|.
+       if (OS.Constants.libc._DARWIN_FEATURE_64_BIT_INODE) {
+         // MacOS X 64-bits
+         UnixFile.stat =
+           declareFFI("stat$INODE64", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*path*/   Types.string,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+         UnixFile.lstat =
+           declareFFI("lstat$INODE64", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*path*/   Types.string,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+         UnixFile.fstat =
+           declareFFI("fstat$INODE64", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*path*/   Types.fd,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+       } else if (OS.Constants.libc._STAT_VER != undefined) {
+         const ver = OS.Constants.libc._STAT_VER;
+         // Linux, all widths
+         let xstat =
+           declareFFI("__xstat", ctypes.default_abi,
+                      /*return*/    Types.negativeone_or_nothing,
+                      /*_stat_ver*/ Types.int,
+                      /*path*/      Types.string,
+                      /*buf*/       Types.stat.out_ptr);
+         let lxstat =
+           declareFFI("__lxstat", ctypes.default_abi,
+                      /*return*/    Types.negativeone_or_nothing,
+                      /*_stat_ver*/ Types.int,
+                      /*path*/      Types.string,
+                      /*buf*/       Types.stat.out_ptr);
+         let fxstat =
+           declareFFI("__fxstat", ctypes.default_abi,
+                      /*return*/    Types.negativeone_or_nothing,
+                      /*_stat_ver*/ Types.int,
+                      /*fd*/        Types.fd,
+                      /*buf*/       Types.stat.out_ptr);
+
+         UnixFile.stat = function stat(path, buf) {
+           return xstat(ver, path, buf);
+         };
+         UnixFile.lstat = function stat(path, buf) {
+           return lxstat(ver, path, buf);
+         };
+         UnixFile.fstat = function stat(fd, buf) {
+           return fxstat(ver, fd, buf);
+         };
+       } else {
+         // Mac OS X 32-bits, other Unix
+         UnixFile.stat =
+           declareFFI("stat", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*path*/   Types.string,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+         UnixFile.lstat =
+           declareFFI("lstat", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*path*/   Types.string,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+         UnixFile.fstat =
+           declareFFI("fstat", ctypes.default_abi,
+                      /*return*/ Types.negativeone_or_nothing,
+                      /*fd*/     Types.fd,
+                      /*buf*/    Types.stat.out_ptr
+                     );
+       }
+
        // We cannot make a C array of CDataFinalizer, so
        // pipe cannot be directly defined as a C function.
 
        let _pipe =
-         declareFFI("pipe", ctypes.default_abi,
-                    /*return*/ Types.negativeone_or_nothing,
-                    /*fds*/    Types.int.out_ptr);
+         libc.declare("pipe", ctypes.default_abi,
+                    /*return*/ ctypes.int,
+                    /*fds*/    ctypes.ArrayType(ctypes.int, 2));
 
        // A shared per-thread buffer used to communicate with |pipe|
        let _pipebuf = new (ctypes.ArrayType(ctypes.int, 2))();
@@ -469,12 +558,6 @@
          array[1] = ctypes.CDataFinalizer(_pipebuf[1], _close);
          return result;
        };
-
-       // Export useful stuff for extensibility
-
-       exports.OS.Unix.libc = libc;
-       exports.OS.Unix.declareFFI = declareFFI;
-
      };
      exports.OS.Unix.File._init = init;
    })(this);

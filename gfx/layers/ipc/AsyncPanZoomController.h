@@ -8,6 +8,7 @@
 #define mozilla_layers_AsyncPanZoomController_h
 
 #include "GeckoContentController.h"
+#include "mozilla/Attributes.h"
 #include "mozilla/Monitor.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/TimeStamp.h"
@@ -19,6 +20,7 @@ namespace layers {
 
 class CompositorParent;
 class GestureEventListener;
+class ContainerLayer;
 
 /**
  * Controller for all panning and zooming logic. Any time a user input is
@@ -40,7 +42,7 @@ class GestureEventListener;
  * asynchronously scrolled subframes, we want to have one AsyncPanZoomController
  * per frame.
  */
-class AsyncPanZoomController {
+class AsyncPanZoomController MOZ_FINAL {
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(AsyncPanZoomController)
 
   typedef mozilla::MonitorAutoLock MonitorAutoLock;
@@ -109,15 +111,14 @@ public:
    * sampled at; this is used for interpolating animations. Calling this sets a
    * new transform in |aNewTransform| which should be applied directly to the
    * shadow layer of the frame (do not multiply it in as the code already does
-   * this internally with |aCurrentTransform|.
+   * this internally with |aLayer|'s transform).
    *
    * Return value indicates whether or not any currently running animation
    * should continue. That is, if true, the compositor should schedule another
    * composite.
    */
   bool SampleContentTransformForFrame(const TimeStamp& aSampleTime,
-                                      const FrameMetrics& aFrame,
-                                      const gfx3DMatrix& aCurrentTransform,
+                                      ContainerLayer* aLayer,
                                       gfx3DMatrix* aNewTransform);
 
   /**
@@ -263,7 +264,7 @@ protected:
    * current touch (this only makes sense if a touch is currently happening and
    * OnTouchMove() is being invoked).
    */
-  float PanDistance(const MultiTouchInput& aEvent);
+  float PanDistance();
 
   /**
    * Gets a vector of the velocities of each axis.
@@ -276,6 +277,18 @@ protected:
    * relevant.
    */
   SingleTouchData& GetFirstSingleTouch(const MultiTouchInput& aEvent);
+
+  /**
+   * Sets up anything needed for panning. This may lock one of the axes if the
+   * angle of movement is heavily skewed towards it.
+   */
+  void StartPanning(const MultiTouchInput& aStartPoint);
+
+  /**
+   * Wrapper for Axis::UpdateWithTouchAtDevicePoint(). Calls this function for
+   * both axes and factors in the time delta from the last update.
+   */
+  void UpdateWithTouchAtDevicePoint(const MultiTouchInput& aEvent);
 
   /**
    * Does any panning required due to a new touch event.
@@ -294,7 +307,10 @@ protected:
   /**
    * Utility function to send updated FrameMetrics to Gecko so that it can paint
    * the displayport area. Calls into GeckoContentController to do the actual
-   * work.
+   * work. Note that only one paint request can be active at a time. If a paint
+   * request is made while a paint is currently happening, it gets queued up. If
+   * a new paint request arrives before a paint is completed, the old request
+   * gets discarded.
    */
   void RequestContentRepaint();
 
@@ -321,6 +337,25 @@ private:
     PINCHING,       /* nth touch-start, where n > 1. this mode allows pan and zoom */
   };
 
+  enum ContentPainterStatus {
+    // A paint may be happening, but it is not due to any action taken by this
+    // thread. For example, content could be invalidating itself, but
+    // AsyncPanZoomController has nothing to do with that.
+    CONTENT_IDLE,
+    // Set every time we dispatch a request for a repaint. When a
+    // ShadowLayersUpdate arrives and the metrics of this frame have changed, we
+    // toggle this off and assume that the paint has completed.
+    CONTENT_PAINTING,
+    // Set when we have a new displayport in the pipeline that we want to paint.
+    // When a ShadowLayersUpdate comes in, we dispatch a new repaint using
+    // mFrameMetrics.mDisplayPort (the most recent request) if this is toggled.
+    // This is distinct from CONTENT_PAINTING in that it signals that a repaint
+    // is happening, whereas this signals that we want to repaint as soon as the
+    // previous paint finishes. When the request is eventually made, it will use
+    // the most up-to-date metrics.
+   CONTENT_PAINTING_AND_PAINT_PENDING
+  };
+
   nsRefPtr<CompositorParent> mCompositorParent;
   nsRefPtr<GeckoContentController> mGeckoContentController;
   nsRefPtr<GestureEventListener> mGestureEventListener;
@@ -331,6 +366,10 @@ private:
   // These are the metrics at last content paint, the most recent
   // values we were notified of in NotifyLayersUpdate().
   FrameMetrics mLastContentPaintMetrics;
+  // The last metrics that we requested a paint for. These are used to make sure
+  // that we're not requesting a paint of the same thing that's already drawn.
+  // If we don't do this check, we don't get a ShadowLayersUpdated back.
+  FrameMetrics mLastPaintRequestMetrics;
 
   AxisX mX;
   AxisY mY;
@@ -342,14 +381,18 @@ private:
   TimeStamp mLastSampleTime;
   // The last time a touch event came through on the UI thread.
   PRInt32 mLastEventTime;
-  // The last time a repaint has been requested from Gecko.
-  PRInt32 mLastRepaint;
 
   // Stores the previous focus point if there is a pinch gesture happening. Used
   // to allow panning by moving multiple fingers (thus moving the focus point).
   nsIntPoint mLastZoomFocus;
   PanZoomState mState;
   int mDPI;
+
+  // Stores the current paint status of the frame that we're managing. Repaints
+  // may be triggered by other things (like content doing things), in which case
+  // this status will not be updated. It is only changed when this class
+  // requests a repaint.
+  ContentPainterStatus mContentPainterStatus;
 
   friend class Axis;
 };

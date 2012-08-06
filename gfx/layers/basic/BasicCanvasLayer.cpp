@@ -10,7 +10,6 @@
 
 #include "BasicLayersImpl.h"
 #include "nsXULAppAPI.h"
-#include "LayersBackend.h"
 
 using namespace mozilla::gfx;
 
@@ -50,7 +49,7 @@ protected:
   {
     return static_cast<BasicLayerManager*>(mManager);
   }
-  void UpdateSurface(gfxASurface* aDestSurface = nsnull, Layer* aMaskLayer = nsnull);
+  void UpdateSurface(gfxASurface* aDestSurface = nullptr, Layer* aMaskLayer = nullptr);
 
   nsRefPtr<gfxASurface> mSurface;
   nsRefPtr<mozilla::gl::GLContext> mGLContext;
@@ -82,18 +81,18 @@ protected:
 
   void DiscardTempSurface()
   {
-    mCachedTempSurface = nsnull;
+    mCachedTempSurface = nullptr;
   }
 };
 
 void
 BasicCanvasLayer::Initialize(const Data& aData)
 {
-  NS_ASSERTION(mSurface == nsnull, "BasicCanvasLayer::Initialize called twice!");
+  NS_ASSERTION(mSurface == nullptr, "BasicCanvasLayer::Initialize called twice!");
 
   if (aData.mSurface) {
     mSurface = aData.mSurface;
-    NS_ASSERTION(aData.mGLContext == nsnull,
+    NS_ASSERTION(aData.mGLContext == nullptr,
                  "CanvasLayer can't have both surface and GLContext");
     mNeedsYFlip = false;
   } else if (aData.mGLContext) {
@@ -118,6 +117,8 @@ BasicCanvasLayer::UpdateSurface(gfxASurface* aDestSurface, Layer* aMaskLayer)
 {
   if (mDrawTarget) {
     mDrawTarget->Flush();
+    // TODO Fix me before turning accelerated quartz canvas by default
+    //mSurface = gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mDrawTarget);
   }
 
   if (!mGLContext && aDestSurface) {
@@ -336,7 +337,7 @@ private:
   {
     if (mBackBuffer.type() == SurfaceDescriptor::TSharedTextureDescriptor)
       return mBackBuffer.get_SharedTextureDescriptor().handle();
-    return nsnull;
+    return 0;
   }
 
   BasicShadowLayerManager* BasicManager()
@@ -387,7 +388,7 @@ BasicShadowableCanvasLayer::Paint(gfxContext* aContext, Layer* aMaskLayer)
     if (!handle) {
       handle = mGLContext->CreateSharedHandle(flags);
       if (handle) {
-        mBackBuffer = SharedTextureDescriptor(flags, handle, mBounds.Size());
+        mBackBuffer = SharedTextureDescriptor(flags, handle, mBounds.Size(), false);
       }
     }
     if (handle) {
@@ -420,9 +421,9 @@ BasicShadowableCanvasLayer::Paint(gfxContext* aContext, Layer* aMaskLayer)
 
   if (aMaskLayer) {
     static_cast<BasicImplData*>(aMaskLayer->ImplData())
-      ->Paint(aContext, nsnull);
+      ->Paint(aContext, nullptr);
   }
-  UpdateSurface(autoBackSurface.Get(), nsnull);
+  UpdateSurface(autoBackSurface.Get(), nullptr);
   FireDidTransactionCallback();
 
   BasicManager()->PaintedCanvas(BasicManager()->Hold(this),

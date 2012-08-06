@@ -60,6 +60,7 @@ let RILQUIRKS_DATACALLSTATE_DOWN_IS_UP = false;
 let RILQUIRKS_V5_LEGACY = true;
 let RILQUIRKS_REQUEST_USE_DIAL_EMERGENCY_CALL = false;
 let RILQUIRKS_MODEM_DEFAULTS_TO_EMERGENCY_MODE = false;
+let RILQUIRKS_SIM_APP_STATE_EXTRA_FIELDS = false;
 
 /**
  * This object contains helpers buffering incoming data & deconstructing it
@@ -584,6 +585,7 @@ let RIL = {
    * One of the RADIO_STATE_* constants.
    */
   radioState: GECKO_RADIOSTATE_UNAVAILABLE,
+  _isInitialRadioState: true,
 
   /**
    * ICC status. Keeps a reference of the data response to the
@@ -727,6 +729,10 @@ let RIL = {
       case "Qualcomm RIL 1.0":
         let product_model = libcutils.property_get("ro.product.model");
         if (DEBUG) debug("Detected product model " + product_model);
+        if (product_model == "otoro1") {
+          if (DEBUG) debug("Enabling RILQUIRKS_SIM_APP_STATE_EXTRA_FIELDS.");
+          RILQUIRKS_SIM_APP_STATE_EXTRA_FIELDS = true;
+        }
         if (DEBUG) {
           debug("Detected Qualcomm RIL 1.0, " +
                 "disabling RILQUIRKS_V5_LEGACY and " +
@@ -951,12 +957,12 @@ let RIL = {
 
   /**
    *  Request an ICC I/O operation.
-   * 
+   *
    *  See TS 27.007 "restricted SIM" operation, "AT Command +CRSM".
    *  The sequence is in the same order as how libril reads this parcel,
    *  see the struct RIL_SIM_IO_v5 or RIL_SIM_IO_v6 defined in ril.h
    *
-   *  @param command 
+   *  @param command
    *         The I/O command, one of the ICC_COMMAND_* constants.
    *  @param fileId
    *         The file to operate on, one of the ICC_EF_* constants.
@@ -968,6 +974,8 @@ let RIL = {
    *         String parameter for the command.
    *  @param pin2 [optional]
    *         String containing the PIN2.
+   *  @param aid
+   *         String for the AID.
    */
   iccIO: function iccIO(options) {
     let token = Buf.newParcel(REQUEST_SIM_IO, options);
@@ -978,9 +986,9 @@ let RIL = {
     Buf.writeUint32(options.p2);
     Buf.writeUint32(options.p3);
     Buf.writeString(options.data);
-    if (options.pin2 != null) {
-      Buf.writeString(options.pin2);
-    }
+    Buf.writeString(options.pin2 ? options.pin2 : null);
+    let appIndex = this.iccStatus.gsmUmtsSubscriptionAppIndex;
+    Buf.writeString(this.iccStatus.apps[appIndex].aid);
     Buf.sendParcel();
   },
 
@@ -992,6 +1000,7 @@ let RIL = {
     this.getMSISDN();
     this.getAD();
     this.getUST();
+    this.getMBDN();
   },
 
   /**
@@ -1009,7 +1018,8 @@ let RIL = {
     }
     let token = Buf.newParcel(REQUEST_GET_IMSI);
     Buf.writeUint32(1);
-    Buf.writeString(null);
+    let appIndex = this.iccStatus.gsmUmtsSubscriptionAppIndex;
+    Buf.writeString(this.iccStatus.apps[appIndex].aid);
     Buf.sendParcel();
   },
 
@@ -1043,7 +1053,7 @@ let RIL = {
     this.iccIO({
       command:   ICC_COMMAND_GET_RESPONSE,
       fileId:    ICC_EF_MSISDN,
-      pathId:    EF_PATH_MF_SIM + EF_PATH_DF_TELECOM,
+      pathId:    EF_PATH_MF_SIM + EF_PATH_ADF_USIM,
       p1:        0, // For GET_RESPONSE, p1 = 0
       p2:        0, // For GET_RESPONSE, p2 = 0
       p3:        GET_RESPONSE_EF_SIZE_BYTES,
@@ -1086,7 +1096,7 @@ let RIL = {
     this.iccIO({
       command:   ICC_COMMAND_GET_RESPONSE,
       fileId:    ICC_EF_AD,
-      pathId:    EF_PATH_MF_SIM + EF_PATH_DF_GSM,
+      pathId:    EF_PATH_MF_SIM + EF_PATH_ADF_USIM,
       p1:        0, // For GET_RESPONSE, p1 = 0
       p2:        0, // For GET_RESPONSE, p2 = 0
       p3:        GET_RESPONSE_EF_SIZE_BYTES,
@@ -1138,7 +1148,7 @@ let RIL = {
     this.iccIO({
       command:   ICC_COMMAND_GET_RESPONSE,
       fileId:    ICC_EF_UST,
-      pathId:    EF_PATH_MF_SIM + EF_PATH_DF_GSM,
+      pathId:    EF_PATH_MF_SIM + EF_PATH_ADF_USIM,
       p1:        0, // For GET_RESPONSE, p1 = 0
       p2:        0, // For GET_RESPONSE, p2 = 0
       p3:        GET_RESPONSE_EF_SIZE_BYTES,
@@ -1174,7 +1184,7 @@ let RIL = {
     let numLen = GsmPDUHelper.readHexOctet();
     if (numLen != 0xff) {
       if (numLen > MSISDN_MAX_NUMBER_SIZE_BYTES) {
-        debug("ICC_EF_FDN: invalid length of BCD number/SSC contents - " + numLen);
+        debug("invalid length of BCD number/SSC contents - " + numLen);
         return;
       }
 
@@ -1281,7 +1291,7 @@ let RIL = {
     this.iccIO({
       command:   ICC_COMMAND_GET_RESPONSE,
       fileId:    options.fileId,
-      pathId:    EF_PATH_MF_SIM + EF_PATH_DF_TELECOM,
+      pathId:    EF_PATH_MF_SIM + EF_PATH_DF_TELECOM + EF_PATH_DF_PHONEBOOK,
       p1:        0, // For GET_RESPONSE, p1 = 0
       p2:        0, // For GET_RESPONSE, p2 = 0
       p3:        GET_RESPONSE_EF_SIZE_BYTES,
@@ -1291,6 +1301,41 @@ let RIL = {
       callback:  callback,
       loadAll:   true,
       requestId: options.requestId
+    });
+  },
+
+   /**
+   * Get ICC MBDN. (Mailbox Dialling Number)
+   *
+   * @see TS 131.102, clause 4.2.60
+   */
+  getMBDN: function getMBDN() {
+    function callback(options) {
+      let parseCallback = function parseCallback(contact) {
+        if (DEBUG) {
+          debug("MBDN, alphaId="+contact.alphaId+" number="+contact.number);
+        }
+        if (this.iccInfo.mbdn != contact.number) {
+          this.iccInfo.mbdn = contact.number;
+          contact.type = "iccmbdn";
+          this.sendDOMMessage(contact);
+        }
+      };
+
+      this.parseDiallingNumber(options, parseCallback);
+    }
+
+    this.iccIO({
+      command:   ICC_COMMAND_GET_RESPONSE,
+      fileId:    ICC_EF_MBDN,
+      pathId:    EF_PATH_MF_SIM + EF_PATH_ADF_USIM,
+      p1:        0, // For GET_RESPONSE, p1 = 0
+      p2:        0, // For GET_RESPONSE, p2 = 0
+      p3:        GET_RESPONSE_EF_SIZE_BYTES,
+      data:      null,
+      pin2:      null,
+      type:      EF_TYPE_LINEAR_FIXED,
+      callback:  callback,
     });
   },
 
@@ -1507,14 +1552,18 @@ let RIL = {
    */
   dial: function dial(options) {
     let dial_request_type = REQUEST_DIAL;
-    if (this.voiceRegistrationState.emergencyCallsOnly) {
+    if (this.voiceRegistrationState.emergencyCallsOnly ||
+        options.isDialEmergency) {
       if (!this._isEmergencyNumber(options.number)) {
-        if (DEBUG) {
-          // TODO: Notify an error here so that the DOM will see an error event.
-          debug(options.number + " is not a valid emergency number.");
-        }
+        // Notify error in establishing the call with an invalid number.
+        options.callIndex = -1;
+        options.type = "callError";
+        options.error =
+          RIL_CALL_FAILCAUSE_TO_GECKO_CALL_ERROR[CALL_FAIL_UNOBTAINABLE_NUMBER];
+        this.sendDOMMessage(options);
         return;
       }
+
       if (RILQUIRKS_REQUEST_USE_DIAL_EMERGENCY_CALL) {
         dial_request_type = REQUEST_DIAL_EMERGENCY_CALL;
       }
@@ -1796,7 +1845,7 @@ let RIL = {
       return;
     }
 
-    let token = Buf.newParcel(REQUEST_DEACTIVATE_DATA_CALL);
+    let token = Buf.newParcel(REQUEST_DEACTIVATE_DATA_CALL, options);
     Buf.writeUint32(2);
     Buf.writeString(options.cid);
     Buf.writeString(options.reason || DATACALL_DEACTIVATE_NO_REASON);
@@ -2785,6 +2834,12 @@ RIL[REQUEST_GET_SIM_STATUS] = function REQUEST_GET_SIM_STATUS(length, options) {
       pin1:           Buf.readUint32(),
       pin2:           Buf.readUint32()
     });
+    if (RILQUIRKS_SIM_APP_STATE_EXTRA_FIELDS) {
+      Buf.readUint32();
+      Buf.readUint32();
+      Buf.readUint32();
+      Buf.readUint32();
+    }
   }
 
   if (DEBUG) debug("iccStatus: " + JSON.stringify(iccStatus));
@@ -3166,10 +3221,8 @@ RIL[REQUEST_SETUP_DATA_CALL] = function REQUEST_SETUP_DATA_CALL(length, options)
   this[REQUEST_DATA_CALL_LIST](length, options);
 };
 RIL[REQUEST_SIM_IO] = function REQUEST_SIM_IO(length, options) {
-  if (options.rilRequestError) {
-    return;
-  }
-
+  // Don't need to read rilRequestError since we can know error status from
+  // sw1 and sw2.
   let sw1 = Buf.readUint32();
   let sw2 = Buf.readUint32();
   if (sw1 != ICC_STATUS_NORMAL_ENDING) {
@@ -3451,6 +3504,15 @@ RIL[REQUEST_REPORT_SMS_MEMORY_STATUS] = null;
 RIL[REQUEST_REPORT_STK_SERVICE_IS_RUNNING] = null;
 RIL[UNSOLICITED_RESPONSE_RADIO_STATE_CHANGED] = function UNSOLICITED_RESPONSE_RADIO_STATE_CHANGED() {
   let radioState = Buf.readUint32();
+
+  // Ensure radio state at boot time.
+  if (this._isInitialRadioState) {
+    this._isInitialRadioState = false;
+    if (radioState != RADIO_STATE_OFF) {
+      this.setRadioPower({on: false});
+      return;
+    }
+  }
 
   let newState;
   if (radioState == RADIO_STATE_UNAVAILABLE) {

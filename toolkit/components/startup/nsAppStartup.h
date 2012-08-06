@@ -61,6 +61,8 @@ private:
   bool mInterrupted;    // Was startup interrupted by an interactive prompt?
   bool mIsSafeModeNecessary;       // Whether safe mode is necessary
   bool mStartupCrashTrackingEnded; // Whether startup crash tracking has already ended
+  bool mCachedShutdownTime;
+  PRUint32 mLastShutdownTime;
 
 #if defined(XP_WIN)
   //Interaction with OS-provided profiling probes
@@ -69,6 +71,7 @@ private:
   nsRefPtr<ProbeManager> mProbesManager;
   nsRefPtr<Probe> mPlacesInitCompleteProbe;
   nsRefPtr<Probe> mSessionWindowRestoredProbe;
+  nsRefPtr<Probe> mXPCOMShutdownProbe;
 #endif
 };
 

@@ -23,7 +23,7 @@ var WebAppRT = {
     // Disable add-on installation via the web-exposed APIs
     pref("xpinstall.enabled", false),
     // Disable the telemetry prompt in webapps
-    pref("toolkit.telemetry.prompted", true)
+    pref("toolkit.telemetry.prompted", 2)
   ],
 
   init: function(isUpdate) {
@@ -45,6 +45,11 @@ var WebAppRT = {
             break;
         }
       });
+
+      // update the blocklist url to use a different app id
+      var blocklist = Services.prefs.getCharPref("extensions.blocklist.url");
+      blocklist = blocklist.replace(/%APP_ID%/g, "webapprt-mobile@mozilla.org");
+      Services.prefs.setCharPref("extensions.blocklist.url", blocklist);
     }
   },
 

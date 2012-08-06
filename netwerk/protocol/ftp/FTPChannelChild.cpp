@@ -13,6 +13,7 @@
 #include "nsMimeTypes.h"
 #include "nsNetUtil.h"
 #include "nsIURIFixup.h"
+#include "nsILoadContext.h"
 #include "nsCDefaultURIFixup.h"
 #include "base/compiler_specific.h"
 
@@ -23,8 +24,7 @@ namespace mozilla {
 namespace net {
 
 FTPChannelChild::FTPChannelChild(nsIURI* uri)
-: PrivateBrowsingConsumer(this)
-, mIPCOpen(false)
+: mIPCOpen(false)
 , ALLOW_THIS_IN_INITIALIZER_LIST(mEventQ(static_cast<nsIFTPChannel*>(this)))
 , mCanceled(false)
 , mSuspendCount(0)
@@ -158,10 +158,31 @@ FTPChannelChild::AsyncOpen(::nsIStreamListener* listener, nsISupports* aContext)
 
   // add ourselves to the load group. 
   if (mLoadGroup)
-    mLoadGroup->AddRequest(this, nsnull);
+    mLoadGroup->AddRequest(this, nullptr);
+
+  // Get info from nsILoadContext, if any
+  bool haveLoadContext = false;
+  bool isContent = false;
+  bool usePrivateBrowsing = false;
+  bool isInBrowserElement = false;
+  PRUint32 appId = 0;
+  nsCAutoString extendedOrigin;
+  nsCOMPtr<nsILoadContext> loadContext;
+  NS_QueryNotificationCallbacks(mCallbacks, mLoadGroup,
+                                NS_GET_IID(nsILoadContext),
+                                getter_AddRefs(loadContext));
+  if (loadContext) {
+    haveLoadContext = true;
+    loadContext->GetIsContent(&isContent);
+    loadContext->GetUsePrivateBrowsing(&usePrivateBrowsing);
+    loadContext->GetIsInBrowserElement(&isInBrowserElement);
+    loadContext->GetAppId(&appId);
+    loadContext->GetExtendedOrigin(mURI, extendedOrigin);
+  }
 
   SendAsyncOpen(nsBaseChannel::URI(), mStartPos, mEntityID,
-                IPC::InputStream(mUploadStream), UsePrivateBrowsing());
+                IPC::InputStream(mUploadStream), haveLoadContext, isContent,
+                usePrivateBrowsing, isInBrowserElement, appId, extendedOrigin);
 
   // The socket transport layer in the chrome process now has a logical ref to
   // us until OnStopRequest is called.
@@ -349,11 +370,11 @@ FTPChannelChild::DoOnStopRequest(const nsresult& statusCode)
     mIsPending = false;
     AutoEventEnqueuer ensureSerialDispatch(mEventQ);
     (void)mListener->OnStopRequest(this, mListenerContext, statusCode);
-    mListener = nsnull;
-    mListenerContext = nsnull;
+    mListener = nullptr;
+    mListenerContext = nullptr;
 
     if (mLoadGroup)
-      mLoadGroup->RemoveRequest(this, nsnull, statusCode);
+      mLoadGroup->RemoveRequest(this, nullptr, statusCode);
   }
 
   // This calls NeckoChild::DeallocPFTPChannel(), which deletes |this| if IPDL
@@ -389,7 +410,7 @@ FTPChannelChild::DoFailedAsyncOpen(const nsresult& statusCode)
   mStatus = statusCode;
 
   if (mLoadGroup)
-    mLoadGroup->RemoveRequest(this, nsnull, statusCode);
+    mLoadGroup->RemoveRequest(this, nullptr, statusCode);
 
   if (mListener) {
     mListener->OnStartRequest(this, mListenerContext);
@@ -399,8 +420,8 @@ FTPChannelChild::DoFailedAsyncOpen(const nsresult& statusCode)
     mIsPending = false;
   }
 
-  mListener = nsnull;
-  mListenerContext = nsnull;
+  mListener = nullptr;
+  mListenerContext = nullptr;
 
   if (mIPCOpen)
     Send__delete__(this);
@@ -527,7 +548,7 @@ FTPChannelChild::CompleteRedirectSetup(nsIStreamListener *listener,
 
   // add ourselves to the load group.
   if (mLoadGroup)
-    mLoadGroup->AddRequest(this, nsnull);
+    mLoadGroup->AddRequest(this, nullptr);
 
   // We already have an open IPDL connection to the parent. If on-modify-request
   // listeners or load group observers canceled us, let the parent handle it

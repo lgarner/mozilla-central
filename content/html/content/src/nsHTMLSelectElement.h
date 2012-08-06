@@ -62,9 +62,9 @@ public:
    * @param aOption the option to insert
    * @param aIndex the index to insert at
    */
-  bool InsertOptionAt(nsHTMLOptionElement* aOption, PRUint32 aIndex)
+  void InsertOptionAt(nsHTMLOptionElement* aOption, PRUint32 aIndex)
   {
-    return !!mElements.InsertElementAt(aIndex, aOption);
+    mElements.InsertElementAt(aIndex, aOption);
   }
 
   /**
@@ -83,7 +83,7 @@ public:
    */
   nsHTMLOptionElement *ItemAsOption(PRUint32 aIndex)
   {
-    return mElements.SafeElementAt(aIndex, nsnull);
+    return mElements.SafeElementAt(aIndex, nullptr);
   }
 
   /**
@@ -97,9 +97,9 @@ public:
   /**
    * Append an option to end of array
    */
-  bool AppendOption(nsHTMLOptionElement* aOption)
+  void AppendOption(nsHTMLOptionElement* aOption)
   {
-    return !!mElements.AppendElement(aOption);
+    mElements.AppendElement(aOption);
   }
 
   /**
@@ -122,7 +122,8 @@ public:
                           PRInt32* aIndex);
 
 private:
-  /** The list of options (holds strong references) */
+  /** The list of options (holds strong references).  This is infallible, so
+   * various members such as InsertOptionAt are also infallible. */
   nsTArray<nsRefPtr<nsHTMLOptionElement> > mElements;
   /** The select element that contains this array */
   nsHTMLSelectElement* mSelect;
@@ -219,7 +220,7 @@ public:
   {
     if (aContent && aContent->IsHTML(nsGkAtoms::select))
       return static_cast<nsHTMLSelectElement*>(aContent);
-    return nsnull;
+    return nullptr;
   }
  
   // nsISupports
@@ -233,21 +234,21 @@ public:
 
   // nsIDOMHTMLElement
   NS_FORWARD_NSIDOMHTMLELEMENT_BASIC(nsGenericHTMLFormElement::)
-  NS_SCRIPTABLE NS_IMETHOD Click() {
+  NS_IMETHOD Click() {
     return nsGenericHTMLFormElement::Click();
   }
-  NS_SCRIPTABLE NS_IMETHOD GetTabIndex(PRInt32* aTabIndex);
-  NS_SCRIPTABLE NS_IMETHOD SetTabIndex(PRInt32 aTabIndex);
-  NS_SCRIPTABLE NS_IMETHOD Focus() {
+  NS_IMETHOD GetTabIndex(PRInt32* aTabIndex);
+  NS_IMETHOD SetTabIndex(PRInt32 aTabIndex);
+  NS_IMETHOD Focus() {
     return nsGenericHTMLFormElement::Focus();
   }
-  NS_SCRIPTABLE NS_IMETHOD GetDraggable(bool* aDraggable) {
+  NS_IMETHOD GetDraggable(bool* aDraggable) {
     return nsGenericHTMLFormElement::GetDraggable(aDraggable);
   }
-  NS_SCRIPTABLE NS_IMETHOD GetInnerHTML(nsAString& aInnerHTML) {
+  NS_IMETHOD GetInnerHTML(nsAString& aInnerHTML) {
     return nsGenericHTMLFormElement::GetInnerHTML(aInnerHTML);
   }
-  NS_SCRIPTABLE NS_IMETHOD SetInnerHTML(const nsAString& aInnerHTML) {
+  NS_IMETHOD SetInnerHTML(const nsAString& aInnerHTML) {
     return nsGenericHTMLFormElement::SetInnerHTML(aInnerHTML);
   }
 
@@ -308,7 +309,7 @@ public:
    * @return whether the option is disabled
    */
   NS_IMETHOD IsOptionDisabled(PRInt32 aIndex,
-                              bool *aIsDisabled NS_OUTPARAM);
+                              bool *aIsDisabled);
 
   /**
    * Sets multiple options (or just sets startIndex if select is single)
@@ -333,7 +334,7 @@ public:
                                        bool aClearAll,
                                        bool aSetDisabled,
                                        bool aNotify,
-                                       bool* aChangedSomething NS_OUTPARAM);
+                                       bool* aChangedSomething);
 
   /**
    * Finds the index of a given option element
@@ -346,7 +347,7 @@ public:
   NS_IMETHOD GetOptionIndex(nsIDOMHTMLOptionElement* aOption,
                             PRInt32 aStartIndex,
                             bool aForward,
-                            PRInt32* aIndex NS_OUTPARAM);
+                            PRInt32* aIndex);
 
   /**
    * Called when an attribute is about to be changed
@@ -596,7 +597,7 @@ protected:
   /**
    * Insert aElement before the node given by aBefore
    */
-  nsresult Add(nsIDOMHTMLElement* aElement, nsIDOMHTMLElement* aBefore = nsnull);
+  nsresult Add(nsIDOMHTMLElement* aElement, nsIDOMHTMLElement* aBefore = nullptr);
 
   /** The options[] array */
   nsRefPtr<nsHTMLOptionCollection> mOptions;

@@ -8,6 +8,7 @@
 #include "nsXULWindow.h"
 
 // Helper classes
+#include "nsPrintfCString.h"
 #include "nsString.h"
 #include "nsWidgetsCID.h"
 #include "prprf.h"
@@ -92,9 +93,9 @@ DevToCSSPixels(PRInt32 aPixels, PRInt32 aAppPerDev)
 //*****************************************************************************
 
 nsXULWindow::nsXULWindow(PRUint32 aChromeFlags)
-  : mChromeTreeOwner(nsnull), 
-    mContentTreeOwner(nsnull),
-    mPrimaryContentTreeOwner(nsnull),
+  : mChromeTreeOwner(nullptr), 
+    mContentTreeOwner(nullptr),
+    mPrimaryContentTreeOwner(nullptr),
     mModalStatus(NS_OK),
     mContinueModalLoop(false),
     mDebuting(false),
@@ -164,7 +165,7 @@ NS_IMETHODIMP nsXULWindow::GetInterface(const nsIID& aIID, void** aSink)
     return GetWindowDOMWindow(reinterpret_cast<nsIDOMWindow**>(aSink));
   }
   if (aIID.Equals(NS_GET_IID(nsIDOMWindowInternal))) {
-    nsIDOMWindow* domWindow = nsnull;
+    nsIDOMWindow* domWindow = nullptr;
     rv = GetWindowDOMWindow(&domWindow);
     nsIDOMWindowInternal* domWindowInternal =
       static_cast<nsIDOMWindowInternal*>(domWindow);
@@ -334,13 +335,13 @@ NS_IMETHODIMP nsXULWindow::GetContentShellById(const PRUnichar* aID,
    nsIDocShellTreeItem** aDocShellTreeItem)
 {
   NS_ENSURE_ARG_POINTER(aDocShellTreeItem);
-  *aDocShellTreeItem = nsnull;
+  *aDocShellTreeItem = nullptr;
 
   PRUint32 count = mContentShells.Length();
   for (PRUint32 i = 0; i < count; i++) {
     nsContentShellInfo* shellInfo = mContentShells.ElementAt(i);
     if (shellInfo->id.Equals(aID)) {
-      *aDocShellTreeItem = nsnull;
+      *aDocShellTreeItem = nullptr;
       if (shellInfo->child)
         CallQueryReferent(shellInfo->child.get(), aDocShellTreeItem);
       return NS_OK;
@@ -372,7 +373,7 @@ NS_IMETHODIMP nsXULWindow::ShowModal()
   EnableParent(false);
 
   nsCOMPtr<nsIJSContextStack> stack(do_GetService("@mozilla.org/js/xpc/ContextStack;1"));
-  if (stack && NS_SUCCEEDED(stack->Push(nsnull))) {
+  if (stack && NS_SUCCEEDED(stack->Push(nullptr))) {
     nsIThread *thread = NS_GetCurrentThread();
     while (mContinueModalLoop) {
       if (!NS_ProcessNextEvent(thread))
@@ -380,7 +381,7 @@ NS_IMETHODIMP nsXULWindow::ShowModal()
     }
     JSContext* cx;
     stack->Pop(&cx);
-    NS_ASSERTION(cx == nsnull, "JSContextStack mismatch");
+    NS_ASSERTION(cx == nullptr, "JSContextStack mismatch");
   }
 
   mContinueModalLoop = false;
@@ -478,11 +479,11 @@ NS_IMETHODIMP nsXULWindow::Destroy()
   }
 #endif
    
-  mDOMWindow = nsnull;
+  mDOMWindow = nullptr;
   if (mDocShell) {
     nsCOMPtr<nsIBaseWindow> shellAsWin(do_QueryInterface(mDocShell));
     shellAsWin->Destroy();
-    mDocShell = nsnull; // this can cause reentrancy of this function
+    mDocShell = nullptr; // this can cause reentrancy of this function
   }
 
   // Remove our ref on the content shells
@@ -492,24 +493,24 @@ NS_IMETHODIMP nsXULWindow::Destroy()
     delete shellInfo;
   }
   mContentShells.Clear();
-  mPrimaryContentShell = nsnull;
+  mPrimaryContentShell = nullptr;
 
   if (mContentTreeOwner) {
-    mContentTreeOwner->XULWindow(nsnull);
+    mContentTreeOwner->XULWindow(nullptr);
     NS_RELEASE(mContentTreeOwner);
   }
   if (mPrimaryContentTreeOwner) {
-    mPrimaryContentTreeOwner->XULWindow(nsnull);
+    mPrimaryContentTreeOwner->XULWindow(nullptr);
     NS_RELEASE(mPrimaryContentTreeOwner);
   }
   if (mChromeTreeOwner) {
-    mChromeTreeOwner->XULWindow(nsnull);
+    mChromeTreeOwner->XULWindow(nullptr);
     NS_RELEASE(mChromeTreeOwner);
   }
   if (mWindow) {
     mWindow->SetClientData(0); // nsWebShellWindow hackery
     mWindow->Destroy();
-    mWindow = nsnull;
+    mWindow = nullptr;
   }
 
   if (!mIsHiddenWindow) {
@@ -523,7 +524,7 @@ NS_IMETHODIMP nsXULWindow::Destroy()
     NS_ASSERTION(obssvc, "Couldn't get observer service?");
 
     if (obssvc)
-      obssvc->NotifyObservers(nsnull, "xul-window-destroyed", nsnull);
+      obssvc->NotifyObservers(nullptr, "xul-window-destroyed", nullptr);
   }
 
   return NS_OK;
@@ -547,7 +548,7 @@ NS_IMETHODIMP nsXULWindow::SetPosition(PRInt32 aX, PRInt32 aY)
 
 NS_IMETHODIMP nsXULWindow::GetPosition(PRInt32* aX, PRInt32* aY)
 {
-  return GetPositionAndSize(aX, aY, nsnull, nsnull);
+  return GetPositionAndSize(aX, aY, nullptr, nullptr);
 }
 
 NS_IMETHODIMP nsXULWindow::SetSize(PRInt32 aCX, PRInt32 aCY, bool aRepaint)
@@ -576,7 +577,7 @@ NS_IMETHODIMP nsXULWindow::SetSize(PRInt32 aCX, PRInt32 aCY, bool aRepaint)
 
 NS_IMETHODIMP nsXULWindow::GetSize(PRInt32* aCX, PRInt32* aCY)
 {
-  return GetPositionAndSize(nsnull, nsnull, aCX, aCY);
+  return GetPositionAndSize(nullptr, nullptr, aCX, aCY);
 }
 
 NS_IMETHODIMP nsXULWindow::SetPositionAndSize(PRInt32 aX, PRInt32 aY, 
@@ -738,6 +739,22 @@ NS_IMETHODIMP nsXULWindow::SetParentNativeWindow(nativeWindow aParentNativeWindo
   return NS_OK;
 }
 
+NS_IMETHODIMP nsXULWindow::GetNativeHandle(nsAString& aNativeHandle)
+{
+  nsCOMPtr<nsIWidget> mainWidget;
+  NS_ENSURE_SUCCESS(GetMainWidget(getter_AddRefs(mainWidget)), NS_ERROR_FAILURE);
+
+  if (mainWidget) {
+    nativeWindow nativeWindowPtr = mainWidget->GetNativeData(NS_NATIVE_WINDOW);
+    /* the nativeWindow pointer is converted to and exposed as a string. This
+       is a more reliable way not to lose information (as opposed to JS
+       |Number| for instance) */
+    aNativeHandle = NS_ConvertASCIItoUTF16(nsPrintfCString("0x%p", nativeWindowPtr));
+  }
+
+  return NS_OK;
+}
+
 NS_IMETHODIMP nsXULWindow::GetVisibility(bool* aVisibility)
 {
   NS_ENSURE_ARG_POINTER(aVisibility);
@@ -782,7 +799,7 @@ NS_IMETHODIMP nsXULWindow::SetVisibility(bool aVisibility)
     (do_GetService("@mozilla.org/observer-service;1"));
   NS_ASSERTION(obssvc, "Couldn't get observer service.");
   if (obssvc) {
-    obssvc->NotifyObservers(nsnull, "xul-window-visible", nsnull); 
+    obssvc->NotifyObservers(nullptr, "xul-window-visible", nullptr); 
   }
 
   mDebuting = false;
@@ -792,8 +809,11 @@ NS_IMETHODIMP nsXULWindow::SetVisibility(bool aVisibility)
 NS_IMETHODIMP nsXULWindow::GetEnabled(bool *aEnabled)
 {
   NS_ENSURE_ARG_POINTER(aEnabled);
-  if (mWindow)
-    return mWindow->IsEnabled(aEnabled);
+
+  if (mWindow) {
+    *aEnabled = mWindow->IsEnabled();
+    return NS_OK;
+  }
 
   *aEnabled = true; // better guess than most
   return NS_ERROR_FAILURE;
@@ -993,7 +1013,7 @@ bool nsXULWindow::LoadPositionFromXUL()
   PRInt32 currY = 0;
   PRInt32 currWidth = 0;
   PRInt32 currHeight = 0;
-  PRInt32 errorCode;
+  nsresult errorCode;
   PRInt32 temp;
 
   GetPositionAndSize(&currX, &currY, &currWidth, &currHeight);
@@ -1060,7 +1080,7 @@ bool nsXULWindow::LoadSizeFromXUL()
 
   PRInt32 currWidth = 0;
   PRInt32 currHeight = 0;
-  PRInt32 errorCode;
+  nsresult errorCode;
   PRInt32 temp;
 
   GetSize(&currWidth, &currHeight);
@@ -1192,7 +1212,7 @@ bool nsXULWindow::LoadMiscPersistentAttributesFromXUL()
   // zlevel
   rv = windowElement->GetAttribute(NS_LITERAL_STRING("zlevel"), stateString);
   if (NS_SUCCEEDED(rv) && stateString.Length() > 0) {
-    PRInt32  errorCode;
+    nsresult errorCode;
     PRUint32 zLevel = stateString.ToInteger(&errorCode);
     if (NS_SUCCEEDED(errorCode) && zLevel >= lowestZ && zLevel <= highestZ)
       SetZLevel(zLevel);
@@ -1520,7 +1540,7 @@ NS_IMETHODIMP nsXULWindow::GetWindowDOMElement(nsIDOMElement** aDOMElement)
   NS_ENSURE_STATE(mDocShell);
   NS_ENSURE_ARG_POINTER(aDOMElement);
 
-  *aDOMElement = nsnull;
+  *aDOMElement = nullptr;
 
   nsCOMPtr<nsIContentViewer> cv;
 
@@ -1539,7 +1559,7 @@ NS_IMETHODIMP nsXULWindow::GetWindowDOMElement(nsIDOMElement** aDOMElement)
 nsresult nsXULWindow::ContentShellAdded(nsIDocShellTreeItem* aContentShell,
    bool aPrimary, bool aTargetable, const nsAString& aID)
 {
-  nsContentShellInfo* shellInfo = nsnull;
+  nsContentShellInfo* shellInfo = nullptr;
 
   PRUint32 i, count = mContentShells.Length();
   nsWeakPtr contentShellWeak = do_GetWeakReference(aContentShell);
@@ -1551,7 +1571,7 @@ nsresult nsXULWindow::ContentShellAdded(nsIDocShellTreeItem* aContentShell,
       shellInfo = info;
     }
     else if (info->child == contentShellWeak)
-      info->child = nsnull;
+      info->child = nullptr;
   }
 
   if (!shellInfo) {
@@ -1569,7 +1589,7 @@ nsresult nsXULWindow::ContentShellAdded(nsIDocShellTreeItem* aContentShell,
     NS_ENSURE_SUCCESS(EnsureContentTreeOwner(), NS_ERROR_FAILURE);
     aContentShell->SetTreeOwner(mContentTreeOwner);
     if (mPrimaryContentShell == aContentShell)
-      mPrimaryContentShell = nsnull;
+      mPrimaryContentShell = nullptr;
   }
 
   if (aTargetable) {
@@ -1609,7 +1629,7 @@ nsresult nsXULWindow::ContentShellAdded(nsIDocShellTreeItem* aContentShell,
 nsresult nsXULWindow::ContentShellRemoved(nsIDocShellTreeItem* aContentShell)
 {
   if (mPrimaryContentShell == aContentShell) {
-    mPrimaryContentShell = nsnull;
+    mPrimaryContentShell = nullptr;
   }
 
   PRInt32 i, count = mContentShells.Length();
@@ -1698,7 +1718,7 @@ NS_IMETHODIMP nsXULWindow::CreateNewChromeWindow(PRInt32 aChromeFlags,
   // Just do a normal create of a window and return.
 
   nsCOMPtr<nsIXULWindow> newWindow;
-  appShell->CreateTopLevelWindow(this, nsnull, aChromeFlags,
+  appShell->CreateTopLevelWindow(this, nullptr, aChromeFlags,
                                  nsIAppShellService::SIZE_TO_CONTENT,
                                  nsIAppShellService::SIZE_TO_CONTENT,
                                  getter_AddRefs(newWindow));
@@ -1731,7 +1751,7 @@ NS_IMETHODIMP nsXULWindow::CreateNewContentWindow(PRInt32 aChromeFlags,
 
   nsCOMPtr<nsIIOService> service(do_GetService(NS_IOSERVICE_CONTRACTID));
   if (service) {
-    service->NewURI(urlStr, nsnull, nsnull, getter_AddRefs(uri));
+    service->NewURI(urlStr, nullptr, nullptr, getter_AddRefs(uri));
   }
   NS_ENSURE_TRUE(uri, NS_ERROR_FAILURE);
 
@@ -1749,9 +1769,9 @@ NS_IMETHODIMP nsXULWindow::CreateNewContentWindow(PRInt32 aChromeFlags,
 
   xulWin->LockUntilChromeLoad();
 
-  // Push nsnull onto the JSContext stack before we dispatch a native event.
+  // Push nullptr onto the JSContext stack before we dispatch a native event.
   nsCOMPtr<nsIJSContextStack> stack(do_GetService("@mozilla.org/js/xpc/ContextStack;1"));
-  if (stack && NS_SUCCEEDED(stack->Push(nsnull))) {
+  if (stack && NS_SUCCEEDED(stack->Push(nullptr))) {
     nsIThread *thread = NS_GetCurrentThread();
     while (xulWin->IsLocked()) {
       if (!NS_ProcessNextEvent(thread))
@@ -1759,7 +1779,7 @@ NS_IMETHODIMP nsXULWindow::CreateNewContentWindow(PRInt32 aChromeFlags,
     }
     JSContext *cx;
     stack->Pop(&cx);
-    NS_ASSERTION(cx == nsnull, "JSContextStack mismatch");
+    NS_ASSERTION(cx == nullptr, "JSContextStack mismatch");
   }
 
   NS_ENSURE_STATE(xulWin->mPrimaryContentShell);

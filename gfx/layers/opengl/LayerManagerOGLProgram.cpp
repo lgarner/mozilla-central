@@ -53,6 +53,23 @@ ProgramProfileOGL::GetProfileFor(gl::ShaderProgramType aType,
     AddCommonTextureArgs(result);
     result.mTextureCount = 1;
     break;
+  case gl::RGBALayerExternalProgramType:
+    if (aMask == Mask3d) {
+      result.mVertexShaderString = sLayerMask3DVS;
+      result.mFragmentShaderString = sRGBATextureLayerExternalMask3DFS;
+    } else if (aMask == Mask2d) {
+      result.mVertexShaderString = sLayerMaskVS;
+      result.mFragmentShaderString = sRGBATextureLayerExternalMaskFS;
+    } else {
+      result.mVertexShaderString = sLayerVS;
+      result.mFragmentShaderString = sRGBATextureLayerExternalFS;
+    }
+    AddCommonArgs(result);
+    AddCommonTextureArgs(result);
+    result.mUniforms.AppendElement(Argument("uTextureTransform"));
+    result.mHasTextureTransform = true;
+    result.mTextureCount = 1;
+    break;
   case gl::BGRALayerProgramType:
     if (aMask == Mask2d) {
       result.mVertexShaderString = sLayerMaskVS;
@@ -360,7 +377,8 @@ ShaderProgramOGL::LoadMask(Layer* aMaskLayer)
               (GLint)(mProfile.mTextureCount - 1));
 
   gfxMatrix maskTransform;
-  bool isMask2D = aMaskLayer->GetEffectiveTransform().CanDraw2D(&maskTransform);
+  mozilla::DebugOnly<bool> isMask2D =
+    aMaskLayer->GetEffectiveTransform().CanDraw2D(&maskTransform);
   NS_ASSERTION(isMask2D, "How did we end up with a 3D transform here?!");
   gfxRect bounds = gfxRect(gfxPoint(), size);
   bounds = maskTransform.TransformBounds(bounds);

@@ -55,7 +55,7 @@ using namespace mozilla;
 struct InlineBackgroundData
 {
   InlineBackgroundData()
-      : mFrame(nsnull), mBlockFrame(nsnull)
+      : mFrame(nullptr), mBlockFrame(nullptr)
   {
   }
 
@@ -67,7 +67,7 @@ struct InlineBackgroundData
   {
     mBoundingBox.SetRect(0,0,0,0);
     mContinuationPoint = mLineContinuationPoint = mUnbrokenWidth = 0;
-    mFrame = mBlockFrame = nsnull;
+    mFrame = mBlockFrame = nullptr;
   }
 
   nsRect GetContinuousRect(nsIFrame* aFrame)
@@ -292,7 +292,7 @@ static nscolor MakeBevelColor(mozilla::css::Side whichSide, PRUint8 style,
                               nscolor aBackgroundColor,
                               nscolor aBorderColor);
 
-static InlineBackgroundData* gInlineBGData = nsnull;
+static InlineBackgroundData* gInlineBGData = nullptr;
 
 // Initialize any static variables used by nsCSSRendering.
 void nsCSSRendering::Init()
@@ -305,7 +305,7 @@ void nsCSSRendering::Init()
 void nsCSSRendering::Shutdown()
 {
   delete gInlineBGData;
-  gInlineBGData = nsnull;
+  gInlineBGData = nullptr;
 }
 
 /**
@@ -691,7 +691,7 @@ nsCSSRendering::PaintOutline(nsPresContext* aPresContext,
                          outlineWidths,
                          outlineRadii,
                          outlineColors,
-                         nsnull, 0,
+                         nullptr, 0,
                          bgColor);
   br.DrawBorders();
 
@@ -744,7 +744,7 @@ nsCSSRendering::PaintFocus(nsPresContext* aPresContext,
                          focusWidths,
                          focusRadii,
                          focusColors,
-                         nsnull, 0,
+                         nullptr, 0,
                          NS_RGB(255, 0, 0));
   br.DrawBorders();
 
@@ -802,7 +802,7 @@ nsCSSRendering::FindNonTransparentBackgroundFrame(nsIFrame* aFrame,
 {
   NS_ASSERTION(aFrame, "Cannot find NonTransparentBackgroundFrame in a null frame");
 
-  nsIFrame* frame = nsnull;
+  nsIFrame* frame = nullptr;
   if (aStartAtParent) {
     frame = nsLayoutUtils::GetParentOrPlaceholderFor(aFrame);
   }
@@ -1079,7 +1079,7 @@ nsCSSRendering::PaintBoxShadowOuter(nsPresContext* aPresContext,
     shadowContext = 
       blurringArea.Init(shadowRect, pixelSpreadRadius,
                         blurRadius, twipsPerPixel, renderContext, aDirtyRect,
-                        useSkipGfxRect ? &skipGfxRect : nsnull,
+                        useSkipGfxRect ? &skipGfxRect : nullptr,
                         nativeTheme ? nsContextBoxBlur::FORCE_MASK : 0);
     if (!shadowContext)
       continue;
@@ -2009,6 +2009,7 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
 
   // Create the gradient pattern.
   nsRefPtr<gfxPattern> gradientPattern;
+  bool forceRepeatToCoverTiles = false;
   if (aGradient->mShape == NS_STYLE_GRADIENT_SHAPE_LINEAR) {
     // Compute the actual gradient line ends we need to pass to cairo after
     // stops have been normalized.
@@ -2027,6 +2028,16 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
 
     gradientPattern = new gfxPattern(gradientStart.x, gradientStart.y,
                                      gradientEnd.x, gradientEnd.y);
+
+    // When the gradient line is parallel to the x axis from the left edge
+    // to the right edge of a tile, then we can repeat by just repeating the
+    // gradient.
+    if ((gradientStart.y == gradientEnd.y && gradientStart.x == 0 &&
+         gradientEnd.x == oneCellArea.width) ||
+        (gradientStart.x == gradientEnd.x && gradientStart.y == 0 &&
+         gradientEnd.y == oneCellArea.height)) {
+      forceRepeatToCoverTiles = true;
+    }
   } else {
     NS_ASSERTION(firstStop >= 0.0,
                  "Negative stops not allowed for radial gradients");
@@ -2077,7 +2088,7 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
   }
 
   // Set repeat mode. Default cairo extend mode is PAD.
-  if (aGradient->mRepeating) {
+  if (aGradient->mRepeating || forceRepeatToCoverTiles) {
     gradientPattern->SetExtend(gfxPattern::EXTEND_REPEAT);
   }
 
@@ -2096,8 +2107,9 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
   // xStart/yStart are the top-left corner of the top-left tile.
   nscoord xStart = FindTileStart(dirty.x, aOneCellArea.x, aOneCellArea.width);
   nscoord yStart = FindTileStart(dirty.y, aOneCellArea.y, aOneCellArea.height);
-  nscoord xEnd = dirty.XMost();
-  nscoord yEnd = dirty.YMost();
+  nscoord xEnd = forceRepeatToCoverTiles ? xStart + aOneCellArea.width : dirty.XMost();
+  nscoord yEnd = forceRepeatToCoverTiles ? yStart + aOneCellArea.height : dirty.YMost();
+
   // x and y are the top-left corner of the tile to draw
   for (nscoord y = yStart; y < yEnd; y += aOneCellArea.height) {
     for (nscoord x = xStart; x < xEnd; x += aOneCellArea.width) {
@@ -2107,7 +2119,8 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
                       appUnitsPerPixel);
       // The actual area to fill with this tile is the intersection of this
       // tile with the overall area we're supposed to be filling
-      gfxRect fillRect = tileRect.Intersect(areaToFill);
+      gfxRect fillRect =
+        forceRepeatToCoverTiles ? areaToFill : tileRect.Intersect(areaToFill);
       ctx->NewPath();
       ctx->Translate(tileRect.TopLeft());
       ctx->SetPattern(gradientPattern);
@@ -2461,7 +2474,7 @@ nsCSSRendering::PrepareBackgroundLayer(nsPresContext* aPresContext,
     nsIFrame* topFrame =
       aPresContext->PresShell()->FrameManager()->GetRootFrame();
     NS_ASSERTION(topFrame, "no root frame");
-    nsIFrame* pageContentFrame = nsnull;
+    nsIFrame* pageContentFrame = nullptr;
     if (aPresContext->IsPaginated()) {
       pageContentFrame =
         nsLayoutUtils::GetClosestFrameOfType(aForFrame, nsGkAtoms::pageContentFrame);
@@ -3278,7 +3291,7 @@ nsCSSRendering::ExpandPaintingRectForDecorationLine(nsIFrame* aFrame,
       return aClippedRect;
   }
 
-  nsBlockFrame* block = nsnull;
+  nsBlockFrame* block = nullptr;
   // Note that when we paint the decoration lines in relative positioned
   // box, we should paint them like all of the boxes are positioned as static.
   nscoord relativeX = 0;
@@ -3688,9 +3701,9 @@ nsImageRenderer::nsImageRenderer(nsIFrame* aForFrame,
   : mForFrame(aForFrame)
   , mImage(aImage)
   , mType(aImage->GetType())
-  , mImageContainer(nsnull)
-  , mGradientData(nsnull)
-  , mPaintServerFrame(nsnull)
+  , mImageContainer(nullptr)
+  , mGradientData(nullptr)
+  , mPaintServerFrame(nullptr)
   , mIsReady(false)
   , mSize(0, 0)
   , mFlags(aFlags)
@@ -4156,14 +4169,14 @@ already_AddRefed<mozilla::layers::ImageContainer>
 nsImageRenderer::GetContainer()
 {
   if (mType != eStyleImageType_Image)
-    return nsnull;
+    return nullptr;
   nsCOMPtr<imgIContainer> img;
   nsresult rv = mImage->GetImageData()->GetImage(getter_AddRefs(img));
   if (NS_FAILED(rv) || !img)
-    return nsnull;
+    return nullptr;
   nsRefPtr<ImageContainer> container;
   rv = img->GetImageContainer(getter_AddRefs(container));
-  NS_ENSURE_SUCCESS(rv, nsnull);
+  NS_ENSURE_SUCCESS(rv, nullptr);
   return container.forget();
 }
 
@@ -4198,8 +4211,8 @@ nsContextBoxBlur::Init(const nsRect& aRect, nscoord aSpreadRadius,
                        PRUint32 aFlags)
 {
   if (aRect.IsEmpty()) {
-    mContext = nsnull;
-    return nsnull;
+    mContext = nullptr;
+    return nullptr;
   }
 
   gfxFloat scaleX = 1;

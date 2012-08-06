@@ -10,12 +10,17 @@
 #include "gfxPattern.h"
 #include "gfxRect.h"
 #include "nsRect.h"
-#include "Layers.h"
 
 class nsDisplayList;
 class nsDisplayListBuilder;
 class nsIFrame;
 class nsRenderingContext;
+
+namespace mozilla {
+namespace layers {
+class LayerManager;
+}
+}
 
 struct nsPoint;
 struct nsSize;
@@ -28,7 +33,7 @@ class nsSVGIntegrationUtils MOZ_FINAL
 {
 public:
   /**
-   * Returns true if a non-SVG frame has SVG effects.
+   * Returns true if SVG effects are currently applied to this frame.
    */
   static bool
   UsingEffectsForFrame(const nsIFrame* aFrame);

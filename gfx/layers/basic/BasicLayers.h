@@ -10,10 +10,10 @@
 
 #include "gfxContext.h"
 #include "gfxCachedTempSurface.h"
+#include "mozilla/layers/ShadowLayers.h"
+#include "mozilla/WidgetUtils.h"
 #include "nsAutoRef.h"
 #include "nsThreadUtils.h"
-
-#include "mozilla/layers/ShadowLayers.h"
 
 class nsIWidget;
 
@@ -76,17 +76,14 @@ public:
    * mode we always completely overwrite the contents of aContext's
    * destination surface (within the clip region) using OPERATOR_SOURCE.
    */
-  enum BufferMode {
-    BUFFER_NONE,
-    BUFFER_BUFFERED
-  };
-  void SetDefaultTarget(gfxContext* aContext, BufferMode aDoubleBuffering);
+  virtual void SetDefaultTarget(gfxContext* aContext, BufferMode aDoubleBuffering,
+                                ScreenRotation aRotation);
   gfxContext* GetDefaultTarget() { return mDefaultTarget; }
 
   nsIWidget* GetRetainerWidget() { return mWidget; }
-  void ClearRetainerWidget() { mWidget = nsnull; }
+  void ClearRetainerWidget() { mWidget = nullptr; }
 
-  virtual bool IsWidgetLayerManager() { return mWidget != nsnull; }
+  virtual bool IsWidgetLayerManager() { return mWidget != nullptr; }
 
   virtual void BeginTransaction();
   virtual void BeginTransactionWithTarget(gfxContext* aTarget);
@@ -94,6 +91,8 @@ public:
   virtual void EndTransaction(DrawThebesLayerCallback aCallback,
                               void* aCallbackData,
                               EndTransactionFlags aFlags = END_DEFAULT);
+  virtual bool AreComponentAlphaLayersEnabled() { return HasShadowManager(); }
+
   void AbortTransaction();
 
   virtual void SetRoot(Layer* aLayer);
@@ -107,17 +106,17 @@ public:
   virtual ImageFactory *GetImageFactory();
 
   virtual already_AddRefed<ShadowThebesLayer> CreateShadowThebesLayer()
-  { return nsnull; }
+  { return nullptr; }
   virtual already_AddRefed<ShadowContainerLayer> CreateShadowContainerLayer()
-  { return nsnull; }
+  { return nullptr; }
   virtual already_AddRefed<ShadowImageLayer> CreateShadowImageLayer()
-  { return nsnull; }
+  { return nullptr; }
   virtual already_AddRefed<ShadowColorLayer> CreateShadowColorLayer()
-  { return nsnull; }
+  { return nullptr; }
   virtual already_AddRefed<ShadowCanvasLayer> CreateShadowCanvasLayer()
-  { return nsnull; }
+  { return nullptr; }
   virtual already_AddRefed<ShadowRefLayer> CreateShadowRefLayer()
-  { return nsnull; }
+  { return nullptr; }
 
   virtual LayersBackend GetBackendType() { return LAYERS_BASIC; }
   virtual void GetBackendName(nsAString& name) { name.AssignLiteral("Basic"); }
@@ -131,7 +130,7 @@ public:
 
   gfxContext* GetTarget() { return mTarget; }
   void SetTarget(gfxContext* aTarget) { mUsingDefaultTarget = false; mTarget = aTarget; }
-  bool IsRetained() { return mWidget != nsnull; }
+  bool IsRetained() { return mWidget != nullptr; }
 
 #ifdef MOZ_LAYERS_HAVE_LOG
   virtual const char* Name() const { return "Basic"; }
@@ -219,6 +218,8 @@ public:
 
   virtual PRInt32 GetMaxTextureSize() const;
 
+  virtual void SetDefaultTarget(gfxContext* aContext, BufferMode aDoubleBuffering,
+                                ScreenRotation aRotation) MOZ_OVERRIDE;
   virtual void BeginTransactionWithTarget(gfxContext* aTarget);
   virtual bool EndEmptyTransaction();
   virtual void EndTransaction(DrawThebesLayerCallback aCallback,
@@ -259,11 +260,20 @@ private:
    */
   void ForwardTransaction();
 
+  // The bounds of |mTarget| in device pixels.
+  nsIntRect mTargetBounds;
+
+  LayerRefArray mKeepAlive;
+
+  // Sometimes we draw to targets that don't natively support
+  // landscape/portrait orientation.  When we need to implement that
+  // ourselves, |mTargetRotation| describes the induced transform we
+  // need to apply when compositing content to our target.
+  ScreenRotation mTargetRotation;
+
   // Used to repeat the transaction right away (to avoid rebuilding
   // a display list) to support progressive drawing.
   bool mRepeatTransaction;
-
-  LayerRefArray mKeepAlive;
 };
 
 class BasicShadowableThebesLayer;
@@ -302,10 +312,10 @@ public:
     // automatically managed by IPDL, so we don't need to explicitly
     // free them here (it's hard to get that right on emergency
     // shutdown anyway).
-    mShadow = nsnull;
+    mShadow = nullptr;
   }
 
-  virtual BasicShadowableThebesLayer* AsThebes() { return nsnull; }
+  virtual BasicShadowableThebesLayer* AsThebes() { return nullptr; }
 };
 
 

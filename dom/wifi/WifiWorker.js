@@ -126,12 +126,30 @@ var WifiManager = (function() {
     });
   }
 
+  var driverLoaded = false;
   function loadDriver(callback) {
-    voidControlMessage("load_driver", callback);
+    if (driverLoaded) {
+      callback(0);
+      return;
+    }
+
+    voidControlMessage("load_driver", function(status) {
+      driverLoaded = (status >= 0);
+      callback(status)
+    });
   }
 
   function unloadDriver(callback) {
-    voidControlMessage("unload_driver", callback);
+    // Otoro ICS can't unload and then load the driver, so never unload it.
+    if (device === "otoro") {
+      callback(0);
+      return;
+    }
+
+    voidControlMessage("unload_driver", function(status) {
+      driverLoaded = (status < 0);
+      callback(status);
+    });
   }
 
   function startSupplicant(callback) {
@@ -1249,6 +1267,10 @@ let WifiNetworkInterface = {
   // to the Network Manager.
   dhcp: false,
 
+  httpProxyHost: null,
+
+  httpProxyPort: null,
+
 };
 
 
@@ -1634,6 +1656,11 @@ WifiWorker.prototype = {
     function getConnectionInformation() {
       WifiManager.getConnectionInfo(function(info) {
         // See comments in calculateSignal for information about this.
+        if (!info) {
+          self._lastConnectionInfo = null;
+          return;
+        }
+
         let { rssi, linkspeed } = info;
         if (rssi > 0)
           rssi -= 256;

@@ -41,7 +41,7 @@ const nsDynamicFunctionLoad kXULFuncs[] = {
   { "XRE_CreateAppData", (NSFuncPtr*) &XRE_CreateAppData },
   { "XRE_FreeAppData", (NSFuncPtr*) &XRE_FreeAppData },
   { "XRE_main", (NSFuncPtr*) &XRE_main },
-  { nsnull, nsnull }
+  { nullptr, nullptr }
 };
 
 class ScopedLogging
@@ -59,7 +59,7 @@ void SetAllocatedString(const char *&str, const char *newvalue)
     str = NS_strdup(newvalue);
   }
   else {
-    str = nsnull;
+    str = nullptr;
   }
 }
 
@@ -294,8 +294,8 @@ int main(int argc, char *argv[])
   snprintf(appIniPath, MAXPATHLEN, "%s/%s", firefoxDir, kAPP_INI);
 
   if (NS_FAILED(parser.Init(appIniPath))) {
-    ErrorDialog("This app requires that Firefox version 15 or above is installed."
-                " Firefox 15+ has not been detected.");
+    ErrorDialog("This app requires that Firefox version 16 or above is installed."
+                " Firefox 16+ has not been detected.");
     return 255;
   }
 

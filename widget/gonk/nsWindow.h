@@ -72,7 +72,7 @@ public:
                       PRInt32 aHeight,
                       bool aRepaint);
     NS_IMETHOD Enable(bool aState);
-    NS_IMETHOD IsEnabled(bool *aState);
+    virtual bool IsEnabled() const;
     NS_IMETHOD SetFocus(bool aRaise = false);
     NS_IMETHOD ConfigureChildren(const nsTArray<nsIWidget::Configuration>&);
     NS_IMETHOD Invalidate(const nsIntRect &aRect);
@@ -93,10 +93,10 @@ public:
 
     virtual float GetDPI();
     virtual mozilla::layers::LayerManager*
-        GetLayerManager(PLayersChild* aShadowManager = nsnull,
+        GetLayerManager(PLayersChild* aShadowManager = nullptr,
                         LayersBackend aBackendHint = mozilla::layers::LAYERS_NONE,
                         LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
-                        bool* aAllowRetaining = nsnull);
+                        bool* aAllowRetaining = nullptr);
     gfxASurface* GetThebesSurface();
 
     NS_IMETHOD_(void) SetInputContext(const InputContext& aContext,
@@ -104,6 +104,8 @@ public:
     NS_IMETHOD_(InputContext) GetInputContext();
 
     virtual PRUint32 GetGLFrameBufferFormat() MOZ_OVERRIDE;
+
+    virtual nsIntRect GetNaturalBounds() MOZ_OVERRIDE;
 
 protected:
     nsWindow* mParent;

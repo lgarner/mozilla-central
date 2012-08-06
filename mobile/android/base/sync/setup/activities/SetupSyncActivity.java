@@ -4,12 +4,15 @@
 
 package org.mozilla.gecko.sync.setup.activities;
 
+import java.io.UnsupportedEncodingException;
 import java.util.HashMap;
 
 import org.json.simple.JSONObject;
 import org.mozilla.gecko.R;
+import org.mozilla.gecko.sync.GlobalConstants;
 import org.mozilla.gecko.sync.Logger;
 import org.mozilla.gecko.sync.ThreadPool;
+import org.mozilla.gecko.sync.Utils;
 import org.mozilla.gecko.sync.jpake.JPakeClient;
 import org.mozilla.gecko.sync.jpake.JPakeNoActivePairingException;
 import org.mozilla.gecko.sync.setup.Constants;
@@ -50,9 +53,6 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
   private LinearLayout        pinError;
 
   // UI elements for pairing through PIN generation.
-  private TextView            setupTitleView;
-  private TextView            setupNoDeviceLinkTitleView;
-  private TextView            setupSubtitleView;
   private TextView            pinTextView1;
   private TextView            pinTextView2;
   private TextView            pinTextView3;
@@ -102,7 +102,7 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
     ThreadPool.run(new Runnable() {
       @Override
       public void run() {
-        Account[] accts = mAccountManager.getAccountsByType(Constants.ACCOUNTTYPE_SYNC);
+        Account[] accts = mAccountManager.getAccountsByType(GlobalConstants.ACCOUNTTYPE_SYNC);
         finishResume(accts);
       }
     });
@@ -136,7 +136,6 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
       }
     }
 
-    final Activity setupActivity = this;
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
@@ -147,7 +146,8 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
             R.string.sync_notification_oneaccount, Toast.LENGTH_LONG);
         toast.show();
 
-        SyncAccounts.openSyncSettings(setupActivity);
+        // Setting up Sync when an existing account exists only happens from Settings,
+        // so we can safely finish() the activity to return to Settings.
         finish();
       }
     });
@@ -340,7 +340,7 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
    */
   public void onPaired() {
     // Extract Sync account data.
-    Account[] accts = mAccountManager.getAccountsByType(Constants.ACCOUNTTYPE_SYNC);
+    Account[] accts = mAccountManager.getAccountsByType(GlobalConstants.ACCOUNTTYPE_SYNC);
     if (accts.length == 0) {
       // Error, no account present.
       Logger.error(LOG_TAG, "No accounts present.");
@@ -394,6 +394,13 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
       String syncKey      = (String) jCreds.get(Constants.JSON_KEY_SYNCKEY);
       String serverURL    = (String) jCreds.get(Constants.JSON_KEY_SERVER);
 
+      // The password we get is double-encoded.
+      try {
+        password = Utils.decodeUTF8(password);
+      } catch (UnsupportedEncodingException e) {
+        Logger.warn(LOG_TAG, "Unsupported encoding when decoding UTF-8 ASCII J-PAKE message. Ignoring.");
+      }
+
       final SyncAccountParameters syncAccount = new SyncAccountParameters(mContext, mAccountManager, accountName,
                                                                           syncKey, password, serverURL);
       createAccountOnThread(syncAccount);
@@ -424,8 +431,8 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
         if (isSuccess) {
           Bundle resultBundle = new Bundle();
           resultBundle.putString(AccountManager.KEY_ACCOUNT_NAME, syncAccount.username);
-          resultBundle.putString(AccountManager.KEY_ACCOUNT_TYPE, Constants.ACCOUNTTYPE_SYNC);
-          resultBundle.putString(AccountManager.KEY_AUTHTOKEN, Constants.ACCOUNTTYPE_SYNC);
+          resultBundle.putString(AccountManager.KEY_ACCOUNT_TYPE, GlobalConstants.ACCOUNTTYPE_SYNC);
+          resultBundle.putString(AccountManager.KEY_AUTHTOKEN, GlobalConstants.ACCOUNTTYPE_SYNC);
           setAccountAuthenticatorResult(resultBundle);
         }
         displayResultAndFinish(isSuccess);
@@ -590,23 +597,9 @@ public class SetupSyncActivity extends AccountAuthenticatorActivity {
         setContentView(R.layout.sync_setup);
 
         // Set up UI.
-        setupTitleView = ((TextView) findViewById(R.id.setup_title));
-        setupSubtitleView = (TextView) findViewById(R.id.setup_subtitle);
-        setupNoDeviceLinkTitleView = (TextView) findViewById(R.id.link_nodevice);
         pinTextView1 = ((TextView) findViewById(R.id.text_pin1));
         pinTextView2 = ((TextView) findViewById(R.id.text_pin2));
         pinTextView3 = ((TextView) findViewById(R.id.text_pin3));
-
-        // UI checks.
-        if (setupTitleView == null) {
-          Logger.error(LOG_TAG, "No title view.");
-        }
-        if (setupSubtitleView == null) {
-          Logger.error(LOG_TAG, "No subtitle view.");
-        }
-        if (setupNoDeviceLinkTitleView == null) {
-          Logger.error(LOG_TAG, "No 'no device' link view.");
-        }
       }
     });
   }

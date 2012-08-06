@@ -7,7 +7,8 @@
 #ifndef mozilla_layers_GeckoContentController_h
 #define mozilla_layers_GeckoContentController_h
 
-#include "Layers.h"
+#include "FrameMetrics.h"
+#include "nsISupportsImpl.h"
 
 namespace mozilla {
 namespace layers {
@@ -21,6 +22,9 @@ public:
    * Implementations per-platform are responsible for actually handling this.
    */
   virtual void RequestContentRepaint(const FrameMetrics& aFrameMetrics) = 0;
+
+  GeckoContentController() {}
+  virtual ~GeckoContentController() {}
 };
 
 }

@@ -5,6 +5,12 @@
 
 package org.mozilla.gecko;
 
+import org.mozilla.gecko.db.BrowserDB;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.entity.BufferedHttpEntity;
+
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -20,20 +26,14 @@ import android.util.Log;
 
 import java.io.InputStream;
 import java.net.MalformedURLException;
-import java.net.URL;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
-
-import org.mozilla.gecko.db.BrowserDB;
-
-import org.apache.http.HttpEntity;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.entity.BufferedHttpEntity;
 
 public class Favicons {
     private static final String LOGTAG = "GeckoFavicons";
@@ -150,6 +150,10 @@ public class Favicons {
 
         mHttpClient = AndroidHttpClient.newInstance(USER_AGENT);
         return mHttpClient;
+    }
+
+    public String getFaviconUrlForPageUrl(String pageUrl) {
+        return mDbHelper.getFaviconUrlForPageUrl(pageUrl);
     }
 
     public long loadFavicon(String pageUrl, String faviconUrl,
@@ -319,7 +323,7 @@ public class Favicons {
                     faviconUrl = new URL(mFaviconUrl);
                 }
             } catch (MalformedURLException e) {
-                Log.d(LOGTAG, "The provided favicon URL is not valid: " + e);
+                Log.d(LOGTAG, "The provided favicon URL is not valid", e);
                 return null;
             }
 

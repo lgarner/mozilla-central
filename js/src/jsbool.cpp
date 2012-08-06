@@ -129,7 +129,7 @@ Boolean(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    bool b = args.length() != 0 ? js_ValueToBoolean(args[0]) : false;
+    bool b = args.length() != 0 ? JS::ToBoolean(args[0]) : false;
 
     if (IsConstructing(vp)) {
         JSObject *obj = BooleanObject::create(cx, b);
@@ -169,7 +169,8 @@ js_InitBooleanClass(JSContext *cx, JSObject *obj)
                                 js_NewFunction(cx, NULL, bool_valueOf, 0, 0, global, valueOfName));
     if (!valueOf)
         return NULL;
-    if (!booleanProto->defineProperty(cx, valueOfName, ObjectValue(*valueOf),
+    RootedValue value(cx, ObjectValue(*valueOf));
+    if (!booleanProto->defineProperty(cx, valueOfName, value,
                                       JS_PropertyStub, JS_StrictPropertyStub, 0))
     {
         return NULL;
@@ -191,6 +192,13 @@ js_BooleanToString(JSContext *cx, JSBool b)
 
 namespace js {
 
+JS_PUBLIC_API(bool)
+ToBooleanSlow(const Value &v)
+{
+    JS_ASSERT(v.isString());
+    return v.toString()->length() != 0;
+}
+
 bool
 BooleanGetPrimitiveValueSlow(JSContext *cx, JSObject &obj, Value *vp)
 {
@@ -207,23 +215,4 @@ BooleanGetPrimitiveValueSlow(JSContext *cx, JSObject &obj, Value *vp)
 
 }  /* namespace js */
 
-JSBool
-js_ValueToBoolean(const Value &v)
-{
-    if (v.isInt32())
-        return v.toInt32() != 0;
-    if (v.isString())
-        return v.toString()->length() != 0;
-    if (v.isObject())
-        return JS_TRUE;
-    if (v.isNullOrUndefined())
-        return JS_FALSE;
-    if (v.isDouble()) {
-        double d;
 
-        d = v.toDouble();
-        return !MOZ_DOUBLE_IS_NaN(d) && d != 0;
-    }
-    JS_ASSERT(v.isBoolean());
-    return v.toBoolean();
-}

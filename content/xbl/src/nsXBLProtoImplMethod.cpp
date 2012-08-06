@@ -58,6 +58,11 @@ nsXBLProtoImplMethod::AddParameter(const nsAString& aText)
   NS_PRECONDITION(!IsCompiled(),
                   "Must not be compiled when accessing uncompiled method");
 
+  if (aText.IsEmpty()) {
+    NS_WARNING("Empty name attribute in xbl:parameter!");
+    return;
+  }
+
   nsXBLUncompiledMethod* uncompiledMethod = GetUncompiledMethod();
   if (!uncompiledMethod) {
     uncompiledMethod = new nsXBLUncompiledMethod();
@@ -149,7 +154,7 @@ nsXBLProtoImplMethod::CompileMember(nsIScriptContext* aContext, const nsCString&
   // No parameters or body was supplied, so don't install method.
   if (!uncompiledMethod) {
     // Early return after which we consider ourselves compiled.
-    mJSMethodObject = nsnull;
+    mJSMethodObject = nullptr;
 
     return NS_OK;
   }
@@ -159,7 +164,7 @@ nsXBLProtoImplMethod::CompileMember(nsIScriptContext* aContext, const nsCString&
     delete uncompiledMethod;
 
     // Early return after which we consider ourselves compiled.
-    mJSMethodObject = nsnull;
+    mJSMethodObject = nullptr;
 
     return NS_OK;
   }
@@ -167,7 +172,7 @@ nsXBLProtoImplMethod::CompileMember(nsIScriptContext* aContext, const nsCString&
   // We have a method.
   // Allocate an array for our arguments.
   PRInt32 paramCount = uncompiledMethod->GetParameterCount();
-  char** args = nsnull;
+  char** args = nullptr;
   if (paramCount > 0) {
     args = new char*[paramCount];
     if (!args)
@@ -198,7 +203,7 @@ nsXBLProtoImplMethod::CompileMember(nsIScriptContext* aContext, const nsCString&
     functionUri.Truncate(hash);
   }
 
-  JSObject* methodObject = nsnull;
+  JSObject* methodObject = nullptr;
   nsresult rv = aContext->CompileFunction(aClassObject,
                                           cname,
                                           paramCount,
@@ -214,7 +219,7 @@ nsXBLProtoImplMethod::CompileMember(nsIScriptContext* aContext, const nsCString&
   delete uncompiledMethod;
   delete [] args;
   if (NS_FAILED(rv)) {
-    SetUncompiledMethod(nsnull);
+    SetUncompiledMethod(nullptr);
     return rv;
   }
 
@@ -237,7 +242,7 @@ nsXBLProtoImplMethod::Read(nsIScriptContext* aContext,
 {
   nsresult rv = XBL_DeserializeFunction(aContext, aStream, &mJSMethodObject);
   if (NS_FAILED(rv)) {
-    SetUncompiledMethod(nsnull);
+    SetUncompiledMethod(nullptr);
     return rv;
   }
 
@@ -331,7 +336,7 @@ nsXBLProtoImplAnonymousMethod::Execute(nsIContent* aBoundElement)
   if (NS_SUCCEEDED(rv)) {
     jsval retval;
     ok = ::JS_CallFunctionValue(cx, thisObject, OBJECT_TO_JSVAL(method),
-                                0 /* argc */, nsnull /* argv */, &retval);
+                                0 /* argc */, nullptr /* argv */, &retval);
   }
 
   if (!ok) {

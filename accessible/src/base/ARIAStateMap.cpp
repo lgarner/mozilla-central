@@ -6,6 +6,7 @@
 
 #include "ARIAStateMap.h"
 
+#include "nsARIAMap.h"
 #include "States.h"
 
 #include "mozilla/dom/Element.h"
@@ -25,14 +26,14 @@ struct EnumTypeData
                nsIAtom** aValue3 = 0, PRUint64 aState3 = 0) :
     mState1(aState1), mState2(aState2), mState3(aState3), mDefaultState(0),
     mAttrName(aAttrName), mValue1(aValue1), mValue2(aValue2), mValue3(aValue3),
-    mNullValue(nsnull)
+    mNullValue(nullptr)
   { }
 
   EnumTypeData(nsIAtom* aAttrName, PRUint64 aDefaultState,
                nsIAtom** aValue1, PRUint64 aState1) :
     mState1(aState1), mState2(0), mState3(0), mDefaultState(aDefaultState),
-    mAttrName(aAttrName), mValue1(aValue1), mValue2(nsnull), mValue3(nsnull),
-    mNullValue(nsnull)
+    mAttrName(aAttrName), mValue1(aValue1), mValue2(nullptr), mValue3(nullptr),
+    mNullValue(nullptr)
   { }
 
   // States applied if corresponding enum values are matched.
@@ -221,11 +222,23 @@ aria::MapToState(EStateRule aRule, dom::Element* aElement, PRUint64* aState)
 
     case eARIAOrientation:
     {
-      static const EnumTypeData data(
-        nsGkAtoms::aria_orientation, states::HORIZONTAL,
-        &nsGkAtoms::vertical, states::VERTICAL);
+      if (aElement->AttrValueIs(kNameSpaceID_None, nsGkAtoms::aria_orientation,
+                                NS_LITERAL_STRING("horizontal"), eCaseMatters)) {
+        *aState &= ~states::VERTICAL;
+        *aState |= states::HORIZONTAL;
+      } else if (aElement->AttrValueIs(kNameSpaceID_None,
+                                       nsGkAtoms::aria_orientation,
+                                       NS_LITERAL_STRING("vertical"),
+                                       eCaseMatters)) {
+        *aState &= ~states::HORIZONTAL;
+        *aState |= states::VERTICAL;
+      } else {
+        NS_ASSERTION(!(*aState & (states::HORIZONTAL | states::VERTICAL)),
+                     "orientation state on role with default aria-orientation!");
+        *aState |= GetRoleMap(aElement)->Is(nsGkAtoms::scrollbar) ?
+          states::VERTICAL : states::HORIZONTAL;
+      }
 
-      MapEnumType(aElement, aState, data);
       return true;
     }
 

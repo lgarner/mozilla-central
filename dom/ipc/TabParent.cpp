@@ -6,6 +6,9 @@
 
 #include "base/basictypes.h"
 
+#include "TabParent.h"
+
+#include "Blob.h"
 #include "IDBFactory.h"
 #include "IndexedDBParent.h"
 #include "mozilla/BrowserElementParent.h"
@@ -42,8 +45,8 @@
 #include "nsSerializationHelper.h"
 #include "nsServiceManagerUtils.h"
 #include "nsThreadUtils.h"
+#include "StructuredCloneUtils.h"
 #include "TabChild.h"
-#include "TabParent.h"
 
 using namespace mozilla::dom;
 using namespace mozilla::ipc;
@@ -59,7 +62,7 @@ using namespace mozilla::dom::indexedDB;
 namespace mozilla {
 namespace dom {
 
-TabParent *TabParent::mIMETabParent = nsnull;
+TabParent *TabParent::mIMETabParent = nullptr;
 
 NS_IMPL_ISUPPORTS3(TabParent, nsITabParent, nsIAuthPromptProvider, nsISecureBrowserUI)
 
@@ -113,10 +116,18 @@ void
 TabParent::ActorDestroy(ActorDestroyReason why)
 {
   if (mIMETabParent == this)
-    mIMETabParent = nsnull;
+    mIMETabParent = nullptr;
   nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
   if (frameLoader) {
     frameLoader->DestroyChild();
+
+    if (why == AbnormalShutdown) {
+      nsCOMPtr<nsIObserverService> os = services::GetObserverService();
+      if (os) {
+        os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, frameLoader),
+                            "oop-frameloader-crashed", nullptr);
+      }
+    }
   }
 }
 
@@ -128,7 +139,7 @@ TabParent::RecvMoveFocus(const bool& aForward)
     nsCOMPtr<nsIDOMElement> dummy;
     PRUint32 type = aForward ? PRUint32(nsIFocusManager::MOVEFOCUS_FORWARD)
                              : PRUint32(nsIFocusManager::MOVEFOCUS_BACKWARD);
-    fm->MoveFocus(nsnull, mFrameElement, type, nsIFocusManager::FLAG_BYKEY, 
+    fm->MoveFocus(nullptr, mFrameElement, type, nsIFocusManager::FLAG_BYKEY, 
                   getter_AddRefs(dummy));
   }
   return true;
@@ -158,7 +169,7 @@ TabParent::AnswerCreateWindow(PBrowserParent** retval)
     // Get a new rendering area from the browserDOMWin.  We don't want
     // to be starting any loads here, so get it with a null URI.
     nsCOMPtr<nsIFrameLoaderOwner> frameLoaderOwner;
-    mBrowserDOMWindow->OpenURIInFrame(nsnull, nsnull,
+    mBrowserDOMWindow->OpenURIInFrame(nullptr, nullptr,
                                       nsIBrowserDOMWindow::OPEN_NEWTAB,
                                       nsIBrowserDOMWindow::OPEN_NEW,
                                       getter_AddRefs(frameLoaderOwner));
@@ -344,17 +355,51 @@ bool TabParent::SendRealTouchEvent(nsTouchEvent& event)
 
 bool
 TabParent::RecvSyncMessage(const nsString& aMessage,
-                           const nsString& aJSON,
+                           const ClonedMessageData& aData,
                            InfallibleTArray<nsString>* aJSONRetVal)
 {
-  return ReceiveMessage(aMessage, true, aJSON, aJSONRetVal);
+  const SerializedStructuredCloneBuffer& buffer = aData.data();
+  const InfallibleTArray<PBlobParent*>& blobParents = aData.blobsParent();
+  StructuredCloneData cloneData;
+  cloneData.mData = buffer.data;
+  cloneData.mDataLength = buffer.dataLength;
+  if (!blobParents.IsEmpty()) {
+    PRUint32 length = blobParents.Length();
+    cloneData.mClosure.mBlobs.SetCapacity(length);
+    for (PRUint32 i = 0; i < length; ++i) {
+      BlobParent* blobParent = static_cast<BlobParent*>(blobParents[i]);
+      MOZ_ASSERT(blobParent);
+      nsCOMPtr<nsIDOMBlob> blob = blobParent->GetBlob();
+      MOZ_ASSERT(blob);
+      cloneData.mClosure.mBlobs.AppendElement(blob);
+    }
+  }
+  return ReceiveMessage(aMessage, true, &cloneData, aJSONRetVal);
 }
 
 bool
 TabParent::RecvAsyncMessage(const nsString& aMessage,
-                            const nsString& aJSON)
+                                  const ClonedMessageData& aData)
 {
-  return ReceiveMessage(aMessage, false, aJSON, nsnull);
+    const SerializedStructuredCloneBuffer& buffer = aData.data();
+  const InfallibleTArray<PBlobParent*>& blobParents = aData.blobsParent();
+
+    StructuredCloneData cloneData;
+    cloneData.mData = buffer.data;
+    cloneData.mDataLength = buffer.dataLength;
+
+  if (!blobParents.IsEmpty()) {
+    PRUint32 length = blobParents.Length();
+      cloneData.mClosure.mBlobs.SetCapacity(length);
+    for (PRUint32 i = 0; i < length; ++i) {
+      BlobParent* blobParent = static_cast<BlobParent*>(blobParents[i]);
+      MOZ_ASSERT(blobParent);
+      nsCOMPtr<nsIDOMBlob> blob = blobParent->GetBlob();
+        MOZ_ASSERT(blob);
+        cloneData.mClosure.mBlobs.AppendElement(blob);
+      }
+    }
+  return ReceiveMessage(aMessage, false, &cloneData, nullptr);
 }
 
 bool
@@ -386,7 +431,7 @@ TabParent::RecvNotifyIMEFocus(const bool& aFocus,
     return true;
 
   *aSeqno = mIMESeqno;
-  mIMETabParent = aFocus ? this : nsnull;
+  mIMETabParent = aFocus ? this : nullptr;
   mIMESelectionAnchor = 0;
   mIMESelectionFocus = 0;
   nsresult rv = widget->OnIMEFocusChange(aFocus);
@@ -560,7 +605,7 @@ TabParent::SendSelectionEvent(nsSelectionEvent& event)
 TabParent::GetFrom(nsFrameLoader* aFrameLoader)
 {
   if (!aFrameLoader) {
-    return nsnull;
+    return nullptr;
   }
   PBrowserParent* remoteBrowser = aFrameLoader->GetRemoteBrowser();
   return static_cast<TabParent*>(remoteBrowser);
@@ -571,7 +616,7 @@ TabParent::GetFrom(nsIContent* aContent)
 {
   nsCOMPtr<nsIFrameLoaderOwner> loaderOwner = do_QueryInterface(aContent);
   if (!loaderOwner) {
-    return nsnull;
+    return nullptr;
   }
   nsRefPtr<nsFrameLoader> frameLoader = loaderOwner->GetFrameLoader();
   return GetFrom(frameLoader);
@@ -581,7 +626,7 @@ RenderFrameParent*
 TabParent::GetRenderFrame()
 {
   if (ManagedPRenderFrameParent().IsEmpty()) {
-    return nsnull;
+    return nullptr;
   }
   return static_cast<RenderFrameParent*>(ManagedPRenderFrameParent()[0]);
 }
@@ -637,7 +682,7 @@ TabParent::RecvSetInputContext(const PRInt32& aIMEEnabled,
   // When the input mode is set to anything but IMEState::DISABLED,
   // mIMETabParent should be set to this
   mIMETabParent =
-    aIMEEnabled != static_cast<PRInt32>(IMEState::DISABLED) ? this : nsnull;
+    aIMEEnabled != static_cast<PRInt32>(IMEState::DISABLED) ? this : nullptr;
   nsCOMPtr<nsIWidget> widget = GetWidget();
   if (!widget || !AllowContentIME())
     return true;
@@ -658,7 +703,7 @@ TabParent::RecvSetInputContext(const PRInt32& aIMEEnabled,
 
   nsAutoString state;
   state.AppendInt(aIMEEnabled);
-  observerService->NotifyObservers(nsnull, "ime-enabled-state-changed", state.get());
+  observerService->NotifyObservers(nullptr, "ime-enabled-state-changed", state.get());
 
   return true;
 }
@@ -697,7 +742,7 @@ TabParent::RecvGetWidgetNativeData(WindowsHandle* aValue)
 bool
 TabParent::ReceiveMessage(const nsString& aMessage,
                           bool aSync,
-                          const nsString& aJSON,
+                          const StructuredCloneData* aCloneData,
                           InfallibleTArray<nsString>* aJSONRetVal)
 {
   nsRefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
@@ -717,7 +762,7 @@ TabParent::ReceiveMessage(const nsString& aMessage,
     manager->ReceiveMessage(mFrameElement,
                             aMessage,
                             aSync,
-                            aJSON,
+                            aCloneData,
                             objectsArray,
                             aJSONRetVal);
   }
@@ -758,9 +803,13 @@ TabParent::RecvPIndexedDBConstructor(PIndexedDBParent* aActor,
   nsCOMPtr<nsPIDOMWindow> window = doc->GetInnerWindow();
   NS_ENSURE_TRUE(window, false);
 
+  ContentParent* contentParent = static_cast<ContentParent*>(Manager());
+  NS_ASSERTION(contentParent, "Null manager?!");
+
   nsRefPtr<IDBFactory> factory;
   nsresult rv =
-    IDBFactory::Create(window, aASCIIOrigin, getter_AddRefs(factory));
+    IDBFactory::Create(window, aASCIIOrigin, contentParent,
+                       getter_AddRefs(factory));
   NS_ENSURE_SUCCESS(rv, false);
 
   if (!factory) {
@@ -908,7 +957,7 @@ TabParent::AllocPOfflineCacheUpdate(const URI& aManifestURI,
   nsresult rv = update->Schedule(aManifestURI, aDocumentURI, aClientID,
                                  stickDocument);
   if (NS_FAILED(rv))
-    return nsnull;
+    return nullptr;
 
   POfflineCacheUpdateParent* result = update.get();
   update.forget();
@@ -952,7 +1001,7 @@ already_AddRefed<nsFrameLoader>
 TabParent::GetFrameLoader() const
 {
   nsCOMPtr<nsIFrameLoaderOwner> frameLoaderOwner = do_QueryInterface(mFrameElement);
-  return frameLoaderOwner ? frameLoaderOwner->GetFrameLoader() : nsnull;
+  return frameLoaderOwner ? frameLoaderOwner->GetFrameLoader() : nullptr;
 }
 
 void
@@ -984,11 +1033,11 @@ TabParent::GetWidget() const
 {
   nsCOMPtr<nsIContent> content = do_QueryInterface(mFrameElement);
   if (!content)
-    return nsnull;
+    return nullptr;
 
   nsIFrame *frame = content->GetPrimaryFrame();
   if (!frame)
-    return nsnull;
+    return nullptr;
 
   nsCOMPtr<nsIWidget> widget = frame->GetNearestWidget();
   return widget.forget();

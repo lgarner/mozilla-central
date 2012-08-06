@@ -9,7 +9,6 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
-import android.content.res.TypedArray;
 import android.preference.DialogPreference;
 import android.preference.Preference.OnPreferenceChangeListener;
 import android.text.method.ScrollingMovementMethod;
@@ -21,7 +20,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
-import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.TextView;
 
@@ -136,10 +134,13 @@ class FontSizePreference extends DialogPreference {
         if (mCurrentOrientation != newConfig.orientation) {
             mCurrentOrientation = newConfig.orientation;
 
-            // Recalculate the mPreviewFontView dimensions since we have new screen dimensions.
-            setPreviewFontViewWidth();
-            mPreviewFontViewHeightSet = false;
-            setFontSizeToMaximum(); // Expects onGlobalLayout() to be called.
+            // mPreviewFontView will be null if the dialog has not yet been shown.
+            if (mPreviewFontView != null) {
+                // Recalculate the mPreviewFontView dimensions since we have new screen dimensions.
+                setPreviewFontViewWidth();
+                mPreviewFontViewHeightSet = false;
+                setFontSizeToMaximum(); // Expects onGlobalLayout() to be called.
+            }
         }
     }
 
@@ -189,9 +190,7 @@ class FontSizePreference extends DialogPreference {
      * width dynamically.
      */
     private void setPreviewFontViewWidth() {
-        final WindowManager wm = (WindowManager) mContext.getSystemService(Context.WINDOW_SERVICE);
-        final DisplayMetrics metrics = new DisplayMetrics();
-        wm.getDefaultDisplay().getMetrics(metrics);
+        final DisplayMetrics metrics = mContext.getResources().getDisplayMetrics();
         final float density = metrics.density;
 
         final float actualWidthDip = metrics.widthPixels / density;

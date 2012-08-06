@@ -28,7 +28,8 @@
 
     throw new Error("osfile_win.jsm cannot be used from the main thread yet");
   }
-  importScripts("resource://gre/modules/osfile/osfile_shared.jsm");
+  importScripts("resource://gre/modules/osfile/osfile_shared_allthreads.jsm");
+  importScripts("resource://gre/modules/osfile/osfile_win_allthreads.jsm");
 
   (function(exports) {
      "use strict";
@@ -43,24 +44,21 @@
      }
      exports.OS.Win.File = {};
 
-     let LOG = OS.Shared.LOG.bind(OS.Shared, "OS.Win.File");
-
-     let libc = ctypes.open("kernel32.dll");
-     if (!libc) {
-       throw new Error("Could not open kernel32.dll");
-     }
+     let LOG = OS.Shared.LOG.bind(OS.Shared, "Win", "back");
+     let libc = exports.OS.Shared.Win.libc;
 
      /**
       * Initialize the Windows module.
       *
       * @param {function=} declareFFI
       */
+     // FIXME: Both |init| and |aDeclareFFI| are deprecated, we should remove them
      let init = function init(aDeclareFFI) {
        let declareFFI;
        if (aDeclareFFI) {
          declareFFI = aDeclareFFI.bind(null, libc);
        } else {
-         declareFFI = OS.Shared.declareFFI.bind(null, libc);
+         declareFFI = exports.OS.Shared.Win.declareFFI;
        }
 
        // Shorthands
@@ -145,7 +143,7 @@
                   ctypes.StructType("FILETIME", [
                   { lo: Types.DWORD.implementation },
                   { hi: Types.DWORD.implementation }]));
-              
+
        Types.FindData =
          new Type("FIND_DATA",
                   ctypes.StructType("FIND_DATA", [
@@ -160,7 +158,21 @@
                     { cFileName:        ctypes.ArrayType(ctypes.jschar, exports.OS.Constants.Win.MAX_PATH) },
                     { cAlternateFileName: ctypes.ArrayType(ctypes.jschar, 14) }
                       ]));
-                  
+
+       Types.FILE_INFORMATION =
+         new Type("FILE_INFORMATION",
+                  ctypes.StructType("FILE_INFORMATION", [
+                    { dwFileAttributes: ctypes.uint32_t },
+                    { ftCreationTime:   Types.FILETIME.implementation },
+                    { ftLastAccessTime: Types.FILETIME.implementation },
+                    { ftLastWriteTime:  Types.FILETIME.implementation },
+                    { dwVolumeSerialNumber: ctypes.uint32_t },
+                    { nFileSizeHigh:    Types.DWORD.implementation },
+                    { nFileSizeLow:     Types.DWORD.implementation },
+                    { nNumberOfLinks:   ctypes.uint32_t },
+                    { nFileIndex: ctypes.uint64_t }
+                   ]));
+
        Types.SystemTime =
          new Type("SystemTime",
                   ctypes.StructType("SystemTime", [
@@ -256,6 +268,12 @@
                     /*buf*/    Types.jschar.out_ptr
                    );
 
+       WinFile.GetFileInformationByHandle =
+         declareFFI("GetFileInformationByHandle", ctypes.winapi_abi,
+                    /*return*/ Types.zero_or_nothing,
+                    /*handle*/ Types.HANDLE,
+                    /*info*/   Types.FILE_INFORMATION.out_ptr);
+
        WinFile.MoveFileEx =
          declareFFI("MoveFileExW", ctypes.winapi_abi,
                     /*return*/   Types.zero_or_nothing,
@@ -307,11 +325,6 @@
                     /*nbytes_wr*/Types.DWORD.out_ptr,
                     /*overlapped*/Types.void_t.inout_ptr // FIXME: Implement?
          );
-
-       // Export useful stuff for extensibility
-
-       exports.OS.Win.libc = libc;
-       exports.OS.Win.declareFFI = declareFFI;
      };
      exports.OS.Win.File._init = init;
    })(this);

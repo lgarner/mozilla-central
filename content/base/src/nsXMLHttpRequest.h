@@ -26,7 +26,6 @@
 #include "nsTArray.h"
 #include "nsIJSNativeInitializer.h"
 #include "nsIDOMLSProgressEvent.h"
-#include "nsIDOMNSEvent.h"
 #include "nsITimer.h"
 #include "nsDOMProgressEvent.h"
 #include "nsDOMEventTargetHelper.h"
@@ -35,12 +34,12 @@
 #include "nsDOMBlobBuilder.h"
 #include "nsIPrincipal.h"
 #include "nsIScriptObjectPrincipal.h"
-#include "mozilla/dom/BindingUtils.h"
-#include "mozilla/dom/XMLHttpRequestBinding.h"
-#include "mozilla/dom/XMLHttpRequestUploadBinding.h"
 
 #include "mozilla/Assertions.h"
+#include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/TypedArray.h"
+#include "mozilla/dom/XMLHttpRequestBinding.h"
+#include "mozilla/dom/XMLHttpRequestUploadBinding.h"
 
 class nsILoadGroup;
 class AsyncVerifyRedirectCallbackForwarder;
@@ -86,13 +85,13 @@ protected:
   static inline JSObject* GetListenerAsJSObject(nsDOMEventListenerWrapper* aWrapper)
   {
     if (!aWrapper) {
-      return nsnull;
+      return nullptr;
     }
 
     nsCOMPtr<nsIXPConnectJSObjectHolder> holder =
         do_QueryInterface(aWrapper->GetInner());
     JSObject* obj;
-    return holder && NS_SUCCEEDED(holder->GetJSObject(&obj)) ? obj : nsnull;
+    return holder && NS_SUCCEEDED(holder->GetJSObject(&obj)) ? obj : nullptr;
   }
   inline nsresult SetJSObjectListener(JSContext* aCx,
                                       const nsAString& aType,
@@ -217,10 +216,6 @@ public:
   // nsIXMLHttpRequest
   NS_DECL_NSIXMLHTTPREQUEST
 
-  // nsIJSXMLHttpRequest
-  NS_IMETHOD GetOnuploadprogress(nsIDOMEventListener** aOnuploadprogress);
-  NS_IMETHOD SetOnuploadprogress(nsIDOMEventListener* aOnuploadprogress);
-
   NS_FORWARD_NSIXMLHTTPREQUESTEVENTTARGET(nsXHREventTarget::)
 
   // nsIStreamListener
@@ -253,24 +248,6 @@ public:
 
   // event handler
   IMPL_EVENT_HANDLER(readystatechange, Readystatechange)
-  JSObject* GetOnuploadprogress(JSContext* /* unused */)
-  {
-    nsIDocument* doc = GetOwner() ? GetOwner()->GetExtantDoc() : NULL;
-    if (doc) {
-      doc->WarnOnceAbout(nsIDocument::eOnuploadprogress);
-    }
-    return GetListenerAsJSObject(mOnUploadProgressListener);
-  }
-  void SetOnuploadprogress(JSContext* aCx, JSObject* aCallback,
-                           ErrorResult& aRv)
-  {
-    nsIDocument* doc = GetOwner() ? GetOwner()->GetExtantDoc() : NULL;
-    if (doc) {
-      doc->WarnOnceAbout(nsIDocument::eOnuploadprogress);
-    }
-    aRv = SetJSObjectListener(aCx, NS_LITERAL_STRING("uploadprogress"),
-                              mOnUploadProgressListener, aCallback);
-  }
 
   // states
   uint16_t GetReadyState();
@@ -374,7 +351,7 @@ private:
   nsresult Send(nsIVariant* aVariant, const Nullable<RequestBody>& aBody);
   nsresult Send(const Nullable<RequestBody>& aBody)
   {
-    return Send(nsnull, aBody);
+    return Send(nullptr, aBody);
   }
   nsresult Send(const RequestBody& aBody)
   {
@@ -515,7 +492,7 @@ public:
   NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS_INHERITED(nsXMLHttpRequest,
                                                                    nsXHREventTarget)
   bool AllowUploadProgress();
-  void RootResultArrayBuffer();
+  void RootJSResultObjects();
 
   virtual void DisconnectFromOwner();
 protected:
@@ -577,7 +554,6 @@ protected:
   nsCOMPtr<nsIChannel> mCORSPreflightChannel;
   nsTArray<nsCString> mCORSUnsafeHeaders;
 
-  nsRefPtr<nsDOMEventListenerWrapper> mOnUploadProgressListener;
   nsRefPtr<nsDOMEventListenerWrapper> mOnReadystatechangeListener;
 
   nsCOMPtr<nsIStreamListener> mXMLParserStreamListener;
@@ -733,8 +709,7 @@ protected:
 // helper class to expose a progress DOM Event
 
 class nsXMLHttpProgressEvent : public nsIDOMProgressEvent,
-                               public nsIDOMLSProgressEvent,
-                               public nsIDOMNSEvent
+                               public nsIDOMLSProgressEvent
 {
 public:
   nsXMLHttpProgressEvent(nsIDOMProgressEvent* aInner,
@@ -744,9 +719,8 @@ public:
   virtual ~nsXMLHttpProgressEvent();
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsXMLHttpProgressEvent, nsIDOMNSEvent)
+  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsXMLHttpProgressEvent, nsIDOMProgressEvent)
   NS_FORWARD_NSIDOMEVENT(mInner->)
-  NS_FORWARD_NSIDOMNSEVENT(mInner->)
   NS_FORWARD_NSIDOMPROGRESSEVENT(mInner->)
   NS_DECL_NSIDOMLSPROGRESSEVENT
 
@@ -771,7 +745,7 @@ public:
     if (xhr) {
       static_cast<nsXMLHttpRequest*>(xhr.get())->ChangeStateToDone();
     }
-    mXHR = nsnull;
+    mXHR = nullptr;
     return NS_OK;
   }
   nsXHRParseEndListener(nsIXMLHttpRequest* aXHR)

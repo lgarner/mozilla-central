@@ -121,14 +121,11 @@ interface XMLHttpRequest : XMLHttpRequestEventTarget {
   [GetterInfallible, SetterInfallible=MainThread]
   attribute boolean mozBackgroundRequest;
 
-  [ChromeOnly, GetterInfallible, SetterInfallible=MainThread]
+  [ChromeOnly, GetterInfallible]
   readonly attribute MozChannel channel;
 
   void sendAsBinary(DOMString body);
   any getInterface(IID iid);
-
-  [TreatNonCallableAsNull, GetterInfallible=MainThread]
-  attribute Function? onuploadprogress;
 
   [Infallible]
   readonly attribute boolean mozAnon;

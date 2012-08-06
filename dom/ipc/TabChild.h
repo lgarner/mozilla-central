@@ -59,6 +59,7 @@ namespace dom {
 
 class TabChild;
 class PContentDialogChild;
+class ClonedMessageData;
 
 class TabChildGlobal : public nsDOMEventTargetHelper,
                        public nsIContentFrameMessageManager,
@@ -142,15 +143,17 @@ class TabChild : public PBrowserChild,
                  public nsITabChild
 {
     typedef mozilla::layout::RenderFrameChild RenderFrameChild;
+    typedef mozilla::dom::ClonedMessageData ClonedMessageData;
 
 public:
     /**
      * Create a new TabChild object.
      *
-     * |aIsBrowserFrame| indicates whether the TabChild is inside an
-     * <iframe mozbrowser>.
+     * |aIsBrowserElement| indicates whether the tab is inside an <iframe mozbrowser>.
+     * |aAppId| is the app id of the app containing this tab. If the tab isn't
+     * contained in an app, aAppId will be nsIScriptSecurityManager::NO_APP_ID.
      */
-    TabChild(PRUint32 aChromeFlags, bool aIsBrowserFrame);
+    TabChild(PRUint32 aChromeFlags, bool aIsBrowserElement, PRUint32 aAppId);
     virtual ~TabChild();
     nsresult Init();
 
@@ -195,7 +198,7 @@ public:
     virtual bool RecvActivateFrameEvent(const nsString& aType, const bool& capture);
     virtual bool RecvLoadRemoteScript(const nsString& aURL);
     virtual bool RecvAsyncMessage(const nsString& aMessage,
-                                  const nsString& aJSON);
+                                  const ClonedMessageData& aData);
 
     virtual PDocumentRendererChild*
     AllocPDocumentRenderer(const nsRect& documentRect, const gfxMatrix& transform,
@@ -258,15 +261,12 @@ public:
     bool IsAsyncPanZoomEnabled();
 
 protected:
-    NS_OVERRIDE
     virtual PRenderFrameChild* AllocPRenderFrame(ScrollingBehavior* aScrolling,
                                                  LayersBackend* aBackend,
                                                  int32_t* aMaxTextureSize,
-                                                 uint64_t* aLayersId);
-    NS_OVERRIDE
-    virtual bool DeallocPRenderFrame(PRenderFrameChild* aFrame);
-    NS_OVERRIDE
-    virtual bool RecvDestroy();
+                                                 uint64_t* aLayersId) MOZ_OVERRIDE;
+    virtual bool DeallocPRenderFrame(PRenderFrameChild* aFrame) MOZ_OVERRIDE;
+    virtual bool RecvDestroy() MOZ_OVERRIDE;
 
     nsEventStatus DispatchWidgetEvent(nsGUIEvent& event);
 
@@ -304,7 +304,8 @@ private:
     nscolor mLastBackgroundColor;
     ScrollingBehavior mScrolling;
     bool mDidFakeShow;
-    bool mIsBrowserFrame;
+    bool mIsBrowserElement;
+    PRUint32 mAppId;
 
     DISALLOW_EVIL_CONSTRUCTORS(TabChild);
 };
@@ -321,7 +322,7 @@ GetTabChildFrom(nsIPresShell* aPresShell)
 {
     nsIDocument* doc = aPresShell->GetDocument();
     if (!doc) {
-        return nsnull;
+        return nullptr;
     }
     nsCOMPtr<nsISupports> container = doc->GetContainer();
     nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(container));

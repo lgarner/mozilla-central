@@ -15,7 +15,6 @@
 
 #include "nsGUIEvent.h"
 #include "nsILink.h"
-#include "nsIFrame.h"
 #include "nsINameSpaceManager.h"
 #include "nsIURI.h"
 
@@ -61,7 +60,7 @@ LeafAccessible::CacheChildren()
 LinkableAccessible::
   LinkableAccessible(nsIContent* aContent, DocAccessible* aDoc) :
   AccessibleWrap(aContent, aDoc),
-  mActionAcc(nsnull),
+  mActionAcc(nullptr),
   mIsLink(false),
   mIsOnclick(false)
 {
@@ -152,7 +151,7 @@ LinkableAccessible::Shutdown()
 {
   mIsLink = false;
   mIsOnclick = false;
-  mActionAcc = nsnull;
+  mActionAcc = nullptr;
   AccessibleWrap::Shutdown();
 }
 
@@ -170,7 +169,7 @@ LinkableAccessible::AnchorURIAt(PRUint32 aAnchorIndex)
       return mActionAcc->AnchorURIAt(aAnchorIndex);
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -183,7 +182,7 @@ LinkableAccessible::BindToParent(Accessible* aParent,
   AccessibleWrap::BindToParent(aParent, aIndexInParent);
 
   // Cache action content.
-  mActionAcc = nsnull;
+  mActionAcc = nullptr;
   mIsLink = false;
   mIsOnclick = false;
 
@@ -214,7 +213,7 @@ LinkableAccessible::BindToParent(Accessible* aParent,
 void
 LinkableAccessible::UnbindFromParent()
 {
-  mActionAcc = nsnull;
+  mActionAcc = nullptr;
   mIsLink = false;
   mIsOnclick = false;
 

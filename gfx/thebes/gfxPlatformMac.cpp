@@ -69,6 +69,9 @@ gfxPlatformMac::gfxPlatformMac()
         DisableFontActivation();
     }
     mFontAntiAliasingThreshold = ReadAntiAliasingThreshold();
+
+    PRUint32 backendMask = (1 << BACKEND_CAIRO) | (1 << BACKEND_SKIA) | (1 << BACKEND_COREGRAPHICS);
+    InitCanvasBackend(backendMask);
 }
 
 gfxPlatformMac::~gfxPlatformMac()
@@ -84,14 +87,14 @@ gfxPlatformMac::CreatePlatformFontList()
         return list;
     }
     gfxPlatformFontList::Shutdown();
-    return nsnull;
+    return nullptr;
 }
 
 already_AddRefed<gfxASurface>
 gfxPlatformMac::CreateOffscreenSurface(const gfxIntSize& size,
                                        gfxASurface::gfxContentType contentType)
 {
-    gfxASurface *newSurface = nsnull;
+    gfxASurface *newSurface = nullptr;
 
     newSurface = new gfxQuartzSurface(size, OptimalFormatForContent(contentType));
 
@@ -133,22 +136,10 @@ gfxPlatformMac::OptimizeImage(gfxImageSurface *aSurface,
 }
 
 RefPtr<ScaledFont>
-gfxPlatformMac::GetScaledFontForFont(gfxFont *aFont)
+gfxPlatformMac::GetScaledFontForFont(DrawTarget* aTarget, gfxFont *aFont)
 {
     gfxMacFont *font = static_cast<gfxMacFont*>(aFont);
     return font->GetScaledFont();
-}
-
-bool
-gfxPlatformMac::SupportsAzure(BackendType& aBackend)
-{
-  if (mPreferredDrawTargetBackend != BACKEND_NONE) {
-    aBackend = mPreferredDrawTargetBackend;
-  } else {
-    aBackend = BACKEND_COREGRAPHICS;
-  }
-
-  return true;
 }
 
 nsresult
@@ -388,37 +379,43 @@ gfxPlatformMac::ReadAntiAliasingThreshold()
 already_AddRefed<gfxASurface>
 gfxPlatformMac::GetThebesSurfaceForDrawTarget(DrawTarget *aTarget)
 {
-  if (aTarget->GetType() == BACKEND_COREGRAPHICS) {
-    void *surface = aTarget->GetUserData(&kThebesSurfaceKey);
-    if (surface) {
-      nsRefPtr<gfxASurface> surf = static_cast<gfxQuartzSurface*>(surface);
-      return surf.forget();
-    } else {
-      CGContextRef cg = static_cast<CGContextRef>(aTarget->GetNativeSurface(NATIVE_SURFACE_CGCONTEXT));
+  if (aTarget->GetType() == BACKEND_COREGRAPHICS_ACCELERATED) {
+    RefPtr<SourceSurface> source = aTarget->Snapshot();
+    RefPtr<DataSourceSurface> sourceData = source->GetDataSurface();
+    unsigned char* data = sourceData->GetData();
+    nsRefPtr<gfxImageSurface> surf = new gfxImageSurface(data, ThebesIntSize(sourceData->GetSize()), sourceData->Stride(),
+                                                         gfxImageSurface::ImageFormatARGB32);
+    // We could fix this by telling gfxImageSurface it owns data.
+    nsRefPtr<gfxImageSurface> cpy = new gfxImageSurface(ThebesIntSize(sourceData->GetSize()), gfxImageSurface::ImageFormatARGB32);
+    cpy->CopyFrom(surf);
+    return cpy.forget();
+  } else if (aTarget->GetType() == BACKEND_COREGRAPHICS) {
+    CGContextRef cg = static_cast<CGContextRef>(aTarget->GetNativeSurface(NATIVE_SURFACE_CGCONTEXT));
 
-      //XXX: it would be nice to have an implicit conversion from IntSize to gfxIntSize
-      IntSize intSize = aTarget->GetSize();
-      gfxIntSize size(intSize.width, intSize.height);
+    //XXX: it would be nice to have an implicit conversion from IntSize to gfxIntSize
+    IntSize intSize = aTarget->GetSize();
+    gfxIntSize size(intSize.width, intSize.height);
 
-      nsRefPtr<gfxASurface> surf =
-        new gfxQuartzSurface(cg, size);
+    nsRefPtr<gfxASurface> surf =
+      new gfxQuartzSurface(cg, size);
 
-      // add a reference to be held by the drawTarget
-      surf->AddRef();
-      aTarget->AddUserData(&kThebesSurfaceKey, surf.get(), DestroyThebesSurface);
-
-      return surf.forget();
-    }
+    return surf.forget();
   }
 
   return gfxPlatform::GetThebesSurfaceForDrawTarget(aTarget);
 }
 
+bool
+gfxPlatformMac::UseAcceleratedCanvas()
+{
+  // Lion or later is required
+  return false && OSXVersion() >= 0x1070 && Preferences::GetBool("gfx.canvas.azure.accelerated", false);
+}
 
 qcms_profile *
 gfxPlatformMac::GetPlatformCMSOutputProfile()
 {
-    qcms_profile *profile = nsnull;
+    qcms_profile *profile = nullptr;
     CMProfileRef cmProfile;
     CMProfileLocation *location;
     UInt32 locationSize;
@@ -440,12 +437,12 @@ gfxPlatformMac::GetPlatformCMSOutputProfile()
 
     CMError err = CMGetProfileByAVID(static_cast<CMDisplayIDType>(displayID), &cmProfile);
     if (err != noErr)
-        return nsnull;
+        return nullptr;
 
     // get the size of location
     err = NCMGetProfileLocation(cmProfile, NULL, &locationSize);
     if (err != noErr)
-        return nsnull;
+        return nullptr;
 
     // allocate enough room for location
     location = static_cast<CMProfileLocation*>(malloc(locationSize));

@@ -15,6 +15,7 @@
 
 class CharacterIterator;
 class gfxContext;
+class nsDisplaySVGGlyphs;
 class nsIDOMSVGRect;
 class nsRenderingContext;
 class nsSVGGlyphFrame;
@@ -39,7 +40,7 @@ class nsSVGGlyphFrame : public nsSVGGlyphFrameBase,
 protected:
   nsSVGGlyphFrame(nsStyleContext* aContext)
     : nsSVGGlyphFrameBase(aContext),
-      mTextRun(nsnull),
+      mTextRun(nullptr),
       mStartIndex(0),
       mGetCanvasTMForFlag(nsISVGChildFrame::FOR_OUTERSVG_TM),
       mCompressWhitespace(true),
@@ -144,6 +145,10 @@ public:
   }
 #endif
 
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists);
+
   // nsISVGChildFrame interface:
   // These four always use the global transform, even if NS_STATE_NONDISPLAY_CHILD
   NS_IMETHOD PaintSVG(nsRenderingContext *aContext,
@@ -153,7 +158,7 @@ public:
                                       PRUint32 aFlags);
 
   NS_IMETHOD_(nsRect) GetCoveredRegion();
-  virtual void UpdateBounds();
+  virtual void ReflowSVG();
   virtual void NotifySVGChanged(PRUint32 aFlags);
   NS_IMETHOD_(bool) IsDisplayContainer() { return false; }
 
@@ -231,7 +236,7 @@ private:
   void DrawCharacters(CharacterIterator *aIter,
                       gfxContext *aContext,
                       DrawMode aDrawMode,
-                      gfxPattern *aStrokePattern = nsnull);
+                      gfxPattern *aStrokePattern = nullptr);
 
   void NotifyGlyphMetricsChange();
   void SetupGlobalTransform(gfxContext *aContext, PRUint32 aFor);

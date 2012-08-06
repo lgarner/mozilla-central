@@ -538,7 +538,7 @@ var WebConsoleUtils = {
           value = aObject[propName];
           presentable = this.presentableValueFor(value);
         }
-	      catch (ex) {
+        catch (ex) {
           continue;
         }
       }
@@ -642,6 +642,28 @@ var WebConsoleUtils = {
 
     return false;
   },
+
+  /**
+   * Determine if the given request mixes HTTP with HTTPS content.
+   *
+   * @param string aRequest
+   *        Location of the requested content.
+   * @param string aLocation
+   *        Location of the current page.
+   * @return boolean
+   *         True if the content is mixed, false if not.
+   */
+  isMixedHTTPSRequest: function WCU_isMixedHTTPSRequest(aRequest, aLocation)
+  {
+    try {
+      let requestURI = Services.io.newURI(aRequest, null, null);
+      let contentURI = Services.io.newURI(aLocation, null, null);
+      return (contentURI.scheme == "https" && requestURI.scheme != "https");
+    }
+    catch (ex) {
+      return false;
+    }
+  },
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -734,6 +756,8 @@ const OPEN_CLOSE_BODY = {
   "[": "]",
   "(": ")",
 };
+
+const MAX_COMPLETIONS = 256;
 
 /**
  * Analyses a given string to find the last statement that is interesting for
@@ -895,9 +919,9 @@ function JSPropertyProvider(aScope, aInputValue)
         return null;
       }
 
-      // If obj is undefined or null, then there is no chance to run completion
-      // on it. Exit here.
-      if (typeof obj === "undefined" || obj === null) {
+      // If obj is undefined or null (which is what "== null" does),
+      // then there is no chance to run completion on it. Exit here.
+      if (obj == null) {
         return null;
       }
 
@@ -918,9 +942,9 @@ function JSPropertyProvider(aScope, aInputValue)
     matchProp = properties[0].trimLeft();
   }
 
-  // If obj is undefined or null, then there is no chance to run
-  // completion on it. Exit here.
-  if (typeof obj === "undefined" || obj === null) {
+  // If obj is undefined or null (which is what "== null" does),
+  // then there is no chance to run completion on it. Exit here.
+  if (obj == null) {
     return null;
   }
 
@@ -929,18 +953,63 @@ function JSPropertyProvider(aScope, aInputValue)
     return null;
   }
 
-  let matches = [];
-  for (let prop in obj) {
-    if (prop.indexOf(matchProp) == 0) {
-      matches.push(prop);
-    }
-  }
+  let matches = Object.keys(getMatchedProps(obj, matchProp));
 
   return {
     matchProp: matchProp,
     matches: matches.sort(),
   };
 }
+
+/**
+ * Get all accessible properties on this object.
+ * Filter those properties by name.
+ * Take only a certain number of those.
+ *
+ * @param object obj
+ *        Object whose properties we want to collect.
+ *
+ * @param string matchProp
+ *        Filter for properties that match this one.
+ *        Defaults to the empty string (which always matches).
+ *
+ * @return object
+ *         Object whose keys are all accessible properties on the object.
+ */
+function getMatchedProps(aObj, aMatchProp = "")
+{
+  let c = MAX_COMPLETIONS;
+  let names = {};   // Using an Object to avoid duplicates.
+  let ownNames = Object.getOwnPropertyNames(aObj);
+  for (let i = 0; i < ownNames.length; i++) {
+    if (ownNames[i].indexOf(aMatchProp) == 0) {
+      if (names[ownNames[i]] != true) {
+        c--;
+        if (c < 0) {
+          return names;
+        }
+        names[ownNames[i]] = true;
+      }
+    }
+  }
+
+  // We need to recursively go up the prototype chain.
+  aObj = Object.getPrototypeOf(aObj);
+  if (aObj !== null) {
+    let parentScope = getMatchedProps(aObj, aMatchProp);
+    for (let name in parentScope) {
+      if (names[name] != true) {
+        c--;
+        if (c < 0) {
+          return names;
+        }
+        names[name] = true;
+      }
+    }
+  }
+  return names;
+}
+
 
 return JSPropertyProvider;
 })(WebConsoleUtils);

@@ -25,7 +25,7 @@ namespace IPC {
 
 class URI {
  public:
-  URI() : mURI(nsnull) {}
+  URI() : mURI(nullptr) {}
   URI(nsIURI* aURI) : mURI(aURI) {}
   operator nsIURI*() const { return mURI.get(); }
 
@@ -88,7 +88,7 @@ struct ParamTraits<URI>
     if (!ReadParam(aMsg, aIter, &isNull))
       return false;
     if (isNull) {
-      aResult->mURI = nsnull;
+      aResult->mURI = nullptr;
       return true;
     }
 
@@ -143,7 +143,7 @@ struct ParamTraits<URI>
 
 class InputStream {
  public:
-  InputStream() : mStream(nsnull) {}
+  InputStream() : mStream(nullptr) {}
   InputStream(nsIInputStream* aStream) : mStream(aStream) {}
   operator nsIInputStream*() const { return mStream.get(); }
 
@@ -191,6 +191,8 @@ struct ParamTraits<InputStream>
     }
 
     nsCOMPtr<nsIClassInfo> classInfo = do_QueryInterface(aParam.mStream);
+    NS_ASSERTION(classInfo, "Must QI to nsIClassInfo for this to work!");
+
     char cidStr[NSID_LENGTH];
     nsCID cid;
     mozilla::DebugOnly<nsresult> rv = classInfo->GetClassIDNoAlloc(&cid);
@@ -208,7 +210,7 @@ struct ParamTraits<InputStream>
       return false;
 
     if (isNull) {
-      aResult->mStream = nsnull;
+      aResult->mStream = nullptr;
       return true;
     }
 

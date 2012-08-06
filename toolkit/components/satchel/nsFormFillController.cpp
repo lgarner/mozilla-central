@@ -25,7 +25,6 @@
 #include "nsIDocument.h"
 #include "nsIContent.h"
 #include "nsIPresShell.h"
-#include "nsIFrame.h"
 #include "nsRect.h"
 #include "nsIDOMHTMLFormElement.h"
 #include "nsILoginManager.h"
@@ -34,7 +33,6 @@
 #include "nsToolkitCompsCID.h"
 #include "nsEmbedCID.h"
 #include "nsIDOMNSEditableElement.h"
-#include "nsIDOMNSEvent.h"
 #include "mozilla/dom/Element.h"
 #include "nsContentUtils.h"
 
@@ -46,9 +44,9 @@ NS_IMPL_ISUPPORTS5(nsFormFillController,
                    nsIMutationObserver)
 
 nsFormFillController::nsFormFillController() :
-  mFocusedInput(nsnull),
-  mFocusedInputNode(nsnull),
-  mListNode(nsnull),
+  mFocusedInput(nullptr),
+  mFocusedInputNode(nullptr),
+  mListNode(nullptr),
   mTimeout(50),
   mMinResultsForPopup(1),
   mMaxRows(0),
@@ -77,14 +75,14 @@ nsFormFillController::~nsFormFillController()
 {
   if (mListNode) {
     mListNode->RemoveMutationObserver(this);
-    mListNode = nsnull;
+    mListNode = nullptr;
   }
   if (mFocusedInputNode) {
     MaybeRemoveMutationObserver(mFocusedInputNode);
-    mFocusedInputNode = nsnull;
-    mFocusedInput = nsnull;
+    mFocusedInputNode = nullptr;
+    mFocusedInput = nullptr;
   }
-  PwmgrInputsEnumData ed(this, nsnull);
+  PwmgrInputsEnumData ed(this, nullptr);
   mPwmgrInputs.Enumerate(RemoveForDocumentEnumerator, &ed);
 
   // Remove ourselves as a focus listener from all cached docShells
@@ -179,11 +177,11 @@ nsFormFillController::NodeWillBeDestroyed(const nsINode* aNode)
 {
   mPwmgrInputs.Remove(aNode);
   if (aNode == mListNode) {
-    mListNode = nsnull;
+    mListNode = nullptr;
     RevalidateDataList();
   } else if (aNode == mFocusedInputNode) {
-    mFocusedInputNode = nsnull;
-    mFocusedInput = nsnull;
+    mFocusedInputNode = nullptr;
+    mFocusedInput = nullptr;
   }
 }
 
@@ -630,7 +628,7 @@ nsFormFillController::StartSearch(const nsAString &aSearchString, const nsAStrin
       if (mListNode != node) {
         if (mListNode) {
           mListNode->RemoveMutationObserver(this);
-          mListNode = nsnull;
+          mListNode = nullptr;
         }
         if (node) {
           node->AddMutationObserverUnlessExists(this);
@@ -799,7 +797,7 @@ nsFormFillController::Focus(nsIDOMEvent* aEvent)
 
   nsCOMPtr<nsIDOMHTMLElement> datalist;
   input->GetList(getter_AddRefs(datalist));
-  bool hasList = datalist != nsnull;
+  bool hasList = datalist != nullptr;
 
   bool dummy;
   bool isPwmgrInput = false;
@@ -943,7 +941,7 @@ nsFormFillController::AddWindowListeners(nsIDOMWindow *aWindow)
     return;
 
   nsCOMPtr<nsPIDOMWindow> privateDOMWindow(do_QueryInterface(aWindow));
-  nsIDOMEventTarget* target = nsnull;
+  nsIDOMEventTarget* target = nullptr;
   if (privateDOMWindow)
     target = privateDOMWindow->GetChromeEventHandler();
 
@@ -986,7 +984,7 @@ nsFormFillController::RemoveWindowListeners(nsIDOMWindow *aWindow)
   mPwmgrInputs.Enumerate(RemoveForDocumentEnumerator, &ed);
 
   nsCOMPtr<nsPIDOMWindow> privateDOMWindow(do_QueryInterface(aWindow));
-  nsIDOMEventTarget* target = nsnull;
+  nsIDOMEventTarget* target = nullptr;
   if (privateDOMWindow)
     target = privateDOMWindow->GetChromeEventHandler();
 
@@ -1072,7 +1070,7 @@ nsFormFillController::StopControllingInput()
 
   if (mListNode) {
     mListNode->RemoveMutationObserver(this);
-    mListNode = nsnull;
+    mListNode = nullptr;
   }
 
   // Reset the controller's input, but not if it has been switched
@@ -1081,14 +1079,14 @@ nsFormFillController::StopControllingInput()
   nsCOMPtr<nsIAutoCompleteInput> input;
   mController->GetInput(getter_AddRefs(input));
   if (input == this)
-    mController->SetInput(nsnull);
+    mController->SetInput(nullptr);
 
   if (mFocusedInputNode) {
     MaybeRemoveMutationObserver(mFocusedInputNode);
-    mFocusedInputNode = nsnull;
-    mFocusedInput = nsnull;
+    mFocusedInputNode = nullptr;
+    mFocusedInput = nullptr;
   }
-  mFocusedPopup = nsnull;
+  mFocusedPopup = nullptr;
 }
 
 nsIDocShell *
@@ -1097,7 +1095,7 @@ nsFormFillController::GetDocShellForInput(nsIDOMHTMLInputElement *aInput)
   nsCOMPtr<nsIDOMDocument> domDoc;
   aInput->GetOwnerDocument(getter_AddRefs(domDoc));
   nsCOMPtr<nsIDocument> doc = do_QueryInterface(domDoc);
-  NS_ENSURE_TRUE(doc, nsnull);
+  NS_ENSURE_TRUE(doc, nullptr);
   nsCOMPtr<nsIWebNavigation> webNav = do_GetInterface(doc->GetWindow());
   nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(webNav);
   return docShell;
@@ -1108,12 +1106,12 @@ nsFormFillController::GetWindowForDocShell(nsIDocShell *aDocShell)
 {
   nsCOMPtr<nsIContentViewer> contentViewer;
   aDocShell->GetContentViewer(getter_AddRefs(contentViewer));
-  NS_ENSURE_TRUE(contentViewer, nsnull);
+  NS_ENSURE_TRUE(contentViewer, nullptr);
 
   nsCOMPtr<nsIDOMDocument> domDoc;
   contentViewer->GetDOMDocument(getter_AddRefs(domDoc));
   nsCOMPtr<nsIDocument> doc = do_QueryInterface(domDoc);
-  NS_ENSURE_TRUE(doc, nsnull);
+  NS_ENSURE_TRUE(doc, nullptr);
 
   return doc->GetWindow();
 }

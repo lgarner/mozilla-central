@@ -40,16 +40,6 @@ let DOMContactManager = {
     this._db.init(myGlobal);
 
     Services.obs.addObserver(this, "profile-before-change", false);
-
-    try {
-      let hosts = Services.prefs.getCharPref("dom.mozContacts.whitelist")
-      hosts.split(",").forEach(function(aHost) {
-        debug("Add host: " + JSON.stringify(aHost));
-        if (aHost.length > 0)
-          Services.perms.add(Services.io.newURI(aHost, null, null), "webcontacts-manage",
-                             Ci.nsIPermissionManager.ALLOW_ACTION);
-      });
-    } catch(e) { debug(e); }
   },
 
   observe: function(aSubject, aTopic, aData) {
@@ -67,6 +57,7 @@ let DOMContactManager = {
 
   receiveMessage: function(aMessage) {
     debug("Fallback DOMContactManager::receiveMessage " + aMessage.name);
+    let mm = aMessage.target.QueryInterface(Ci.nsIFrameMessageManager);
     let msg = aMessage.json;
 
     /*
@@ -124,29 +115,29 @@ let DOMContactManager = {
             }
 
             debug("result:" + JSON.stringify(result));
-            ppmm.sendAsyncMessage("Contacts:Find:Return:OK", {requestID: msg.requestID, contacts: result});
+            mm.sendAsyncMessage("Contacts:Find:Return:OK", {requestID: msg.requestID, contacts: result});
           }.bind(this),
-          function(aErrorMsg) { ppmm.sendAsyncMessage("Contacts:Find:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }) }.bind(this),
+          function(aErrorMsg) { mm.sendAsyncMessage("Contacts:Find:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }) }.bind(this),
           msg.findOptions);
         break;
       case "Contact:Save":
         this._db.saveContact(
           msg.contact, 
-          function() { ppmm.sendAsyncMessage("Contact:Save:Return:OK", { requestID: msg.requestID, contactID: msg.contact.id }); }.bind(this),
-          function(aErrorMsg) { ppmm.sendAsyncMessage("Contact:Save:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }); }.bind(this)
+          function() { mm.sendAsyncMessage("Contact:Save:Return:OK", { requestID: msg.requestID, contactID: msg.contact.id }); }.bind(this),
+          function(aErrorMsg) { mm.sendAsyncMessage("Contact:Save:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }); }.bind(this)
         );
         break;
       case "Contact:Remove":
         this._db.removeContact(
           msg.id, 
-          function() { ppmm.sendAsyncMessage("Contact:Remove:Return:OK", { requestID: msg.requestID, contactID: msg.id }); }.bind(this),
-          function(aErrorMsg) { ppmm.sendAsyncMessage("Contact:Remove:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }); }.bind(this)
+          function() { mm.sendAsyncMessage("Contact:Remove:Return:OK", { requestID: msg.requestID, contactID: msg.id }); }.bind(this),
+          function(aErrorMsg) { mm.sendAsyncMessage("Contact:Remove:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }); }.bind(this)
         );
         break;
       case "Contacts:Clear":
         this._db.clear(
-          function() { ppmm.sendAsyncMessage("Contacts:Clear:Return:OK", { requestID: msg.requestID }); }.bind(this),
-          function(aErrorMsg) { ppmm.sendAsyncMessage("Contacts:Clear:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }); }.bind(this)
+          function() { mm.sendAsyncMessage("Contacts:Clear:Return:OK", { requestID: msg.requestID }); }.bind(this),
+          function(aErrorMsg) { mm.sendAsyncMessage("Contacts:Clear:Return:KO", { requestID: msg.requestID, errorMsg: aErrorMsg }); }.bind(this)
         );
     }
   }

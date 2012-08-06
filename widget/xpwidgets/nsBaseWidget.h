@@ -5,6 +5,7 @@
 #ifndef nsBaseWidget_h__
 #define nsBaseWidget_h__
 
+#include "mozilla/WidgetUtils.h"
 #include "nsRect.h"
 #include "nsIWidget.h"
 #include "nsWidgetsCID.h"
@@ -13,16 +14,14 @@
 #include "nsCOMPtr.h"
 #include "nsGUIEvent.h"
 #include "nsAutoPtr.h"
-#include "BasicLayers.h"
 #include "nsIRollupListener.h"
-#include "LayersBackend.h"
-
 class nsIContent;
 class nsAutoRollup;
 class gfxContext;
 
 namespace mozilla {
 namespace layers {
+class BasicLayerManager;
 class CompositorChild;
 class CompositorParent;
 }
@@ -46,17 +45,19 @@ class nsBaseWidget : public nsIWidget
   friend class nsAutoRollup;
 
 protected:
+  typedef base::Thread Thread;
   typedef mozilla::layers::BasicLayerManager BasicLayerManager;
+  typedef mozilla::layers::BufferMode BufferMode;
   typedef mozilla::layers::CompositorChild CompositorChild;
   typedef mozilla::layers::CompositorParent CompositorParent;
-  typedef base::Thread Thread;
+  typedef mozilla::ScreenRotation ScreenRotation;
 
 public:
   nsBaseWidget();
   virtual ~nsBaseWidget();
-  
+
   NS_DECL_ISUPPORTS
-  
+
   // nsIWidget interface
   NS_IMETHOD              CaptureMouse(bool aCapture);
   NS_IMETHOD              GetClientData(void*& aClientData);
@@ -98,10 +99,10 @@ public:
   NS_IMETHOD              HideWindowChrome(bool aShouldHide);
   NS_IMETHOD              MakeFullScreen(bool aFullScreen);
   virtual nsDeviceContext* GetDeviceContext();
-  virtual LayerManager*   GetLayerManager(PLayersChild* aShadowManager = nsnull,
+  virtual LayerManager*   GetLayerManager(PLayersChild* aShadowManager = nullptr,
                                           LayersBackend aBackendHint = mozilla::layers::LAYERS_NONE,
                                           LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
-                                          bool* aAllowRetaining = nsnull);
+                                          bool* aAllowRetaining = nullptr);
 
   virtual void            CreateCompositor();
   virtual void            DrawWindowUnderlay(LayerManager* aManager, nsIntRect aRect) {}
@@ -150,7 +151,7 @@ public:
   CreateChild(const nsIntRect  &aRect,
               EVENT_CALLBACK   aHandleEventFunction,
               nsDeviceContext *aContext,
-              nsWidgetInitData *aInitData = nsnull,
+              nsWidgetInitData *aInitData = nullptr,
               bool             aForceUseIWidgetParent = false);
   NS_IMETHOD              SetEventCallback(EVENT_CALLBACK aEventFunction, nsDeviceContext *aContext);
   NS_IMETHOD              AttachViewToTopLevel(EVENT_CALLBACK aViewEventFunction, nsDeviceContext *aContext);
@@ -178,15 +179,24 @@ public:
 
   virtual PRUint32 GetGLFrameBufferFormat() MOZ_OVERRIDE;
 
+  virtual const SizeConstraints& GetSizeConstraints() const;
+  virtual void SetSizeConstraints(const SizeConstraints& aConstraints);
+
   /**
    * Use this when GetLayerManager() returns a BasicLayerManager
    * (nsBaseWidget::GetLayerManager() does). This sets up the widget's
    * layer manager to temporarily render into aTarget.
+   *
+   * |aNaturalWidgetBounds| is the un-rotated bounds of |aWidget|.
+   * |aRotation| is the "virtual rotation" to apply when rendering to
+   * the target.  When |aRotation| is ROTATION_0,
+   * |aNaturalWidgetBounds| is not used.
    */
   class AutoLayerManagerSetup {
   public:
     AutoLayerManagerSetup(nsBaseWidget* aWidget, gfxContext* aTarget,
-                          BasicLayerManager::BufferMode aDoubleBuffering);
+                          BufferMode aDoubleBuffering,
+                          ScreenRotation aRotation = mozilla::ROTATION_0);
     ~AutoLayerManagerSetup();
   private:
     nsBaseWidget* mWidget;
@@ -276,6 +286,20 @@ protected:
     }
   }
 
+  /**
+   * Apply the current size constraints to the given size.
+   *
+   * @param aWidth width to constrain
+   * @param aHeight height to constrain
+   */
+  void ConstrainSize(PRInt32* aWidth, PRInt32* aHeight) const
+  {
+    *aWidth = NS_MAX(mSizeConstraints.mMinSize.width,
+                     NS_MIN(mSizeConstraints.mMaxSize.width, *aWidth));
+    *aHeight = NS_MAX(mSizeConstraints.mMinSize.height,
+                      NS_MIN(mSizeConstraints.mMaxSize.height, *aHeight));
+  }
+
 protected:
   /**
    * Starts the OMTC compositor destruction sequence.
@@ -315,6 +339,7 @@ protected:
   nsSizeMode        mSizeMode;
   nsPopupLevel      mPopupLevel;
   nsPopupType       mPopupType;
+  SizeConstraints   mSizeConstraints;
 
   // the last rolled up popup. Only set this when an nsAutoRollup is in scope,
   // so it can be cleared automatically.

@@ -39,8 +39,6 @@ public:
     // parameter names
     enum nsParamName {
         MAX_CONNECTIONS,
-        MAX_CONNECTIONS_PER_HOST,
-        MAX_CONNECTIONS_PER_PROXY,
         MAX_PERSISTENT_CONNECTIONS_PER_HOST,
         MAX_PERSISTENT_CONNECTIONS_PER_PROXY,
         MAX_REQUEST_DELAY,
@@ -55,8 +53,6 @@ public:
     nsHttpConnectionMgr();
 
     nsresult Init(PRUint16 maxConnections,
-                  PRUint16 maxConnectionsPerHost,
-                  PRUint16 maxConnectionsPerProxy,
                   PRUint16 maxPersistentConnectionsPerHost,
                   PRUint16 maxPersistentConnectionsPerProxy,
                   PRUint16 maxRequestDelay,
@@ -78,7 +74,7 @@ public:
 
     // Stops timer used for the read timeout tick if there are no currently
     // active connections.
-    void ConditionallyStopReadTimeoutTick();
+    void ConditionallyStopTimeoutTick();
 
     // adds a transaction to the list of managed transactions.
     nsresult AddTransaction(nsHttpTransaction *, PRInt32 priority);
@@ -265,6 +261,13 @@ private:
         nsTArray<nsHttpConnection*>  mIdleConns;   // idle persistent connections
         nsTArray<nsHalfOpenSocket*>  mHalfOpens;
 
+        // calculate the number of half open sockets that have not had at least 1
+        // connection complete
+        PRUint32 UnconnectedHalfOpens();
+
+        // Remove a particular half open socket from the mHalfOpens array
+        void RemoveHalfOpen(nsHalfOpenSocket *);
+
         // Pipeline depths for various states
         const static PRUint32 kPipelineUnlimited  = 1024; // fully open - extended green
         const static PRUint32 kPipelineOpen       = 6;    // 6 on each conn - normal green
@@ -388,7 +391,10 @@ private:
         void     SetupBackupTimer();
         void     CancelBackupTimer();
         void     Abandon();
-        
+        double   Duration(mozilla::TimeStamp epoch);
+        nsISocketTransport *SocketTransport() { return mSocketTransport; }
+        nsISocketTransport *BackupTransport() { return mBackupTransport; }
+
         nsAHttpTransaction *Transaction() { return mTransaction; }
 
         bool IsSpeculative() { return mSpeculative; }
@@ -437,8 +443,6 @@ private:
 
     // connection limits
     PRUint16 mMaxConns;
-    PRUint16 mMaxConnsPerHost;
-    PRUint16 mMaxConnsPerProxy;
     PRUint16 mMaxPersistConnsPerHost;
     PRUint16 mMaxPersistConnsPerProxy;
     PRUint16 mMaxRequestDelay; // in seconds
@@ -553,7 +557,7 @@ private:
 
     nsresult PostEvent(nsConnEventHandler  handler,
                        PRInt32             iparam = 0,
-                       void               *vparam = nsnull);
+                       void               *vparam = nullptr);
 
     // message handlers
     void OnMsgShutdown             (PRInt32, void *);
@@ -582,10 +586,10 @@ private:
     nsCOMPtr<nsITimer> mTimer;
 
     // A 1s tick to call nsHttpConnection::ReadTimeoutTick on
-    // active http/1 connections. Disabled when there are no
-    // active connections.
-    nsCOMPtr<nsITimer> mReadTimeoutTick;
-    bool mReadTimeoutTickArmed;
+    // active http/1 connections and check for orphaned half opens.
+    // Disabled when there are no active or half open connections.
+    nsCOMPtr<nsITimer> mTimeoutTick;
+    bool mTimeoutTickArmed;
 
     //
     // the connection table
@@ -602,10 +606,10 @@ private:
                                                      void *closure);
     // Read Timeout Tick handlers
     void ActivateTimeoutTick();
-    void ReadTimeoutTick();
-    static PLDHashOperator ReadTimeoutTickCB(const nsACString &key,
-                                             nsAutoPtr<nsConnectionEntry> &ent,
-                                             void *closure);
+    void TimeoutTick();
+    static PLDHashOperator TimeoutTickCB(const nsACString &key,
+                                         nsAutoPtr<nsConnectionEntry> &ent,
+                                         void *closure);
 
     // For diagnostics
     void OnMsgPrintDiagnostics(PRInt32, void *);

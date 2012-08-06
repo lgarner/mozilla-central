@@ -75,7 +75,7 @@ nsAString::SetLength(PRUint32 aLen)
 {
   char_type *data;
   NS_StringGetMutableData(*this, aLen, &data);
-  return data != nsnull;
+  return data != nullptr;
 }
 
 void
@@ -268,7 +268,7 @@ nsAString::EqualsLiteral(const char *aASCIIString) const
     }
   }
 
-  return *aASCIIString == nsnull;
+  return *aASCIIString == '\0';
 }
 
 bool
@@ -284,7 +284,7 @@ nsAString::LowerCaseEqualsLiteral(const char *aASCIIString) const
     }
   }
 
-  return *aASCIIString == nsnull;
+  return *aASCIIString == '\0';
 }
 
 PRInt32
@@ -576,7 +576,7 @@ nsACString::SetLength(PRUint32 aLen)
 {
   char_type *data;
   NS_CStringGetMutableData(*this, aLen, &data);
-  return data != nsnull;
+  return data != nullptr;
 }
 
 void

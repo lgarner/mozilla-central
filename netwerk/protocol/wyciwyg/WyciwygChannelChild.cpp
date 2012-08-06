@@ -13,6 +13,7 @@
 #include "nsNetUtil.h"
 #include "nsISerializable.h"
 #include "nsSerializationHelper.h"
+#include "nsILoadContext.h"
 
 namespace mozilla {
 namespace net {
@@ -24,8 +25,7 @@ NS_IMPL_ISUPPORTS3(WyciwygChannelChild,
 
 
 WyciwygChannelChild::WyciwygChannelChild()
-  : PrivateBrowsingConsumer(this)
-  , mStatus(NS_OK)
+  : mStatus(NS_OK)
   , mIsPending(false)
   , mCanceled(false)
   , mLoadFlags(LOAD_NORMAL)
@@ -203,7 +203,7 @@ WyciwygChannelChild::OnDataAvailable(const nsCString& data,
     Cancel(rv);
 
   if (mProgressSink && NS_SUCCEEDED(rv) && !(mLoadFlags & LOAD_BACKGROUND))
-    mProgressSink->OnProgress(this, nsnull, PRUint64(offset + data.Length()),
+    mProgressSink->OnProgress(this, nullptr, PRUint64(offset + data.Length()),
                               PRUint64(mContentLength));
 }
 
@@ -253,7 +253,7 @@ WyciwygChannelChild::OnStopRequest(const nsresult& statusCode)
     mListenerContext = 0;
 
     if (mLoadGroup)
-      mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+      mLoadGroup->RemoveRequest(this, nullptr, mStatus);
 
     mCallbacks = 0;
     mProgressSink = 0;
@@ -299,14 +299,14 @@ void WyciwygChannelChild::CancelEarly(const nsresult& statusCode)
   
   mIsPending = false;
   if (mLoadGroup)
-    mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+    mLoadGroup->RemoveRequest(this, nullptr, mStatus);
 
   if (mListener) {
     mListener->OnStartRequest(this, mListenerContext);
     mListener->OnStopRequest(this, mListenerContext, mStatus);
   }
-  mListener = nsnull;
-  mListenerContext = nsnull;
+  mListener = nullptr;
+  mListenerContext = nullptr;
 
   if (mIPCOpen)
     PWyciwygChannelChild::Send__delete__(this);
@@ -560,9 +560,30 @@ WyciwygChannelChild::AsyncOpen(nsIStreamListener *aListener, nsISupports *aConte
   mIsPending = true;
 
   if (mLoadGroup)
-    mLoadGroup->AddRequest(this, nsnull);
+    mLoadGroup->AddRequest(this, nullptr);
 
-  SendAsyncOpen(IPC::URI(mOriginalURI), mLoadFlags, UsePrivateBrowsing());
+  // Get info from nsILoadContext, if any
+  bool haveLoadContext = false;
+  bool isContent = false;
+  bool usePrivateBrowsing = false;
+  bool isInBrowserElement = false;
+  PRUint32 appId = 0;
+  nsCAutoString extendedOrigin;
+  nsCOMPtr<nsILoadContext> loadContext;
+  NS_QueryNotificationCallbacks(mCallbacks, mLoadGroup,
+                                NS_GET_IID(nsILoadContext),
+                                getter_AddRefs(loadContext));
+  if (loadContext) {
+    haveLoadContext = true;
+    loadContext->GetIsContent(&isContent);
+    loadContext->GetUsePrivateBrowsing(&usePrivateBrowsing);
+    loadContext->GetIsInBrowserElement(&isInBrowserElement);
+    loadContext->GetAppId(&appId);
+    loadContext->GetExtendedOrigin(mURI, extendedOrigin);
+  }
+
+  SendAsyncOpen(IPC::URI(mOriginalURI), mLoadFlags, haveLoadContext, isContent,
+                usePrivateBrowsing, isInBrowserElement, appId, extendedOrigin);
 
   mState = WCC_OPENED;
 
@@ -641,7 +662,7 @@ WyciwygChannelChild::SetCharsetAndSource(PRInt32 aSource, const nsACString & aCh
 
 /* ACString getCharsetAndSource (out long aSource); */
 NS_IMETHODIMP
-WyciwygChannelChild::GetCharsetAndSource(PRInt32 *aSource NS_OUTPARAM, nsACString & _retval)
+WyciwygChannelChild::GetCharsetAndSource(PRInt32 *aSource, nsACString & _retval)
 {
   NS_ENSURE_TRUE((mState == WCC_ONSTART) ||
                  (mState == WCC_ONDATA) ||

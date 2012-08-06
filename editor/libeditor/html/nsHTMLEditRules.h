@@ -156,18 +156,38 @@ protected:
   nsresult MoveNodeSmart(nsIDOMNode *aSource, nsIDOMNode *aDest, PRInt32 *aOffset);
   nsresult MoveContents(nsIDOMNode *aSource, nsIDOMNode *aDest, PRInt32 *aOffset);
   nsresult DeleteNonTableElements(nsINode* aNode);
-  nsresult WillMakeList(nsISelection *aSelection, const nsAString *aListType, bool aEntireList, const nsAString *aBulletType, bool *aCancel, bool *aHandled, const nsAString *aItemType=nsnull);
-  nsresult WillRemoveList(nsISelection *aSelection, bool aOrderd, bool *aCancel, bool *aHandled);
-  nsresult WillIndent(nsISelection *aSelection, bool *aCancel, bool *aHandled);
-  nsresult WillCSSIndent(nsISelection *aSelection, bool *aCancel, bool *aHandled);
-  nsresult WillHTMLIndent(nsISelection *aSelection, bool *aCancel, bool *aHandled);
-  nsresult WillOutdent(nsISelection *aSelection, bool *aCancel, bool *aHandled);
-  nsresult WillAlign(nsISelection *aSelection, const nsAString *alignType, bool *aCancel, bool *aHandled);
-  nsresult WillAbsolutePosition(nsISelection *aSelection, bool *aCancel, bool * aHandled);
-  nsresult WillRemoveAbsolutePosition(nsISelection *aSelection, bool *aCancel, bool * aHandled);
-  nsresult WillRelativeChangeZIndex(nsISelection *aSelection, PRInt32 aChange, bool *aCancel, bool * aHandled);
-  nsresult WillMakeDefListItem(nsISelection *aSelection, const nsAString *aBlockType, bool aEntireList, bool *aCancel, bool *aHandled);
-  nsresult WillMakeBasicBlock(nsISelection *aSelection, const nsAString *aBlockType, bool *aCancel, bool *aHandled);
+  nsresult WillMakeList(mozilla::Selection* aSelection,
+                        const nsAString* aListType,
+                        bool aEntireList,
+                        const nsAString* aBulletType,
+                        bool* aCancel, bool* aHandled,
+                        const nsAString* aItemType = nullptr);
+  nsresult WillRemoveList(mozilla::Selection* aSelection,
+                          bool aOrdered, bool* aCancel, bool* aHandled);
+  nsresult WillIndent(mozilla::Selection* aSelection,
+                      bool* aCancel, bool* aHandled);
+  nsresult WillCSSIndent(mozilla::Selection* aSelection,
+                         bool* aCancel, bool* aHandled);
+  nsresult WillHTMLIndent(mozilla::Selection* aSelection,
+                          bool* aCancel, bool* aHandled);
+  nsresult WillOutdent(mozilla::Selection* aSelection,
+                       bool* aCancel, bool* aHandled);
+  nsresult WillAlign(mozilla::Selection* aSelection,
+                     const nsAString* alignType,
+                     bool* aCancel, bool* aHandled);
+  nsresult WillAbsolutePosition(mozilla::Selection* aSelection,
+                                bool* aCancel, bool* aHandled);
+  nsresult WillRemoveAbsolutePosition(mozilla::Selection* aSelection,
+                                      bool* aCancel, bool* aHandled);
+  nsresult WillRelativeChangeZIndex(mozilla::Selection* aSelection,
+                                    PRInt32 aChange,
+                                    bool* aCancel, bool* aHandled);
+  nsresult WillMakeDefListItem(mozilla::Selection* aSelection,
+                               const nsAString* aBlockType, bool aEntireList,
+                               bool* aCancel, bool* aHandled);
+  nsresult WillMakeBasicBlock(mozilla::Selection* aSelection,
+                              const nsAString* aBlockType,
+                              bool* aCancel, bool* aHandled);
   nsresult DidMakeBasicBlock(nsISelection *aSelection, nsRulesInfo *aInfo, nsresult aResult);
   nsresult DidAbsolutePosition();
   nsresult AlignInnerBlocks(nsIDOMNode *aNode, const nsAString *alignType);
@@ -288,7 +308,15 @@ protected:
                                   PRInt32 aSelOffset, 
                                   nsIEditor::EDirection &aDirection,
                                   nsCOMPtr<nsIDOMNode> *outSelectableNode);
-  nsresult InDifferentTableElements(nsIDOMNode *aNode1, nsIDOMNode *aNode2, bool *aResult);
+  /**
+   * Returns true if aNode1 or aNode2 or both is the descendant of some type of
+   * table element, but their nearest table element ancestors differ.  "Table
+   * element" here includes not just <table> but also <td>, <tbody>, <tr>, etc.
+   * The nodes count as being their own descendants for this purpose, so a
+   * table element is its own nearest table element ancestor.
+   */
+  bool     InDifferentTableElements(nsIDOMNode* aNode1, nsIDOMNode* aNode2);
+  bool     InDifferentTableElements(nsINode* aNode1, nsINode* aNode2);
   nsresult RemoveEmptyNodes();
   nsresult SelectionEndpointInNode(nsINode *aNode, bool *aResult);
   nsresult UpdateDocChangeRange(nsIDOMRange *aRange);

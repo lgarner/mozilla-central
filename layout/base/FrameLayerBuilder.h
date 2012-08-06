@@ -66,7 +66,7 @@ extern PRUint8 gContainerLayerPresContext;
 static inline FrameLayerBuilder *GetLayerBuilderForManager(layers::LayerManager* aManager)
 {
   LayerManagerLayerBuilder *data = static_cast<LayerManagerLayerBuilder*>(aManager->GetUserData(&gLayerManagerLayerBuilder));
-  return data ? data->mLayerBuilder : nsnull;
+  return data ? data->mLayerBuilder : nullptr;
 }
 
 class RefCountedRegion : public RefCounted<RefCountedRegion> {
@@ -121,9 +121,11 @@ public:
   typedef layers::LayerManager LayerManager;
 
   FrameLayerBuilder() :
-    mRetainingManager(nsnull),
+    mRetainingManager(nullptr),
     mDetectedDOMModification(false),
-    mInvalidateAllLayers(false)
+    mInvalidateAllLayers(false),
+    mContainerLayerGeneration(0),
+    mMaxContainerLayerGeneration(0)
   {
     MOZ_COUNT_CTOR(FrameLayerBuilder);
     mNewDisplayItemData.Init();
@@ -367,15 +369,13 @@ public:
   nsIntPoint GetLastPaintOffset(ThebesLayer* aLayer);
 
   /**
-   * Return resolution and scroll offset of ThebesLayer content associated
-   * with aFrame's subtree.
-   * Returns true if some ThebesLayer was found.
-   * This just looks for the first ThebesLayer and returns its data. There
-   * could be other ThebesLayers with different resolution and offsets.
+   * Return the resolution at which we expect to render aFrame's contents,
+   * assuming they are being painted to retained layers. This takes into account
+   * the resolution the contents of the ContainerLayer containing aFrame are
+   * being rendered at, as well as any currently-inactive transforms between
+   * aFrame and that container layer.
    */
-  static bool GetThebesLayerResolutionForFrame(nsIFrame* aFrame,
-                                               double* aXRes, double* aYRes,
-                                               gfxPoint* aPoint);
+  static gfxSize GetThebesLayerScaleForFrame(nsIFrame* aFrame);
 
   /**
    * Clip represents the intersection of an optional rectangle with a
@@ -467,11 +467,16 @@ protected:
    */
   class DisplayItemData {
   public:
-    DisplayItemData(Layer* aLayer, PRUint32 aKey, LayerState aLayerState)
-      : mLayer(aLayer), mDisplayItemKey(aKey), mLayerState(aLayerState) {}
+    DisplayItemData(Layer* aLayer, PRUint32 aKey, LayerState aLayerState, PRUint32 aGeneration)
+      : mLayer(aLayer)
+      , mDisplayItemKey(aKey)
+      , mContainerLayerGeneration(aGeneration)
+      , mLayerState(aLayerState)
+    {}
 
     nsRefPtr<Layer> mLayer;
     PRUint32        mDisplayItemKey;
+    PRUint32        mContainerLayerGeneration;
     LayerState      mLayerState;
   };
 
@@ -495,12 +500,14 @@ protected:
       // array and invalid region.  Be careful.
       mData.SwapElements(toCopy.mData);
       mInvalidRegion.swap(toCopy.mInvalidRegion);
+      mContainerLayerGeneration = toCopy.mContainerLayerGeneration;
     }
 
     bool HasNonEmptyContainerLayer();
 
     nsAutoTArray<DisplayItemData, 1> mData;
     nsRefPtr<RefCountedRegion> mInvalidRegion;
+    PRUint32 mContainerLayerGeneration;
     bool mIsSharingContainerLayer;
 
     enum { ALLOW_MEMMOVE = false };
@@ -530,7 +537,7 @@ protected:
   static PLDHashOperator RemoveDisplayItemDataForFrame(DisplayItemDataEntry* aEntry,
                                                        void* aClosure)
   {
-    return UpdateDisplayItemDataForFrame(aEntry, nsnull);
+    return UpdateDisplayItemDataForFrame(aEntry, nullptr);
   }
 
   /**
@@ -544,13 +551,14 @@ protected:
    * mItem always has an underlying frame.
    */
   struct ClippedDisplayItem {
-    ClippedDisplayItem(nsDisplayItem* aItem, const Clip& aClip)
-      : mItem(aItem), mClip(aClip)
+    ClippedDisplayItem(nsDisplayItem* aItem, const Clip& aClip, PRUint32 aGeneration)
+      : mItem(aItem), mClip(aClip), mContainerLayerGeneration(aGeneration)
     {
     }
 
     nsDisplayItem* mItem;
     Clip mClip;
+    PRUint32 mContainerLayerGeneration;
     bool mInactiveLayer;
   };
 
@@ -562,7 +570,7 @@ public:
   class ThebesLayerItemsEntry : public nsPtrHashKey<ThebesLayer> {
   public:
     ThebesLayerItemsEntry(const ThebesLayer *key) :
-        nsPtrHashKey<ThebesLayer>(key), mContainerLayerFrame(nsnull),
+        nsPtrHashKey<ThebesLayer>(key), mContainerLayerFrame(nullptr),
         mHasExplicitLastPaintOffset(false), mCommonClipCount(0) {}
     ThebesLayerItemsEntry(const ThebesLayerItemsEntry &toCopy) :
       nsPtrHashKey<ThebesLayer>(toCopy.mKey), mItems(toCopy.mItems)
@@ -575,6 +583,7 @@ public:
     // The translation set on this ThebesLayer before we started updating the
     // layer tree.
     nsIntPoint mLastPaintOffset;
+    PRUint32 mContainerLayerGeneration;
     bool mHasExplicitLastPaintOffset;
     /**
       * The first mCommonClipCount rounded rectangle clips are identical for
@@ -602,6 +611,11 @@ protected:
                                                        void* aUserArg);
   static PLDHashOperator StoreNewDisplayItemData(DisplayItemDataEntry* aEntry,
                                                  void* aUserArg);
+  static PLDHashOperator RestoreDisplayItemData(DisplayItemDataEntry* aEntry,
+                                                void *aUserArg);
+
+  static PLDHashOperator RestoreThebesLayerItemEntries(ThebesLayerItemsEntry* aEntry,
+                                                       void *aUserArg);
 
   /**
    * Returns true if the DOM has been modified since we started painting,
@@ -643,6 +657,9 @@ protected:
    * during this paint.
    */
   bool                                mInvalidateAllLayers;
+
+  PRUint32                            mContainerLayerGeneration;
+  PRUint32                            mMaxContainerLayerGeneration;
 };
 
 }

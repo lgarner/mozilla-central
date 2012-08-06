@@ -19,6 +19,7 @@
 #include "DictionaryHelpers.h"
 #include "mozilla/Util.h"
 #include "mozilla/Assertions.h"
+#include "nsDOMClassInfoID.h"
 
 using namespace mozilla;
 
@@ -61,7 +62,7 @@ nsDOMUIEvent::nsDOMUIEvent(nsPresContext* aPresContext, nsGUIEvent* aEvent)
       break;
   }
 
-  mView = nsnull;
+  mView = nullptr;
   if (mPresContext)
   {
     nsCOMPtr<nsISupports> container = mPresContext->GetContainer();
@@ -240,13 +241,13 @@ NS_IMETHODIMP
 nsDOMUIEvent::GetRangeParent(nsIDOMNode** aRangeParent)
 {
   NS_ENSURE_ARG_POINTER(aRangeParent);
-  nsIFrame* targetFrame = nsnull;
+  nsIFrame* targetFrame = nullptr;
 
   if (mPresContext) {
     targetFrame = mPresContext->EventStateManager()->GetEventTarget();
   }
 
-  *aRangeParent = nsnull;
+  *aRangeParent = nullptr;
 
   if (targetFrame) {
     nsPoint pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(mEvent,
@@ -268,7 +269,7 @@ NS_IMETHODIMP
 nsDOMUIEvent::GetRangeOffset(PRInt32* aRangeOffset)
 {
   NS_ENSURE_ARG_POINTER(aRangeOffset);
-  nsIFrame* targetFrame = nsnull;
+  nsIFrame* targetFrame = nullptr;
 
   if (mPresContext) {
     targetFrame = mPresContext->EventStateManager()->GetEventTarget();

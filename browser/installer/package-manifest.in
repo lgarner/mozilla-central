@@ -174,9 +174,7 @@
 #ifdef MOZ_B2G_BT
 @BINPATH@/components/dom_bluetooth.xpt
 #endif
-#ifdef MOZ_B2G_NFC
-@BINPATH@/components/dom_nfc.xpt
-#endif
+@BINPATH@/components/dom_camera.xpt
 @BINPATH@/components/dom_canvas.xpt
 @BINPATH@/components/dom_contacts.xpt
 @BINPATH@/components/dom_alarm.xpt
@@ -188,6 +186,9 @@
 @BINPATH@/components/dom_geolocation.xpt
 @BINPATH@/components/dom_media.xpt
 @BINPATH@/components/dom_network.xpt
+#ifdef MOZ_B2G_NFC
+@BINPATH@/components/dom_nfc.xpt
+#endif
 @BINPATH@/components/dom_notification.xpt
 @BINPATH@/components/dom_html.xpt
 @BINPATH@/components/dom_indexeddb.xpt
@@ -500,10 +501,6 @@
 @BINPATH@/modules/*
 
 ; Safe Browsing
-#ifdef MOZ_SAFE_BROWSING
-@BINPATH@/components/nsSafebrowsingApplication.manifest
-@BINPATH@/components/nsSafebrowsingApplication.js
-#endif
 #ifdef MOZ_URL_CLASSIFIER
 @BINPATH@/components/nsURLClassifier.manifest
 @BINPATH@/components/nsUrlClassifierHashCompleter.js

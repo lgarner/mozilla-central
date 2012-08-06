@@ -126,12 +126,11 @@ MKDIR ?= mkdir
 SLEEP ?= sleep
 TOUCH ?= touch
 
-ifndef .PYMAKE
-PYTHON_PATH = $(PYTHON) $(topsrcdir)/config/pythonpath.py
-else
+ifdef .PYMAKE
 PYCOMMANDPATH += $(topsrcdir)/config
-PYTHON_PATH = %pythonpath main
 endif
+
+PYTHON_PATH = $(PYTHON) $(topsrcdir)/config/pythonpath.py
 
 # determine debug-related options
 _DEBUG_ASFLAGS :=
@@ -683,10 +682,6 @@ install_cmd ?= $(INSTALL) $(1)
 SYSINSTALL	= $(NSINSTALL) -t
 # This isn't necessarily true, just here
 sysinstall_cmd = install_cmd
-
-# Directory nsinstall.
-DIR_INSTALL = $(INSTALL)
-dir_install_cmd = install_cmd
 
 #
 # Localization build automation

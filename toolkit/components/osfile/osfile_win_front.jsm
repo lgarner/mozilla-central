@@ -16,7 +16,7 @@
     throw new Error("osfile_win_front.jsm cannot be used from the main thread yet");
   }
 
-  importScripts("resource://gre/modules/osfile/osfile_shared.jsm");
+  importScripts("resource://gre/modules/osfile/osfile_shared_allthreads.jsm");
   importScripts("resource://gre/modules/osfile/osfile_win_back.jsm");
   importScripts("resource://gre/modules/osfile/ospath_win_back.jsm");
 
@@ -45,6 +45,10 @@
      let gBytesReadPtr = gBytesRead.address();
      let gBytesWritten = new ctypes.int32_t(-1);
      let gBytesWrittenPtr = gBytesWritten.address();
+
+     // Same story for GetFileInformationByHandle
+     let gFileInfo = new OS.Shared.Type.FILE_INFORMATION.implementation();
+     let gFileInfoPtr = gFileInfo.address();
 
      /**
       * Representation of a file.
@@ -179,78 +183,20 @@
          // OS.File.POS_END == OS.Constants.Win.FILE_END
          whence = (whence == undefined)?Const.FILE_BEGIN:whence;
          return throw_on_negative("setPosition",
-	   WinFile.SetFilePointer(this.fd, pos, null, whence));
-       }
-     };
+           WinFile.SetFilePointer(this.fd, pos, null, whence));
+       },
 
-     /**
-      * A File-related error.
-      *
-      * To obtain a human-readable error message, use method |toString|.
-      * To determine the cause of the error, use the various |becauseX|
-      * getters. To determine the operation that failed, use field
-      * |operation|.
-      *
-      * Additionally, this implementation offers a field
-      * |winLastError|, which holds the OS-specific error
-      * constant. If you need this level of detail, you may match the value
-      * of this field against the error constants of |OS.Constants.Win|.
-      *
-      * @param {string=} operation The operation that failed. If unspecified,
-      * the name of the calling function is taken to be the operation that
-      * failed.
-      * @param {number=} lastError The OS-specific constant detailing the
-      * reason of the error. If unspecified, this is fetched from the system
-      * status.
-      *
-      * @constructor
-      * @extends {OS.Shared.Error}
-      */
-     File.Error = function FileError(operation, lastError) {
-       operation = operation || File.Error.caller.name || "unknown operation";
-       OS.Shared.Error.call(this, operation);
-       this.winLastError = lastError || ctypes.winLastError;
-     };
-     File.Error.prototype = new OS.Shared.Error();
-     File.Error.prototype.toString = function toString() {
-         let buf = new (ctypes.ArrayType(ctypes.jschar, 1024))();
-         let result = WinFile.FormatMessage(
-           OS.Constants.Win.FORMAT_MESSAGE_FROM_SYSTEM |
-           OS.Constants.Win.FORMAT_MESSAGE_IGNORE_INSERTS,
-           null,
-           /* The error number */ this.winLastError,
-           /* Default language */ 0,
-           /* Output buffer*/     buf,
-           /* Minimum size of buffer */ 1024,
-           /* Format args*/       null
-         );
-         if (!result) {
-           buf = "additional error " +
-             ctypes.winLastError +
-             " while fetching system error message";
-         }
-         return "Win error " + this.winLastError + " during operation "
-           + this.operation + " (" + buf.readString() + " )";
-     };
-
-     /**
-      * |true| if the error was raised because a file or directory
-      * already exists, |false| otherwise.
-      */
-     Object.defineProperty(File.Error.prototype, "becauseExists", {
-       get: function becauseExists() {
-         return this.winLastError == OS.Constants.Win.ERROR_FILE_EXISTS;
+       /**
+        * Fetch the information on the file.
+        *
+        * @return File.Info The information on |this| file.
+        */
+       stat: function stat() {
+         throw_on_zero("stat",
+           WinFile.GetFileInformationByHandle(this.fd, gFileInfoPtr));
+         return new File.Info(gFileInfo);
        }
-     });
-     /**
-      * |true| if the error was raised because a file or directory
-      * does not exist, |false| otherwise.
-      */
-     Object.defineProperty(File.Error.prototype, "becauseNoSuchFile", {
-       get: function becauseNoSuchFile() {
-         return this.winLastError == OS.Constants.Win.ERROR_FILE_NOT_FOUND;
-       }
-     });
+     };
 
      // Constant used to normalize options.
      const noOptions = {};
@@ -321,7 +267,7 @@
       */
      File.open = function Win_open(path, mode, options) {
        options = options || noOptions;
-
+       mode = mode || noOptions;
        let share = options.winShare || DEFAULT_SHARE;
        let security = options.winSecurity || null;
        let flags = options.winFlags || DEFAULT_FLAGS;
@@ -471,17 +417,21 @@
       * Utility function: convert a FILETIME to a JavaScript Date.
       */
      let FILETIME_to_Date = function FILETIME_to_Date(fileTime) {
-       LOG("fileTimeToDate:", fileTime);
        if (fileTime == null) {
          throw new TypeError("Expecting a non-null filetime");
        }
-       LOG("fileTimeToDate normalized:", fileTime);
-       throw_on_zero("FILETIME_to_Date", WinFile.FileTimeToSystemTime(fileTime.address(),
+       throw_on_zero("FILETIME_to_Date",
+                     WinFile.FileTimeToSystemTime(fileTime.address(),
                                                   gSystemTimePtr));
-       return new Date(gSystemTime.wYear, gSystemTime.wMonth,
-                       gSystemTime.wDay, gSystemTime.wHour,
-                       gSystemTime.wMinute, gSystemTime.wSecond,
-                       gSystemTime.wMilliSeconds);
+       // Windows counts hours, minutes, seconds from UTC,
+       // JS counts from local time, so we need to go through UTC.
+       let utc = Date.UTC(gSystemTime.wYear,
+                          gSystemTime.wMonth - 1
+                          /*Windows counts months from 1, JS from 0*/,
+                          gSystemTime.wDay, gSystemTime.wHour,
+                          gSystemTime.wMinute, gSystemTime.wSecond,
+                          gSystemTime.wMilliSeconds);
+       return new Date(utc);
      };
 
      /**
@@ -615,13 +565,13 @@
         * |true| if the entry is a directory, |false| otherwise
         */
        get isDir() {
-         return this._dwFileAttributes & Const.FILE_ATTRIBUTE_DIRECTORY;
+         return !!(this._dwFileAttributes & Const.FILE_ATTRIBUTE_DIRECTORY);
        },
        /**
         * |true| if the entry is a symbolic link, |false| otherwise
         */
-       get isLink() {
-         return this._dwFileAttributes & Const.FILE_ATTRIBUTE_REPARSE_POINT;
+       get isSymLink() {
+         return !!(this._dwFileAttributes & Const.FILE_ATTRIBUTE_REPARSE_POINT);
        },
        /**
         * The name of the entry.
@@ -670,6 +620,129 @@
          Object.defineProperty(this, "path", {value: path});
          return path;
        }
+     };
+
+     /**
+      * Information on a file.
+      *
+      * To obtain the latest information on a file, use |File.stat|
+      * (for an unopened file) or |File.prototype.stat| (for an
+      * already opened file).
+      *
+      * @constructor
+      */
+     File.Info = function Info(stat) {
+       this._dwFileAttributes = stat.dwFileAttributes;
+       this._ftCreationTime = stat.ftCreationTime;
+       this._ftLastAccessTime = stat.ftLastAccessTime;
+       this._ftLastWriteTime = stat.ftLastAccessTime;
+       this._nFileSizeHigh = stat.nFileSizeHigh;
+       this._nFileSizeLow = stat.nFileSizeLow;
+     };
+     File.Info.prototype = {
+       /**
+        * |true| if this file is a directory, |false| otherwise
+        */
+       get isDir() {
+         return !!(this._dwFileAttributes & Const.FILE_ATTRIBUTE_DIRECTORY);
+       },
+       /**
+        * |true| if this file is a symbolink link, |false| otherwise
+        */
+       get isSymLink() {
+         return !!(this._dwFileAttributes & Const.FILE_ATTRIBUTE_REPARSE_POINT);
+       },
+       /**
+        * The size of the file, in bytes.
+        *
+        * Note that the result may be |NaN| if the size of the file cannot be
+        * represented in JavaScript.
+        *
+        * @type {number}
+        */
+       get size() {
+         try {
+           return OS.Shared.projectValue(
+             ctypes.uint64_t("" +
+             this._nFileSizeHigh +
+             this._nFileSizeLow));
+         } catch (x) {
+           return NaN;
+         }
+       },
+       /**
+        * The date of creation of this file
+        *
+        * @type {Date}
+        */
+       get creationDate() {
+         delete this.creationDate;
+         let date = FILETIME_to_Date(this._ftCreationTime);
+         Object.defineProperty(this, "creationDate", { value: date });
+         return date;
+       },
+       /**
+        * The date of last access to this file.
+        *
+        * Note that the definition of last access may depend on the
+        * underlying operating system and file system.
+        *
+        * @type {Date}
+        */
+       get lastAccessDate() {
+         delete this.lastAccess;
+         let date = FILETIME_to_Date(this._ftLastAccessTime);
+         Object.defineProperty(this, "lastAccessDate", { value: date });
+         return date;
+       },
+       /**
+        * Return the date of last modification of this file.
+        *
+        * Note that the definition of last access may depend on the
+        * underlying operating system and file system.
+        *
+        * @type {Date}
+        */
+       get lastModificationDate() {
+         delete this.lastModification;
+         let date = FILETIME_to_Date(this._ftLastWriteTime);
+         Object.defineProperty(this, "lastModificationDate", { value: date });
+         return date;
+       }
+     };
+
+     /**
+      * Fetch the information on a file.
+      *
+      * Performance note: if you have opened the file already,
+      * method |File.prototype.stat| is generally much faster
+      * than method |File.stat|.
+      *
+      * Platform-specific note: under Windows, if the file is
+      * already opened without sharing of the read capability,
+      * this function will fail.
+      *
+      * @return {File.Information}
+      */
+     File.stat = function stat(path) {
+       let file = File.open(path, FILE_STAT_MODE, FILE_STAT_OPTIONS);
+       try {
+         return file.stat();
+       } finally {
+         file.close();
+       }
+     };
+     // All of the following is required to ensure that File.stat
+     // also works on directories.
+     const FILE_STAT_MODE = {
+       read:true
+     };
+     const FILE_STAT_OPTIONS = {
+       // Directories can be opened neither for reading(!) nor for writing
+       winAccess: 0,
+       // Directories can only be opened with backup semantics(!)
+       winFlags: OS.Constants.Win.FILE_FLAG_BACKUP_SEMANTICS,
+       winDisposition: OS.Constants.Win.OPEN_EXISTING
      };
 
      /**
@@ -752,6 +825,9 @@
      File.POS_END = Const.FILE_END;
 
      File.Win = exports.OS.Win.File;
+     File.Error = exports.OS.Shared.Win.Error;
      exports.OS.File = File;
+
+     exports.OS.Path = exports.OS.Win.Path;
    })(this);
 }

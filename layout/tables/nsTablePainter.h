@@ -14,7 +14,7 @@
 //Cells should paint their backgrounds only, no children
 #define NS_PAINT_FLAG_TABLE_CELL_BG_PASS  0x00000002
 
-#include "nsIFrame.h"
+class nsIFrame;
 class nsTableFrame;
 class nsTableRowGroupFrame;
 class nsTableRowFrame;
@@ -196,7 +196,7 @@ class TableBackgroundPainter
       TableBackgroundData  mCol;
       TableBackgroundData* mColGroup; //link to col's parent colgroup's data (owned by painter)
       ColData() {
-        mColGroup = nsnull;
+        mColGroup = nullptr;
       }
     };
 

@@ -23,6 +23,7 @@
 #include "gfxImageSurface.h"
 #include "gfxContext.h"
 #include "gfxRect.h"
+#include "gfx3DMatrix.h"
 #include "nsISupportsImpl.h"
 #include "prlink.h"
 
@@ -38,6 +39,10 @@ typedef char realGLboolean;
 
 #include "mozilla/mozalloc.h"
 
+namespace android {
+class GraphicBuffer;
+}
+
 namespace mozilla {
   namespace layers {
     class LayerManagerOGL;
@@ -51,6 +56,7 @@ typedef uintptr_t SharedTextureHandle;
 
 enum ShaderProgramType {
     RGBALayerProgramType,
+    RGBALayerExternalProgramType,
     BGRALayerProgramType,
     RGBXLayerProgramType,
     BGRXLayerProgramType,
@@ -503,7 +509,7 @@ class GLContext
 public:
     GLContext(const ContextFormat& aFormat,
               bool aIsOffscreen = false,
-              GLContext *aSharedContext = nsnull)
+              GLContext *aSharedContext = nullptr)
       : mUserBoundDrawFBO(0),
         mUserBoundReadFBO(0),
         mInternalBoundDrawFBO(0),
@@ -554,6 +560,8 @@ public:
                 tip = tip->mSharedContext;
             tip->SharedContextDestroyed(this);
             tip->ReportOutstandingNames();
+        } else {
+            ReportOutstandingNames();
         }
 #endif
     }
@@ -586,6 +594,17 @@ public:
     bool MakeCurrent(bool aForce = false) {
 #ifdef DEBUG
         PR_SetThreadPrivate(sCurrentGLContextTLS, this);
+
+	// XXX this assertion is disabled because it's triggering on Mac;
+	// we need to figure out why and reenable it.
+#if 0
+        // IsOwningThreadCurrent is a bit of a misnomer;
+        // the "owning thread" is the creation thread,
+        // and the only thread that can own this.  We don't
+        // support contexts used on multiple threads.
+        NS_ASSERTION(IsOwningThreadCurrent(),
+                     "MakeCurrent() called on different thread than this context was created on!");
+#endif
 #endif
         return MakeCurrentImpl(aForce);
     }
@@ -599,7 +618,7 @@ public:
     virtual void ReleaseSurface() {}
 
     void *GetUserData(void *aKey) {
-        void *result = nsnull;
+        void *result = nullptr;
         mUserData.Get(aKey, &result);
         return result;
     }
@@ -614,7 +633,7 @@ public:
 
     bool IsDestroyed() {
         // MarkDestroyed will mark all these as null.
-        return mSymbols.fUseProgram == nsnull;
+        return mSymbols.fUseProgram == nullptr;
     }
 
     enum NativeDataType {
@@ -653,7 +672,7 @@ public:
     /**
      * If this GL context has a D3D texture share handle, returns non-null.
      */
-    virtual void *GetD3DShareHandle() { return nsnull; }
+    virtual void *GetD3DShareHandle() { return nullptr; }
 
     /**
      * If this context is double-buffered, returns TRUE.
@@ -743,6 +762,10 @@ public:
 
     virtual bool BindExternalBuffer(GLuint texture, void* buffer) { return false; }
     virtual bool UnbindExternalBuffer(GLuint texture) { return false; }
+
+    virtual already_AddRefed<TextureImage>
+    CreateDirectTextureImage(android::GraphicBuffer* aBuffer, GLenum aWrapMode)
+    { return nullptr; }
 
     /*
      * Offscreen support API
@@ -856,10 +879,26 @@ public:
         return IsExtensionSupported(EXT_framebuffer_blit) || IsExtensionSupported(ANGLE_framebuffer_blit);
     }
 
+    enum SharedTextureBufferType {
+        TextureID
+#ifdef MOZ_WIDGET_ANDROID
+        , SurfaceTexture
+#endif
+    };
+
     /**
      * Create new shared GLContext content handle, must be released by ReleaseSharedHandle.
      */
-    virtual SharedTextureHandle CreateSharedHandle(TextureImage::TextureShareType aType) { return nsnull; }
+    virtual SharedTextureHandle CreateSharedHandle(TextureImage::TextureShareType aType) { return 0; }
+    /*
+     * Create a new shared GLContext content handle, using the passed buffer as a source.
+     * Must be released by ReleaseSharedHandle. UpdateSharedHandle will have no effect
+     * on handles created with this method, as the caller owns the source (the passed buffer)
+     * and is responsible for updating it accordingly.
+     */
+    virtual SharedTextureHandle CreateSharedHandle(TextureImage::TextureShareType aType,
+                                                   void* aBuffer,
+                                                   SharedTextureBufferType aBufferType) { return 0; }
     /**
      * Publish GLContext content to intermediate buffer attached to shared handle.
      * Shared handle content is ready to be used after call returns, and no need extra Flush/Finish are required.
@@ -882,12 +921,28 @@ public:
      */
     virtual void ReleaseSharedHandle(TextureImage::TextureShareType aType,
                                      SharedTextureHandle aSharedHandle) { }
+
+
+    typedef struct {
+        GLenum mTarget;
+        ShaderProgramType mProgramType;
+        gfx3DMatrix mTextureTransform;
+    } SharedHandleDetails;
+
+    /**
+     * Returns information necessary for rendering a shared handle.
+     * These values change depending on what sharing mechanism is in use
+     */
+    virtual bool GetSharedHandleDetails(TextureImage::TextureShareType aType,
+                                        SharedTextureHandle aSharedHandle,
+                                        SharedHandleDetails& aDetails) { return false; }
     /**
      * Attach Shared GL Handle to GL_TEXTURE_2D target
      * GLContext must be current before this call
      */
     virtual bool AttachSharedHandle(TextureImage::TextureShareType aType,
                                     SharedTextureHandle aSharedHandle) { return false; }
+
     /**
      * Detach Shared GL Handle from GL_TEXTURE_2D target
      */
@@ -1308,7 +1363,7 @@ public:
                 TextureImage::ContentType aContentType,
                 TextureImage::Flags aFlags = TextureImage::NoFlags)
     {
-        return nsnull;
+        return nullptr;
     }
 
     /**
@@ -2558,7 +2613,7 @@ public:
         } else {
           // pass wrong values to cause the GL to generate GL_INVALID_VALUE.
           // See bug 737182 and the comment in IsTextureSizeSafeToPassToDriver.
-          mSymbols.fTexImage2D(target, -1, internalformat, -1, -1, -1, format, type, nsnull);
+          mSymbols.fTexImage2D(target, -1, internalformat, -1, -1, -1, format, type, nullptr);
         }
         AFTER_GL_CALL;
     }
@@ -3110,7 +3165,7 @@ public:
 
     struct NamedResource {
         NamedResource()
-            : origin(nsnull), name(0), originDeleted(false)
+            : origin(nullptr), name(0), originDeleted(false)
         { }
 
         NamedResource(GLContext *aOrigin, GLuint aName)

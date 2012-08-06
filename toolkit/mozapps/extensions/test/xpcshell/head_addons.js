@@ -90,7 +90,8 @@ function do_check_in_crash_annotation(aId, aVersion) {
   }
 
   let addons = gAppInfo.annotations["Add-ons"].split(",");
-  do_check_false(addons.indexOf(aId + ":" + aVersion) < 0);
+  do_check_false(addons.indexOf(encodeURIComponent(aId) + ":" +
+                                encodeURIComponent(aVersion)) < 0);
 }
 
 /**
@@ -112,7 +113,8 @@ function do_check_not_in_crash_annotation(aId, aVersion) {
   }
 
   let addons = gAppInfo.annotations["Add-ons"].split(",");
-  do_check_true(addons.indexOf(aId + ":" + aVersion) < 0);
+  do_check_true(addons.indexOf(encodeURIComponent(aId) + ":" +
+                               encodeURIComponent(aVersion)) < 0);
 }
 
 /**
@@ -463,6 +465,8 @@ function isItemInAddonsList(aType, aDir, aId) {
   xpiPath.append(aId + ".xpi");
   for (var i = 0; i < gAddonsList[aType].length; i++) {
     let file = gAddonsList[aType][i];
+    if (!file.exists())
+      do_throw("Non-existant path found in extensions.ini: " + file.path)
     if (file.isDirectory() && file.equals(path))
       return true;
     if (file.isFile() && file.equals(xpiPath))

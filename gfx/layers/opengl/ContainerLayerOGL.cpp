@@ -18,7 +18,7 @@ ContainerInsertAfter(Container* aContainer, Layer* aChild, Layer* aAfter)
     Layer *oldFirstChild = aContainer->GetFirstChild();
     aContainer->mFirstChild = aChild;
     aChild->SetNextSibling(oldFirstChild);
-    aChild->SetPrevSibling(nsnull);
+    aChild->SetPrevSibling(nullptr);
     if (oldFirstChild) {
       oldFirstChild->SetPrevSibling(aChild);
     } else {
@@ -55,18 +55,18 @@ ContainerRemoveChild(Container* aContainer, Layer* aChild)
   if (aContainer->GetFirstChild() == aChild) {
     aContainer->mFirstChild = aContainer->GetFirstChild()->GetNextSibling();
     if (aContainer->mFirstChild) {
-      aContainer->mFirstChild->SetPrevSibling(nsnull);
+      aContainer->mFirstChild->SetPrevSibling(nullptr);
     } else {
-      aContainer->mLastChild = nsnull;
+      aContainer->mLastChild = nullptr;
     }
-    aChild->SetNextSibling(nsnull);
-    aChild->SetPrevSibling(nsnull);
-    aChild->SetParent(nsnull);
+    aChild->SetNextSibling(nullptr);
+    aChild->SetPrevSibling(nullptr);
+    aChild->SetParent(nullptr);
     aContainer->DidRemoveChild(aChild);
     NS_RELEASE(aChild);
     return;
   }
-  Layer *lastChild = nsnull;
+  Layer *lastChild = nullptr;
   for (Layer *child = aContainer->GetFirstChild(); child; 
        child = child->GetNextSibling()) {
     if (child == aChild) {
@@ -77,9 +77,9 @@ ContainerRemoveChild(Container* aContainer, Layer* aChild)
       } else {
         aContainer->mLastChild = lastChild;
       }
-      child->SetNextSibling(nsnull);
-      child->SetPrevSibling(nsnull);
-      child->SetParent(nsnull);
+      child->SetNextSibling(nullptr);
+      child->SetPrevSibling(nullptr);
+      child->SetParent(nullptr);
       aContainer->DidRemoveChild(aChild);
       NS_RELEASE(aChild);
       return;
@@ -117,7 +117,7 @@ GetNextSibling(LayerOGL* aLayer)
    Layer* layer = aLayer->GetLayer()->GetNextSibling();
    return layer ? static_cast<LayerOGL*>(layer->
                                          ImplData())
-                 : nsnull;
+                 : nullptr;
 }
 
 static bool
@@ -317,7 +317,7 @@ LayerOGL*
 ContainerLayerOGL::GetFirstChildOGL()
 {
   if (!mFirstChild) {
-    return nsnull;
+    return nullptr;
   }
   return static_cast<LayerOGL*>(mFirstChild->ImplData());
 }
@@ -344,7 +344,18 @@ ShadowContainerLayerOGL::ShadowContainerLayerOGL(LayerManagerOGL *aManager)
  
 ShadowContainerLayerOGL::~ShadowContainerLayerOGL()
 {
-  Destroy();
+  // We don't Destroy() on destruction here because this destructor
+  // can be called after remote content has crashed, and it may not be
+  // safe to free the IPC resources of our children.  Those resources
+  // are automatically cleaned up by IPDL-generated code.
+  //
+  // In the common case of normal shutdown, either
+  // LayerManagerOGL::Destroy(), a parent
+  // *ContainerLayerOGL::Destroy(), or Disconnect() will trigger
+  // cleanup of our resources.
+  while (mFirstChild) {
+    ContainerRemoveChild(this, mFirstChild);
+  }
 }
 
 void
@@ -369,7 +380,7 @@ LayerOGL*
 ShadowContainerLayerOGL::GetFirstChildOGL()
 {
   if (!mFirstChild) {
-    return nsnull;
+    return nullptr;
    }
   return static_cast<LayerOGL*>(mFirstChild->ImplData());
 }
@@ -410,7 +421,7 @@ LayerOGL*
 ShadowRefLayerOGL::GetFirstChildOGL()
 {
   if (!mFirstChild) {
-    return nsnull;
+    return nullptr;
    }
   return static_cast<LayerOGL*>(mFirstChild->ImplData());
 }

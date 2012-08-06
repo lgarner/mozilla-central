@@ -17,9 +17,15 @@
 #include "nsIWebNavigation.h"
 #include "nsITabChild.h"
 #include "nsIDocShell.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "WindowIdentifier.h"
 #include "mozilla/dom/ScreenOrientation.h"
+
+#ifdef XP_WIN
+#include <process.h>
+#define getpid _getpid
+#endif
 
 using namespace mozilla::services;
 
@@ -74,7 +80,7 @@ WindowIsActive(nsIDOMWindow *window)
   return !hidden;
 }
 
-nsAutoPtr<WindowIdentifier::IDArrayType> gLastIDToVibrate;
+StaticAutoPtr<WindowIdentifier::IDArrayType> gLastIDToVibrate;
 
 void InitLastIDToVibrate()
 {
@@ -237,6 +243,7 @@ public:
     }
 
     GetCurrentInformationInternal(&mInfo);
+    mHasValidCache = true;
     return mInfo;
   }
 
@@ -480,7 +487,7 @@ UnregisterSensorObserver(SensorType aSensor, ISensorObserver *aObserver) {
     }
   }
   delete [] gSensorObservers;
-  gSensorObservers = nsnull;
+  gSensorObservers = nullptr;
 }
 
 void
@@ -719,11 +726,22 @@ NotifyAlarmFired()
 }
 
 bool
-SetAlarm(long aSeconds, long aNanoseconds)
+SetAlarm(PRInt32 aSeconds, PRInt32 aNanoseconds)
 {
   // It's pointless to program an alarm nothing is going to observe ...
   MOZ_ASSERT(sAlarmObserver);
   RETURN_PROXY_IF_SANDBOXED(SetAlarm(aSeconds, aNanoseconds));
+}
+
+void
+SetProcessPriority(int aPid, ProcessPriority aPriority)
+{
+  if (InSandbox()) {
+    hal_sandbox::SetProcessPriority(aPid, aPriority);
+  }
+  else {
+    hal_impl::SetProcessPriority(aPid, aPriority);
+  }
 }
 
 } // namespace hal

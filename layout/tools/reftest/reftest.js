@@ -486,8 +486,13 @@ function BuildConditionSandbox(aURL) {
     } catch (e) {
       sandbox.d2d = false;
     }
-    sandbox.azureQuartz = gfxInfo.getInfo().AzureBackend == "quartz";
-    sandbox.azureSkia = gfxInfo.getInfo().AzureBackend == "skia";
+    
+    var info = gfxInfo.getInfo();
+    sandbox.azureQuartz = info.AzureCanvasBackend == "quartz";
+    sandbox.azureSkia = info.AzureCanvasBackend == "skia";
+    // true if we are using the same Azure backend for rendering canvas and content
+    sandbox.contentSameGfxBackendAsCanvas = info.AzureContentBackend == info.AzureCanvasBackend
+                                            || (info.AzureContentBackend == "none" && info.AzureCanvasBackend == "cairo");
 
     sandbox.layersGPUAccelerated =
       gWindowUtils.layerManagerType != "Basic";
@@ -809,7 +814,7 @@ function ReadManifest(aURL, inherited_status)
             }
         }
 
-        var principal = secMan.getCodebasePrincipal(aURL);
+        var principal = secMan.getSimpleCodebasePrincipal(aURL);
 
         if (items[0] == "include") {
             if (items.length != 2 || runHttp)
@@ -1455,7 +1460,7 @@ function RecordResult(testRunTime, errorMsg, scriptResults)
                 if (!equal) {
                     gDumpLog("REFTEST   IMAGE 1 (TEST): " + gCanvas1.toDataURL() + "\n");
                     gDumpLog("REFTEST   IMAGE 2 (REFERENCE): " + gCanvas2.toDataURL() + "\n");
-                    gDumpLog("REFTEST number of differing pixels: " + differences + " max difference: " + maxDifference.value + "\n");
+                    gDumpLog("REFTEST max difference: " + maxDifference.value + " number of differing pixels: " + differences + "\n");
                 } else {
                     gDumpLog("REFTEST   IMAGE: " + gCanvas1.toDataURL() + "\n");
                 }

@@ -23,7 +23,6 @@
 #include "nsSubDocumentFrame.h"
 #include "nsViewportFrame.h"
 #include "RenderFrameParent.h"
-#include "LayersBackend.h"
 
 typedef nsContentView::ViewConfig ViewConfig;
 using namespace mozilla::dom;
@@ -246,6 +245,7 @@ TransformShadowTree(nsDisplayListBuilder* aBuilder, nsFrameLoader* aFrameLoader,
   ShadowLayer* shadow = aLayer->AsShadowLayer();
   shadow->SetShadowClipRect(aLayer->GetClipRect());
   shadow->SetShadowVisibleRegion(aLayer->GetVisibleRegion());
+  shadow->SetShadowOpacity(aLayer->GetOpacity());
 
   const FrameMetrics* metrics = GetFrameMetrics(aLayer);
 
@@ -297,6 +297,18 @@ TransformShadowTree(nsDisplayListBuilder* aBuilder, nsFrameLoader* aFrameLoader,
     }
   }
 
+  // The transform already takes the resolution scale into account.  Since we
+  // will apply the resolution scale again when computing the effective
+  // transform, we must apply the inverse resolution scale here.
+  if (ContainerLayer* c = aLayer->AsContainerLayer()) {
+    shadowTransform.Scale(1.0f/c->GetPreXScale(),
+                          1.0f/c->GetPreYScale(),
+                          1);
+  }
+  shadowTransform.ScalePost(1.0f/aLayer->GetPostXScale(),
+                            1.0f/aLayer->GetPostYScale(),
+                            1);
+
   shadow->SetShadowTransform(shadowTransform);
   for (Layer* child = aLayer->GetFirstChild();
        child; child = child->GetNextSibling()) {
@@ -317,7 +329,7 @@ ClearContainer(ContainerLayer* aContainer)
 // used for small software rendering tasks, like drawWindow.  That's
 // currently implemented by a BasicLayerManager without a backing
 // widget, and hence in non-retained mode.
-static bool
+inline static bool
 IsTempLayerManager(LayerManager* aManager)
 {
   return (mozilla::layers::LAYERS_BASIC == aManager->GetBackendType() &&
@@ -446,7 +458,7 @@ BuildBackgroundPatternFor(ContainerLayer* aContainer,
   bgRgn.MoveBy(-frameRect.TopLeft());
   layer->SetVisibleRegion(bgRgn);
 
-  aContainer->InsertAfter(layer, nsnull);
+  aContainer->InsertAfter(layer, nullptr);
 }
 
 already_AddRefed<LayerManager>
@@ -480,7 +492,7 @@ public:
     }
   }
 
-  void ClearRenderFrame() { mRenderFrame = nsnull; }
+  void ClearRenderFrame() { mRenderFrame = nullptr; }
 
 private:
   MessageLoop* mUILoop;
@@ -557,6 +569,7 @@ RenderFrameParent::ContentViewScaleChanged(nsContentView* aView)
 
 void
 RenderFrameParent::ShadowLayersUpdated(ShadowLayersParent* aLayerTree,
+                                       const TargetConfig& aTargetConfig,
                                        bool isFirstPaint)
 {
   // View map must only contain views that are associated with the current
@@ -587,7 +600,7 @@ RenderFrameParent::BuildLayer(nsDisplayListBuilder* aBuilder,
     // draw a manager's subtree.  The latter is bad bad bad, but the
     // the NS_ABORT_IF_FALSE() above will flag it.  Returning NULL
     // here will just cause the shadow subtree not to be rendered.
-    return nsnull;
+    return nullptr;
   }
 
   uint64_t id = GetLayerTreeId();
@@ -598,12 +611,12 @@ RenderFrameParent::BuildLayer(nsDisplayListBuilder* aBuilder,
     if (!layer) {
       // Probably a temporary layer manager that doesn't know how to
       // use ref layers.
-      return nsnull;
+      return nullptr;
     }
     layer->SetReferentId(id);
     layer->SetVisibleRegion(aVisibleRect);
     nsIntPoint rootFrameOffset = GetRootFrameOffset(aFrame, aBuilder);
-    layer->SetTransform(
+    layer->SetBaseTransform(
       gfx3DMatrix::Translation(rootFrameOffset.x, rootFrameOffset.y, 0.0));
 
     return layer.forget();
@@ -611,12 +624,14 @@ RenderFrameParent::BuildLayer(nsDisplayListBuilder* aBuilder,
 
   if (mContainer) {
     ClearContainer(mContainer);
+    mContainer->SetPreScale(1.0f, 1.0f);
+    mContainer->SetPostScale(1.0f, 1.0f);
   }
 
   ContainerLayer* shadowRoot = GetRootLayer();
   if (!shadowRoot) {
-    mContainer = nsnull;
-    return nsnull;
+    mContainer = nullptr;
+    return nullptr;
   }
 
   NS_ABORT_IF_FALSE(!shadowRoot || shadowRoot->Manager() == aManager,
@@ -629,12 +644,12 @@ RenderFrameParent::BuildLayer(nsDisplayListBuilder* aBuilder,
   NS_ABORT_IF_FALSE(!mContainer->GetFirstChild(),
                     "container of shadow tree shouldn't have a 'root' here");
 
-  mContainer->InsertAfter(shadowRoot, nsnull);
+  mContainer->InsertAfter(shadowRoot, nullptr);
 
   AssertInTopLevelChromeDoc(mContainer, aFrame);
   ViewTransform transform;
   TransformShadowTree(aBuilder, mFrameLoader, aFrame, shadowRoot, transform);
-  mContainer->SetClipRect(nsnull);
+  mContainer->SetClipRect(nullptr);
 
   if (mFrameLoader->AsyncScrollEnabled()) {
     const nsContentView* view = GetContentView(FrameMetrics::ROOT_SCROLL_ID);
@@ -693,9 +708,9 @@ RenderFrameParent::ActorDestroy(ActorDestroyReason why)
     // why==NormalShutdown, we'll definitely want to do something
     // better, especially as nothing guarantees another Update() from
     // the "next" remote layer tree.
-    mFrameLoader->SetCurrentRemoteFrame(nsnull);
+    mFrameLoader->SetCurrentRemoteFrame(nullptr);
   }
-  mFrameLoader = nsnull;
+  mFrameLoader = nullptr;
 }
 
 bool
@@ -709,7 +724,7 @@ PLayersParent*
 RenderFrameParent::AllocPLayers()
 {
   if (!mFrameLoader || mFrameLoaderDestroyed) {
-    return nsnull;
+    return nullptr;
   }
   nsRefPtr<LayerManager> lm = GetFrom(mFrameLoader);
   return new ShadowLayersParent(lm->AsShadowManager(), this, 0);
@@ -791,7 +806,7 @@ RenderFrameParent::GetShadowLayers() const
   NS_ABORT_IF_FALSE(shadowParents.Length() <= 1,
                     "can only support at most 1 ShadowLayersParent");
   return (shadowParents.Length() == 1) ?
-    static_cast<ShadowLayersParent*>(shadowParents[0]) : nsnull;
+    static_cast<ShadowLayersParent*>(shadowParents[0]) : nullptr;
 }
 
 uint64_t
@@ -804,7 +819,7 @@ ContainerLayer*
 RenderFrameParent::GetRootLayer() const
 {
   ShadowLayersParent* shadowLayers = GetShadowLayers();
-  return shadowLayers ? shadowLayers->GetRoot() : nsnull;
+  return shadowLayers ? shadowLayers->GetRoot() : nullptr;
 }
 
 NS_IMETHODIMP

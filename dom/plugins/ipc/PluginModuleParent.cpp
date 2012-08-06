@@ -30,6 +30,9 @@
 #include "nsCRT.h"
 #include "nsNPAPIPlugin.h"
 #include "nsIFile.h"
+#include "nsPrintfCString.h"
+
+#include "prsystem.h"
 
 #ifdef XP_WIN
 #include "mozilla/widget/AudioSession.h"
@@ -79,7 +82,7 @@ PluginModuleParent::LoadModule(const char* aFilePath)
     if (!launched) {
         // Need to set this so the destructor doesn't complain.
         parent->mShutdown = true;
-        return nsnull;
+        return nullptr;
     }
     parent->Open(parent->mSubprocess->GetChannel(),
                  parent->mSubprocess->GetChildProcessHandle());
@@ -90,7 +93,7 @@ PluginModuleParent::LoadModule(const char* aFilePath)
     // If this fails, we're having IPC troubles, and we're doomed anyways.
     if (!CrashReporterParent::CreateCrashReporter(parent.get())) {
         parent->mShutdown = true;
-        return nsnull;
+        return nullptr;
     }
 #endif
 
@@ -106,6 +109,9 @@ PluginModuleParent::PluginModuleParent(const char* aFilePath)
     , mNPNIface(NULL)
     , mPlugin(NULL)
     , mTaskFactory(this)
+#ifdef XP_WIN
+    , mPluginCpuUsageOnHang(-1)
+#endif
 #ifdef MOZ_CRASHREPORTER_INJECTOR
     , mFlashProcess1(0)
     , mFlashProcess2(0)
@@ -132,7 +138,7 @@ PluginModuleParent::~PluginModuleParent()
 
     if (mSubprocess) {
         mSubprocess->Delete();
-        mSubprocess = nsnull;
+        mSubprocess = nullptr;
     }
 
 #ifdef MOZ_CRASHREPORTER_INJECTOR
@@ -169,8 +175,17 @@ PluginModuleParent::WriteExtraDataForMinidump(AnnotationTable& notes)
     CrashReporterParent* crashReporter = CrashReporter();
     if (crashReporter) {
         const nsString& hangID = crashReporter->HangID();
-        if (!hangID.IsEmpty())
+        if (!hangID.IsEmpty()) {
             notes.Put(CS("HangID"), NS_ConvertUTF16toUTF8(hangID));
+#ifdef XP_WIN
+            if (mPluginCpuUsageOnHang >= 0) {
+              notes.Put(CS("PluginCpuUsage"), 
+                        nsPrintfCString("%.2f", mPluginCpuUsageOnHang));
+              notes.Put(CS("NumberOfProcessors"),
+                        nsPrintfCString("%d", PR_GetNumberOfProcessors()));
+            }
+#endif
+        }
     }
 }
 #endif  // MOZ_CRASHREPORTER
@@ -200,6 +215,60 @@ PluginModuleParent::CleanupFromTimeout()
         Close();
 }
 
+#ifdef XP_WIN
+namespace {
+
+PRUint64
+FileTimeToUTC(const FILETIME& ftime) 
+{
+  ULARGE_INTEGER li;
+  li.LowPart = ftime.dwLowDateTime;
+  li.HighPart = ftime.dwHighDateTime;
+  return li.QuadPart;
+}
+
+bool 
+GetProcessCpuUsage(const base::ProcessHandle& processHandle, float& cpuUsage)
+{
+  FILETIME creationTime, exitTime, kernelTime, userTime, currentTime;
+  BOOL res;
+
+  ::GetSystemTimeAsFileTime(&currentTime);
+  res = ::GetProcessTimes(processHandle, &creationTime, &exitTime, &kernelTime, &userTime);
+  if (!res) {
+    NS_WARNING("failed to get process times");
+    return false;
+  }
+
+  PRUint64 sampleTimes[2];
+  PRUint64 cpuTimes[2];
+  
+  sampleTimes[0] = FileTimeToUTC(currentTime);
+  cpuTimes[0]    = FileTimeToUTC(kernelTime) + FileTimeToUTC(userTime);
+
+  // we already hung for a while, a little bit longer won't matter
+  ::Sleep(50);
+
+  ::GetSystemTimeAsFileTime(&currentTime);
+  res = ::GetProcessTimes(processHandle, &creationTime, &exitTime, &kernelTime, &userTime);
+  if (!res) {
+    NS_WARNING("failed to get process times");
+    return false;
+  }
+
+  sampleTimes[1] = FileTimeToUTC(currentTime);
+  cpuTimes[1]    = FileTimeToUTC(kernelTime) + FileTimeToUTC(userTime);    
+
+  const PRUint64 deltaSampleTime = sampleTimes[1] - sampleTimes[0];
+  const PRUint64 deltaCpuTime    = cpuTimes[1]    - cpuTimes[0];
+  cpuUsage = 100.f * (float(deltaCpuTime) / deltaSampleTime) / PR_GetNumberOfProcessors();
+
+  return true;
+}
+
+} // anonymous namespace
+#endif // #ifdef XP_WIN
+
 bool
 PluginModuleParent::ShouldContinueFromReplyTimeout()
 {
@@ -215,6 +284,13 @@ PluginModuleParent::ShouldContinueFromReplyTimeout()
                  NS_ConvertUTF16toUTF8(crashReporter->HangID()).get()));
     } else {
         NS_WARNING("failed to capture paired minidumps from hang");
+    }
+#endif
+
+#ifdef XP_WIN
+    float cpuUsage;
+    if (GetProcessCpuUsage(OtherProcess(), cpuUsage)) {
+      mPluginCpuUsageOnHang = cpuUsage;
     }
 #endif
 
@@ -385,7 +461,7 @@ PluginModuleParent::AllocPPluginIdentifier(const nsCString& aString,
 
     if (!npident) {
         NS_WARNING("Failed to get identifier!");
-        return nsnull;
+        return nullptr;
     }
 
     PluginIdentifierParent* ident = new PluginIdentifierParent(npident, false);
@@ -423,7 +499,7 @@ void
 PluginModuleParent::SetPluginFuncs(NPPluginFuncs* aFuncs)
 {
     aFuncs->version = (NP_VERSION_MAJOR << 8) | NP_VERSION_MINOR;
-    aFuncs->javaClass = nsnull;
+    aFuncs->javaClass = nullptr;
 
     // Gecko should always call these functions through a PluginLibrary object.
     aFuncs->newp = NULL;
@@ -475,7 +551,7 @@ PluginModuleParent::NPP_Destroy(NPP instance,
         return NPERR_NO_ERROR;
 
     NPError retval = parentInstance->Destroy();
-    instance->pdata = nsnull;
+    instance->pdata = nullptr;
 
     unused << PluginInstanceParent::Call__delete__(parentInstance);
     return retval;
@@ -634,7 +710,7 @@ PluginModuleParent::NPP_URLRedirectNotify(NPP instance, const char* url,
 bool
 PluginModuleParent::AnswerNPN_UserAgent(nsCString* userAgent)
 {
-    *userAgent = NullableString(mNPNIface->uagent(nsnull));
+    *userAgent = NullableString(mNPNIface->uagent(nullptr));
     return true;
 }
 
@@ -656,7 +732,7 @@ PluginModuleParent::GetIdentifierForNPIdentifier(NPP npp, NPIdentifier aIdentifi
         NPUTF8* chars =
             mozilla::plugins::parent::_utf8fromidentifier(aIdentifier);
         if (!chars) {
-            return nsnull;
+            return nullptr;
         }
         string.Adopt(chars);
         temporary = !NPStringIdentifierIsPermanent(npp, aIdentifier);
@@ -668,7 +744,7 @@ PluginModuleParent::GetIdentifierForNPIdentifier(NPP npp, NPIdentifier aIdentifi
 
     ident = new PluginIdentifierParent(aIdentifier, temporary);
     if (!SendPPluginIdentifierConstructor(ident, string, intval, temporary))
-        return nsnull;
+        return nullptr;
 
     if (!temporary) {
         mIdentifiers.Put(aIdentifier, ident);
@@ -957,7 +1033,7 @@ PluginModuleParent::NPP_New(NPMIMEType pluginType, NPP instance,
                                         nsDependentCString(pluginType), mode,
                                         names, values, error)) {
         // |parentInstance| is automatically deleted.
-        instance->pdata = nsnull;
+        instance->pdata = nullptr;
         // if IPC is down, we'll get an immediate "failed" return, but
         // without *error being set.  So make sure that the error
         // condition is signaled to nsNPAPIPluginInstance
@@ -1029,7 +1105,7 @@ PluginModuleParent::AnswerNPN_GetValue_WithBoolReturn(const NPNVariable& aVariab
                                                       bool* aBoolVal)
 {
     NPBool boolVal = false;
-    *aError = mozilla::plugins::parent::_getvalue(nsnull, aVariable, &boolVal);
+    *aError = mozilla::plugins::parent::_getvalue(nullptr, aVariable, &boolVal);
     *aBoolVal = boolVal ? true : false;
     return true;
 }
@@ -1145,7 +1221,7 @@ PluginModuleParent::AllocPCrashReporter(mozilla::dom::NativeThreadId* id,
 #ifdef MOZ_CRASHREPORTER
     return new CrashReporterParent();
 #else
-    return nsnull;
+    return nullptr;
 #endif
 }
 

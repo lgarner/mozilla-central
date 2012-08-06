@@ -5,11 +5,11 @@
 
 package org.mozilla.gecko;
 
-import java.util.ArrayList;
+import org.mozilla.gecko.PropertyAnimator.Property;
 
 import android.content.Context;
-import android.graphics.drawable.Drawable;
 import android.graphics.PointF;
+import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.GestureDetector;
@@ -27,13 +27,14 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 
-import org.mozilla.gecko.PropertyAnimator.Property;
+import java.util.ArrayList;
 
 public class TabsTray extends LinearLayout 
                       implements TabsPanel.PanelView {
     private static final String LOGTAG = "GeckoTabsTray";
 
     private Context mContext;
+    private TabsPanel mTabsPanel;
 
     private static ListView mList;
     private TabsAdapter mTabsAdapter;
@@ -105,6 +106,11 @@ public class TabsTray extends LinearLayout
     }
 
     @Override
+    public void setTabsPanel(TabsPanel panel) {
+        mTabsPanel = panel;
+    }
+
+    @Override
     public void show() {
         mWaitingForClose = false;
         Tabs.getInstance().refreshThumbnails();
@@ -119,8 +125,8 @@ public class TabsTray extends LinearLayout
         mTabsAdapter.clear();
     }
 
-    void autoHideTabs() {
-        GeckoApp.mAppContext.autoHideTabs();
+    void autoHidePanel() {
+        mTabsPanel.autoHidePanel();
     }
 
     // ViewHolder for a row in the list
@@ -360,7 +366,7 @@ public class TabsTray extends LinearLayout
                     TabRow tab = (TabRow)mView.getTag();
                     int tabId = tab.id;
                     Tabs.getInstance().selectTab(tabId);
-                    autoHideTabs();
+                    autoHidePanel();
                 }
             }
 

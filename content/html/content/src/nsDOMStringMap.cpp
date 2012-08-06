@@ -21,7 +21,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsDOMStringMap)
   if (tmp->mElement) {
     // Call back to element to null out weak reference to this object.
     tmp->mElement->ClearDataset();
-    tmp->mElement = nsnull;
+    tmp->mElement = nullptr;
   }
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
@@ -89,7 +89,7 @@ NS_IMETHODIMP_(bool) nsDOMStringMap::HasDataAttr(const nsAString& aProp)
 
 /* [noscript] DOMString getDataAttr (in DOMString prop); */
 NS_IMETHODIMP nsDOMStringMap::GetDataAttr(const nsAString& aProp,
-                                          nsAString& aResult NS_OUTPARAM)
+                                          nsAString& aResult)
 {
   nsAutoString attr;
 

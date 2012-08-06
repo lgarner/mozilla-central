@@ -13,7 +13,6 @@
 
 #ifdef MOZ_JAVA_COMPOSITOR
 #include "AndroidJavaWrappers.h"
-#include "Layers.h"
 #endif
 
 class gfxASurface;
@@ -27,6 +26,7 @@ namespace mozilla {
     namespace layers {
         class CompositorParent;
         class CompositorChild;
+        class LayerManager;
     }
 }
 
@@ -96,7 +96,7 @@ public:
                            bool aActivate);
     NS_IMETHOD SetSizeMode(PRInt32 aMode);
     NS_IMETHOD Enable(bool aState);
-    NS_IMETHOD IsEnabled(bool *aState);
+    virtual bool IsEnabled() const;
     NS_IMETHOD Invalidate(const nsIntRect &aRect);
     NS_IMETHOD SetFocus(bool aRaise = false);
     NS_IMETHOD GetScreenBounds(nsIntRect &aRect);
@@ -140,10 +140,10 @@ public:
     NS_IMETHOD OnIMESelectionChange(void);
     virtual nsIMEUpdatePreference GetIMEUpdatePreference();
 
-    LayerManager* GetLayerManager (PLayersChild* aShadowManager = nsnull,
+    LayerManager* GetLayerManager (PLayersChild* aShadowManager = nullptr,
                                    LayersBackend aBackendHint = mozilla::layers::LAYERS_NONE,
                                    LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
-                                   bool* aAllowRetaining = nsnull);
+                                   bool* aAllowRetaining = nullptr);
 
     NS_IMETHOD ReparentNativeWidget(nsIWidget* aNewParent);
 

@@ -62,10 +62,10 @@ CanvasLayerOGL::Destroy()
 void
 CanvasLayerOGL::Initialize(const Data& aData)
 {
-  NS_ASSERTION(mCanvasSurface == nsnull, "BasicCanvasLayer::Initialize called twice!");
+  NS_ASSERTION(mCanvasSurface == nullptr, "BasicCanvasLayer::Initialize called twice!");
 
-  if (aData.mGLContext != nsnull &&
-      aData.mSurface != nsnull)
+  if (aData.mGLContext != nullptr &&
+      aData.mSurface != nullptr)
   {
     NS_WARNING("CanvasLayerOGL can't have both surface and GLContext");
     return;
@@ -75,6 +75,7 @@ CanvasLayerOGL::Initialize(const Data& aData)
 
   if (aData.mDrawTarget) {
     mDrawTarget = aData.mDrawTarget;
+    mCanvasSurface = gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mDrawTarget);
     mNeedsYFlip = false;
   } else if (aData.mSurface) {
     mCanvasSurface = aData.mSurface;
@@ -123,6 +124,43 @@ CanvasLayerOGL::Initialize(const Data& aData)
   }
 }
 
+#ifdef XP_MACOSX
+static GLuint
+MakeIOSurfaceTexture(void* aCGIOSurfaceContext, mozilla::gl::GLContext* aGL)
+{
+  GLuint ioSurfaceTexture;
+
+  aGL->fGenTextures(1, &ioSurfaceTexture);
+
+  aGL->fActiveTexture(LOCAL_GL_TEXTURE0);
+  aGL->fBindTexture(LOCAL_GL_TEXTURE_RECTANGLE_ARB, ioSurfaceTexture);
+
+  aGL->fTexParameteri(LOCAL_GL_TEXTURE_RECTANGLE_ARB, LOCAL_GL_TEXTURE_MIN_FILTER, LOCAL_GL_LINEAR);
+  aGL->fTexParameteri(LOCAL_GL_TEXTURE_RECTANGLE_ARB, LOCAL_GL_TEXTURE_MAG_FILTER, LOCAL_GL_LINEAR);
+  aGL->fTexParameteri(LOCAL_GL_TEXTURE_RECTANGLE_ARB, LOCAL_GL_TEXTURE_WRAP_S, LOCAL_GL_CLAMP_TO_EDGE);
+  aGL->fTexParameteri(LOCAL_GL_TEXTURE_RECTANGLE_ARB, LOCAL_GL_TEXTURE_WRAP_T, LOCAL_GL_CLAMP_TO_EDGE);
+
+  RefPtr<MacIOSurface> ioSurface = MacIOSurface::IOSurfaceContextGetSurface((CGContextRef)aCGIOSurfaceContext);
+  void *nativeCtx = aGL->GetNativeData(GLContext::NativeGLContext);
+
+  ioSurface->CGLTexImageIOSurface2D(nativeCtx,
+                                    LOCAL_GL_RGBA, LOCAL_GL_BGRA,
+                                    LOCAL_GL_UNSIGNED_INT_8_8_8_8_REV, 0);
+
+  aGL->fBindTexture(LOCAL_GL_TEXTURE_RECTANGLE_ARB, 0);
+
+  return ioSurfaceTexture;
+}
+
+#else
+static GLuint
+MakeIOSurfaceTexture(void* aCGIOSurfaceContext, mozilla::gl::GLContext* aGL)
+{
+  NS_RUNTIMEABORT("Not implemented");
+  return 0;
+}
+#endif
+
 /**
  * Following UpdateSurface(), mTexture on context this->gl() should contain the data we want,
  * unless mDelayedUpdates is true because of a too-large surface.
@@ -162,11 +200,7 @@ CanvasLayerOGL::UpdateSurface()
   } else {
     nsRefPtr<gfxASurface> updatedAreaSurface;
 
-    if (mDrawTarget) {
-      // TODO: This is suboptimal - We should have direct handling for the surface types instead of
-      // going via a gfxASurface.
-      updatedAreaSurface = gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mDrawTarget);
-    } else if (mCanvasSurface) {
+    if (mCanvasSurface) {
       updatedAreaSurface = mCanvasSurface;
     } else if (mCanvasGLContext) {
       gfxIntSize size(mBounds.width, mBounds.height);
@@ -206,10 +240,10 @@ CanvasLayerOGL::RenderLayer(int aPreviousDestination,
   gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
 
   if (mTexture) {
-    gl()->fBindTexture(LOCAL_GL_TEXTURE_2D, mTexture);
+    gl()->fBindTexture(mTextureTarget, mTexture);
   }
 
-  ShaderProgramOGL *program = nsnull;
+  ShaderProgramOGL *program = nullptr;
 
   bool useGLContext = mCanvasGLContext &&
     mCanvasGLContext->GetContextType() == gl()->GetContextType();
@@ -226,13 +260,8 @@ CanvasLayerOGL::RenderLayer(int aPreviousDestination,
     
     drawRect.IntersectRect(drawRect, GetEffectiveVisibleRegion().GetBounds());
 
-    nsRefPtr<gfxASurface> surf = mCanvasSurface;
-    if (mDrawTarget) {
-      surf = gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mDrawTarget);
-    }
-
     mLayerProgram =
-      gl()->UploadSurfaceToTexture(surf,
+      gl()->UploadSurfaceToTexture(mCanvasSurface,
                                    nsIntRect(0, 0, drawRect.width, drawRect.height),
                                    mTexture,
                                    true,
@@ -252,6 +281,10 @@ CanvasLayerOGL::RenderLayer(int aPreviousDestination,
   gl()->ApplyFilterToBoundTexture(mFilter);
 
   program->Activate();
+  if (mLayerProgram == gl::RGBARectLayerProgramType) {
+    // This is used by IOSurface that use 0,0...w,h coordinate rather then 0,0..1,1.
+    program->SetTexCoordMultiplier(mDrawTarget->GetSize().width, mDrawTarget->GetSize().height);
+  }
   program->SetLayerQuadRect(drawRect);
   program->SetLayerTransform(GetEffectiveTransform());
   program->SetLayerOpacity(GetEffectiveOpacity());
@@ -292,14 +325,14 @@ IsValidSharedTexDescriptor(const SurfaceDescriptor& aDescriptor)
 }
 
 ShadowCanvasLayerOGL::ShadowCanvasLayerOGL(LayerManagerOGL* aManager)
-  : ShadowCanvasLayer(aManager, nsnull)
+  : ShadowCanvasLayer(aManager, nullptr)
   , LayerOGL(aManager)
   , mNeedsYFlip(false)
   , mTexture(0)
 {
   mImplData = static_cast<LayerOGL*>(this);
 }
- 
+
 ShadowCanvasLayerOGL::~ShadowCanvasLayerOGL()
 {}
 
@@ -335,7 +368,7 @@ ShadowCanvasLayerOGL::Swap(const CanvasSurface& aNewFront,
   if (IsValidSharedTexDescriptor(aNewFront)) {
     MakeTextureIfNeeded(gl(), mTexture);
     if (!IsValidSharedTexDescriptor(mFrontBufferDescriptor)) {
-      mFrontBufferDescriptor = SharedTextureDescriptor(TextureImage::ThreadShared, 0, nsIntSize(0, 0));
+      mFrontBufferDescriptor = SharedTextureDescriptor(TextureImage::ThreadShared, 0, nsIntSize(0, 0), false);
     }
     *aNewBack = mFrontBufferDescriptor;
     mFrontBufferDescriptor = aNewFront;
@@ -356,7 +389,7 @@ ShadowCanvasLayerOGL::Swap(const CanvasSurface& aNewFront,
 void
 ShadowCanvasLayerOGL::DestroyFrontBuffer()
 {
-  mTexImage = nsnull;
+  mTexImage = nullptr;
   if (mTexture) {
     gl()->MakeCurrent();
     gl()->fDeleteTextures(1, &mTexture);

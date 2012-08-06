@@ -8,6 +8,7 @@
 #define _nsDiskCacheBlockFile_h_
 
 #include "nsIFile.h"
+#include "nsDiskCache.h"
 
 /******************************************************************************
  *  nsDiskCacheBlockFile
@@ -20,8 +21,8 @@
 class nsDiskCacheBlockFile {
 public:
     nsDiskCacheBlockFile()
-           : mFD(nsnull)
-           , mBitMap(nsnull)
+           : mFD(nullptr)
+           , mBitMap(nullptr)
            , mBlockSize(0)
            , mBitMapWords(0)
            , mFileSize(0)
@@ -30,9 +31,9 @@ public:
     ~nsDiskCacheBlockFile() { (void) Close(true); }
     
     nsresult  Open( nsIFile *  blockFile, PRUint32  blockSize,
-                    PRUint32  bitMapSize);
+                    PRUint32  bitMapSize, nsDiskCache::CorruptCacheInfo *  corruptInfo);
     nsresult  Close(bool flush);
-    
+
     /*
      * Trim
      * Truncates the block file to the end of the last allocated block.

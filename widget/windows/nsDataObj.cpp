@@ -30,7 +30,13 @@
 #include "nsITimer.h"
 #include "nsThreadUtils.h"
 
+#include "WinUtils.h"
+#include "mozilla/LazyIdleThread.h"
+
+
 using namespace mozilla;
+
+#define DEFAULT_THREAD_TIMEOUT_MS 30000
 
 NS_IMPL_ISUPPORTS1(nsDataObj::CStream, nsIStreamListener)
 
@@ -53,10 +59,10 @@ nsresult nsDataObj::CStream::Init(nsIURI *pSourceURI)
 {
   nsresult rv;
   rv = NS_NewChannel(getter_AddRefs(mChannel), pSourceURI,
-                     nsnull, nsnull, nsnull,
+                     nullptr, nullptr, nullptr,
                      nsIRequest::LOAD_FROM_CACHE);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = mChannel->AsyncOpen(this, nsnull);
+  rv = mChannel->AsyncOpen(this, nullptr);
   NS_ENSURE_SUCCESS(rv, rv);
   return NS_OK;
 }
@@ -134,7 +140,7 @@ nsresult nsDataObj::CStream::WaitForCompletion()
   // We are guaranteed OnStopRequest will get called, so this should be ok.
   while (!mChannelRead) {
     // Pump messages
-    NS_ProcessNextEvent(nsnull, true);
+    NS_ProcessNextEvent(nullptr, true);
   }
 
   if (!mChannelData.Length())
@@ -342,9 +348,12 @@ static GUID CLSID_nsDataObj =
 // construction 
 //-----------------------------------------------------
 nsDataObj::nsDataObj(nsIURI * uri)
-  : m_cRef(0), mTransferable(nsnull),
+  : m_cRef(0), mTransferable(nullptr),
     mIsAsyncMode(FALSE), mIsInOperation(FALSE)
 {
+  mIOThread = new LazyIdleThread(DEFAULT_THREAD_TIMEOUT_MS, 
+                                 NS_LITERAL_CSTRING("nsDataObj"),
+                                 LazyIdleThread::ManualShutdown);
   m_enumFE = new CEnumFormatEtc();
   m_enumFE->AddRef();
 
@@ -494,7 +503,7 @@ STDMETHODIMP nsDataObj::GetData(LPFORMATETC aFormat, LPSTGMEDIUM pSTM)
         return GetFile(*aFormat, *pSTM);
 
       // Someone is asking for an image
-      case CF_DIB:
+      case CF_DIBV5:
         return GetDib(df, *aFormat, *pSTM);
 
       default:
@@ -802,7 +811,7 @@ nsDataObj :: GetDib ( const nsACString& inFlavor, FORMATETC &, STGMEDIUM & aSTG 
     // use the |nsImageToClipboard| helper class to build up a bitmap. We now own
     // the bits, and pass them back to the OS in |aSTG|.
     nsImageToClipboard converter ( image );
-    HANDLE bits = nsnull;
+    HANDLE bits = nullptr;
     nsresult rv = converter.GetPicture ( &bits );
     if ( NS_SUCCEEDED(rv) && bits ) {
       aSTG.hGlobal = bits;
@@ -1088,10 +1097,27 @@ nsDataObj :: GetFileContentsInternetShortcut ( FORMATETC& aFE, STGMEDIUM& aSTG )
   // will need to change if we ever support iDNS
   nsCAutoString asciiUrl;
   LossyCopyUTF16toASCII(url, asciiUrl);
-    
-  static const char* shortcutFormatStr = "[InternetShortcut]\r\nURL=%s\r\n";
-  static const int formatLen = strlen(shortcutFormatStr) - 2; // don't include %s in the len
-  const int totalLen = formatLen + asciiUrl.Length(); // we don't want a null character on the end
+
+  nsCOMPtr<nsIFile> icoFile;
+  nsCOMPtr<nsIURI> aUri;
+  NS_NewURI(getter_AddRefs(aUri), url);
+
+  nsAutoString aUriHash;
+
+  mozilla::widget::FaviconHelper::ObtainCachedIconFile(aUri, aUriHash, mIOThread, true);
+
+  nsresult rv = mozilla::widget::FaviconHelper::GetOutputIconPath(aUri, icoFile, true);
+  NS_ENSURE_SUCCESS(rv, rv);
+  nsCString path;
+  rv = icoFile->GetNativePath(path);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  static char* shortcutFormatStr = "[InternetShortcut]\r\nURL=%s\r\n" 
+                                   "IDList=\r\nHotKey=0\r\nIconFile=%s\r\n" 
+                                   "IconIndex=0\r\n";
+  static const int formatLen = strlen(shortcutFormatStr) - 2*2; // don't include %s (2 times) in the len
+  const int totalLen = formatLen + asciiUrl.Length() 
+                       + path.Length(); // we don't want a null character on the end
 
   // create a global memory area and build up the file contents w/in it
   HGLOBAL hGlobalMemory = ::GlobalAlloc(GMEM_SHARE, totalLen);
@@ -1108,7 +1134,7 @@ nsDataObj :: GetFileContentsInternetShortcut ( FORMATETC& aFE, STGMEDIUM& aSTG )
   // terminate strings which reach the maximum size of the buffer. Since we know that the 
   // formatted length here is totalLen, this call to _snprintf will format the string into 
   // the buffer without appending the null character.
-  _snprintf( contents, totalLen, shortcutFormatStr, asciiUrl.get() );
+  _snprintf( contents, totalLen, shortcutFormatStr, asciiUrl.get(), path.get() );
     
   ::GlobalUnlock(hGlobalMemory);
   aSTG.hGlobal = hGlobalMemory;
@@ -1214,7 +1240,7 @@ HRESULT nsDataObj::GetText(const nsACString & aDataFlavor, FORMATETC& aFE, STGME
   if ( aFE.cfFormat == CF_TEXT ) {
     // Someone is asking for text/plain; convert the unicode (assuming it's present)
     // to text with the correct platform encoding.
-    char* plainTextData = nsnull;
+    char* plainTextData = nullptr;
     PRUnichar* castedUnicode = reinterpret_cast<PRUnichar*>(data);
     PRInt32 plainTextLen = 0;
     nsPrimitiveHelpers::ConvertUnicodeToPlatformPlainText ( castedUnicode, len / 2, &plainTextData, &plainTextLen );
@@ -1235,7 +1261,7 @@ HRESULT nsDataObj::GetText(const nsACString & aDataFlavor, FORMATETC& aFE, STGME
     // Someone is asking for win32's HTML flavor. Convert our html fragment
     // from unicode to UTF-8 then put it into a format specified by msft.
     NS_ConvertUTF16toUTF8 converter ( reinterpret_cast<PRUnichar*>(data) );
-    char* utf8HTML = nsnull;
+    char* utf8HTML = nullptr;
     nsresult rv = BuildPlatformHTML ( converter.get(), &utf8HTML );      // null terminates
     
     nsMemory::Free(data);
@@ -1378,7 +1404,7 @@ HRESULT nsDataObj::DropImage(FORMATETC& aFE, STGMEDIUM& aSTG)
 
     // Use the clipboard helper class to build up a memory bitmap.
     nsImageToClipboard converter(image);
-    HANDLE bits = nsnull;
+    HANDLE bits = nullptr;
     rv = converter.GetPicture(&bits); // Clipboard routines return a global handle we own.
 
     if (NS_FAILED(rv) || !bits)
@@ -1654,7 +1680,7 @@ void nsDataObj::SetTransferable(nsITransferable * aTransferable)
     NS_IF_RELEASE(mTransferable);
 
   mTransferable = aTransferable;
-  if (nsnull == mTransferable) {
+  if (nullptr == mTransferable) {
     return;
   }
 
@@ -1769,7 +1795,7 @@ nsDataObj :: ExtractShortcutTitle ( nsString & outTitle )
 nsresult 
 nsDataObj :: BuildPlatformHTML ( const char* inOurHTML, char** outPlatformHTML ) 
 {
-  *outPlatformHTML = nsnull;
+  *outPlatformHTML = nullptr;
 
   nsDependentCString inHTMLString(inOurHTML);
   const char* const numPlaceholder  = "00000000";
@@ -1933,7 +1959,7 @@ nsDataObj::ExtractUniformResourceLocatorW(FORMATETC& aFE, STGMEDIUM& aSTG )
 nsresult nsDataObj::GetDownloadDetails(nsIURI **aSourceURI,
                                        nsAString &aFilename)
 {
-  *aSourceURI = nsnull;
+  *aSourceURI = nullptr;
 
   NS_ENSURE_TRUE(mTransferable, NS_ERROR_FAILURE);
 

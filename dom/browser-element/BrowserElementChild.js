@@ -49,22 +49,38 @@ function BrowserElementChild() {
   // Maps outer window id --> weak ref to window.  Used by modal dialog code.
   this._windowIDDict = {};
 
+  // _forcedVisible corresponds to the visibility state our owner has set on us
+  // (via iframe.setVisible).  ownerVisible corresponds to whether the docShell
+  // whose window owns this element is visible.
+  //
+  // Our docShell is visible iff _forcedVisible and _ownerVisible are both
+  // true.
+  this._forcedVisible = true;
+  this._ownerVisible = true;
+
   this._init();
 };
 
 BrowserElementChild.prototype = {
+
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver,
+                                         Ci.nsISupportsWeakReference]),
+
   _init: function() {
     debug("Starting up.");
     sendAsyncMsg("hello");
 
     BrowserElementPromptService.mapWindowToBrowserElementChild(content, this);
 
-    docShell.setIsBrowser();
     docShell.QueryInterface(Ci.nsIWebProgress)
             .addProgressListener(this._progressListener,
                                  Ci.nsIWebProgress.NOTIFY_LOCATION |
                                  Ci.nsIWebProgress.NOTIFY_SECURITY |
                                  Ci.nsIWebProgress.NOTIFY_STATE_WINDOW);
+
+    docShell.QueryInterface(Ci.nsIWebNavigation)
+            .sessionHistory = Cc["@mozilla.org/browser/shistory;1"]
+                                .createInstance(Ci.nsISHistory);
 
     // This is necessary to get security web progress notifications.
     var securityUI = Cc['@mozilla.org/secure_browser_ui;1']
@@ -114,6 +130,8 @@ BrowserElementChild.prototype = {
 
     addMsgListener("get-screenshot", this._recvGetScreenshot);
     addMsgListener("set-visible", this._recvSetVisible);
+    addMsgListener("send-mouse-event", this._recvSendMouseEvent);
+    addMsgListener("send-touch-event", this._recvSendTouchEvent);
     addMsgListener("get-can-go-back", this._recvCanGoBack);
     addMsgListener("get-can-go-forward", this._recvCanGoForward);
     addMsgListener("go-back", this._recvGoBack);
@@ -122,6 +140,8 @@ BrowserElementChild.prototype = {
     addMsgListener("stop", this._recvStop);
     addMsgListener("unblock-modal-prompt", this._recvStopWaiting);
     addMsgListener("fire-ctx-callback", this._recvFireCtxCallback);
+    addMsgListener("owner-visibility-change", this._recvOwnerVisibilityChange);
+    addMsgListener("exit-fullscreen", this._recvExitFullscreen.bind(this));
 
     let els = Cc["@mozilla.org/eventlistenerservice;1"]
                 .getService(Ci.nsIEventListenerService);
@@ -143,6 +163,38 @@ BrowserElementChild.prototype = {
     els.addSystemEventListener(global, 'contextmenu',
                                this._contextmenuHandler.bind(this),
                                /* useCapture = */ false);
+    els.addSystemEventListener(global, 'scroll',
+                               this._scrollEventHandler.bind(this),
+                               /* useCapture = */ false);
+
+    Services.obs.addObserver(this,
+                             "fullscreen-origin-change",
+                             /* ownsWeak = */ true);
+
+    Services.obs.addObserver(this,
+                             'ask-parent-to-exit-fullscreen',
+                             /* ownsWeak = */ true);
+
+    Services.obs.addObserver(this,
+                             'ask-parent-to-rollback-fullscreen',
+                             /* ownsWeak = */ true);
+  },
+
+  observe: function(subject, topic, data) {
+    // Ignore notifications not about our document.
+    if (subject != content.document)
+      return;
+    switch (topic) {
+      case 'fullscreen-origin-change':
+        sendAsyncMsg('fullscreen-origin-change', data);
+        break;
+      case 'ask-parent-to-exit-fullscreen':
+        sendAsyncMsg('exit-fullscreen');
+        break;
+      case 'ask-parent-to-rollback-fullscreen':
+        sendAsyncMsg('rollback-fullscreen');
+        break;
+    }
   },
 
   _tryGetInnerWindowID: function(win) {
@@ -275,6 +327,13 @@ BrowserElementChild.prototype = {
     win.modalDepth--;
   },
 
+  _recvExitFullscreen: function() {
+    var utils = content.document.defaultView
+                       .QueryInterface(Ci.nsIInterfaceRequestor)
+                       .getInterface(Ci.nsIDOMWindowUtils);
+    utils.exitFullscreen();
+  },
+
   _titleChangedHandler: function(e) {
     debug("Got titlechanged: (" + e.target.title + ")");
     var win = e.target.defaultView;
@@ -376,6 +435,16 @@ BrowserElementChild.prototype = {
     return false;
   },
 
+  _scrollEventHandler: function(e) {
+    let win = e.target.defaultView;
+    if (win != content) {
+      return;
+    }
+
+    debug("scroll event " + win);
+    sendAsyncMsg("scroll", { top: win.scrollY, left: win.scrollX });
+  },
+
   _recvGetScreenshot: function(data) {
     debug("Received getScreenshot message: (" + data.json.id + ")");
     var canvas = content.document
@@ -430,9 +499,43 @@ BrowserElementChild.prototype = {
 
   _recvSetVisible: function(data) {
     debug("Received setVisible message: (" + data.json.visible + ")");
-    if (docShell.isActive !== data.json.visible) {
-      docShell.isActive = data.json.visible;
+    this._forcedVisible = data.json.visible;
+    this._updateDocShellVisibility();
+  },
+
+  /**
+   * Called when the window which contains this iframe becomes hidden or
+   * visible.
+   */
+  _recvOwnerVisibilityChange: function(data) {
+    debug("Received ownerVisibilityChange: (" + data.json.visible + ")");
+    this._ownerVisible = data.json.visible;
+    this._updateDocShellVisibility();
+  },
+
+  _updateDocShellVisibility: function() {
+    var visible = this._forcedVisible && this._ownerVisible;
+    if (docShell.isActive !== visible) {
+      docShell.isActive = visible;
     }
+  },
+
+  _recvSendMouseEvent: function(data) {
+    let json = data.json;
+    let utils = content.QueryInterface(Ci.nsIInterfaceRequestor)
+                       .getInterface(Ci.nsIDOMWindowUtils);
+    utils.sendMouseEvent(json.type, json.x, json.y, json.button,
+                         json.clickCount, json.modifiers);
+  },
+
+  _recvSendTouchEvent: function(data) {
+    let json = data.json;
+    let utils = content.QueryInterface(Ci.nsIInterfaceRequestor)
+                       .getInterface(Ci.nsIDOMWindowUtils);
+    utils.sendTouchEvent(json.type, json.identifiers, json.touchesX,
+                         json.touchesY, json.radiisX, json.radiisY,
+                         json.rotationAngles, json.forces, json.count,
+                         json.modifiers);
   },
 
   _recvCanGoBack: function(data) {

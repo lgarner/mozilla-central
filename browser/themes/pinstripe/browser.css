@@ -1268,6 +1268,7 @@ window[tabsontop="false"] richlistitem[type~="action"][actiontype="switchtab"][s
 
 #socialUserDisplayName {
   -moz-appearance: none;
+  color: #fff;
   border: none;
   background-color: transparent;
   margin-top: 0;
@@ -1650,12 +1651,22 @@ sidebarheader {
   -moz-appearance: none;
 }
 
-#sidebar-splitter {
+.sidebar-splitter {
   -moz-border-start: none;
   -moz-border-end: 1px solid #404040;
   min-width: 1px;
-  width: 1px;
+  width: 3px;
   background-image: none !important;
+  background-color: transparent;
+  -moz-margin-start: -3px;
+  position: relative;
+}
+
+#appcontent ~ .sidebar-splitter {
+  -moz-border-start: 1px solid #404040;
+  -moz-border-end: none;
+  -moz-margin-start: 0;
+  -moz-margin-end: -3px;
 }
 
 #sidebar-title {
@@ -3304,6 +3315,27 @@ stack[anonid=browserStack][responsivemode] {
   background-image: url("chrome://browser/skin/devtools/responsive-se-resizer.png");
 }
 
+/* Web Console */
+
+.web-console-frame {
+  border-bottom: 1px solid #aaa;
+}
+
+.web-console-frame[animated] {
+  transition: height 100ms;
+}
+
+.web-console-splitter {
+  border-bottom: solid #a5a5a5 1px;
+  background: url("chrome://global/skin/splitter/dimple.png") no-repeat center,
+    -moz-linear-gradient(top, #fcfcfc, #dfdfdf);
+}
+
+.web-console-panel {
+  -moz-appearance: none;
+  background-color: white;
+}
+
 /* Developer Toolbar */
 
 .developer-toolbar-button {
@@ -3319,6 +3351,7 @@ stack[anonid=browserStack][responsivemode] {
   list-style-image: url("chrome://browser/skin/devtools/tools-icons-small.png");
 }
 
+.developer-toolbar-button[open=true],
 .developer-toolbar-button:active:hover,
 .developer-toolbar-button[checked=true] {
   border-color: hsla(210,8%,5%,.6);
@@ -3346,6 +3379,14 @@ stack[anonid=browserStack][responsivemode] {
 
 #developer-toolbar-debugger {
   -moz-image-region: rect(48px, 16px, 64px, 0);
+}
+
+#developer-toolbar-other-tools {
+  -moz-image-region: rect(64px, 16px, 80px, 0);
+}
+
+#developer-toolbar-other-tools > .toolbarbutton-menu-dropmarker {
+  display: none;
 }
 
 /* Error counter */
@@ -3410,8 +3451,6 @@ stack[anonid=browserStack][responsivemode] {
 /* === social toolbar provider menu  === */
 
 #social-statusarea-user {
-  background-color: white;
-  color: black;
   cursor: default;
   font-family: "lucida grande",tahoma,verdana,arial,sans-serif;
   font-size: 12px;
@@ -3451,6 +3490,7 @@ stack[anonid=browserStack][responsivemode] {
   margin: -4px 0 0 0;
   padding: 0;
   border-radius: 0px;
+  background: white;
 }
 
 #social-notification-panel .panel-arrow[side="top"] {

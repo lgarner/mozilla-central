@@ -9,6 +9,7 @@
 
 #include "chrome/common/ipc_message_utils.h"
 
+#include "mozilla/TimeStamp.h"
 #include "mozilla/Util.h"
 #include "mozilla/gfx/2D.h"
 
@@ -25,7 +26,8 @@
 #include "nsRect.h"
 #include "nsRegion.h"
 #include "gfxASurface.h"
-#include "LayersBackend.h"
+#include "jsapi.h"
+#include "LayersTypes.h"
 
 #ifdef _MSC_VER
 #pragma warning( disable : 4800 )
@@ -59,6 +61,36 @@ struct void_t {
 };
 struct null_t {
   bool operator==(const null_t&) const { return true; }
+};
+
+struct SerializedStructuredCloneBuffer
+{
+  SerializedStructuredCloneBuffer()
+  : data(nullptr), dataLength(0)
+  { }
+
+  SerializedStructuredCloneBuffer(const JSAutoStructuredCloneBuffer& aOther)
+  {
+    *this = aOther;
+  }
+
+  bool
+  operator==(const SerializedStructuredCloneBuffer& aOther) const
+  {
+    return this->data == aOther.data &&
+           this->dataLength == aOther.dataLength;
+  }
+
+  SerializedStructuredCloneBuffer&
+  operator=(const JSAutoStructuredCloneBuffer& aOther)
+  {
+    data = aOther.data();
+    dataLength = aOther.nbytes();
+    return *this;
+  }
+
+  uint64_t* data;
+  size_t dataLength;
 };
 
 } // namespace mozilla
@@ -439,11 +471,28 @@ struct ParamTraits<gfxPoint>
 
   static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
   {
-    if (ReadParam(aMsg, aIter, &aResult->x) &&
-        ReadParam(aMsg, aIter, &aResult->y))
-      return true;
+    return (ReadParam(aMsg, aIter, &aResult->x) &&
+            ReadParam(aMsg, aIter, &aResult->y));
+ }
+};
 
-    return false;
+template<>
+struct ParamTraits<gfxPoint3D>
+{
+  typedef gfxPoint3D paramType;
+
+  static void Write(Message* aMsg, const paramType& aParam)
+  {
+    WriteParam(aMsg, aParam.x);
+    WriteParam(aMsg, aParam.y);
+    WriteParam(aMsg, aParam.z);
+  }
+
+  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
+  {
+    return (ReadParam(aMsg, aIter, &aResult->x) &&
+            ReadParam(aMsg, aIter, &aResult->y) &&
+            ReadParam(aMsg, aIter, &aResult->z));
   }
 };
 
@@ -578,10 +627,28 @@ struct ParamTraits<mozilla::null_t>
 };
 
 template<>
+struct ParamTraits<nsPoint>
+{
+  typedef nsPoint paramType;
+
+  static void Write(Message* msg, const paramType& param)
+  {
+    WriteParam(msg, param.x);
+    WriteParam(msg, param.y);
+  }
+
+  static bool Read(const Message* msg, void** iter, paramType* result)
+  {
+    return (ReadParam(msg, iter, &result->x) &&
+            ReadParam(msg, iter, &result->y));
+  }
+};
+
+template<>
 struct ParamTraits<nsIntPoint>
 {
   typedef nsIntPoint paramType;
-  
+
   static void Write(Message* msg, const paramType& param)
   {
     WriteParam(msg, param.x);
@@ -599,7 +666,7 @@ template<>
 struct ParamTraits<nsIntRect>
 {
   typedef nsIntRect paramType;
-  
+
   static void Write(Message* msg, const paramType& param)
   {
     WriteParam(msg, param.x);
@@ -648,11 +715,11 @@ template<>
 struct ParamTraits<nsIntSize>
 {
   typedef nsIntSize paramType;
-  
+
   static void Write(Message* msg, const paramType& param)
   {
     WriteParam(msg, param.width);
-    WriteParam(msg, param.height); 
+    WriteParam(msg, param.height);
   }
 
   static bool Read(const Message* msg, void** iter, paramType* result)
@@ -666,11 +733,11 @@ template<>
 struct ParamTraits<mozilla::gfx::Size>
 {
   typedef mozilla::gfx::Size paramType;
-  
+
   static void Write(Message* msg, const paramType& param)
   {
     WriteParam(msg, param.width);
-    WriteParam(msg, param.height); 
+    WriteParam(msg, param.height);
   }
 
   static bool Read(const Message* msg, void** iter, paramType* result)
@@ -706,7 +773,7 @@ template<>
 struct ParamTraits<nsRect>
 {
   typedef nsRect paramType;
-  
+
   static void Write(Message* msg, const paramType& param)
   {
     WriteParam(msg, param.x);
@@ -763,6 +830,75 @@ struct ParamTraits<nsID>
     for (unsigned int i = 0; i < mozilla::ArrayLength(aParam.m3); i++)
       aLog->append(StringPrintf(L"%2.2X", aParam.m3[i]));
     aLog->append(L"}");
+  }
+};
+
+template<>
+struct ParamTraits<mozilla::TimeDuration>
+{
+  typedef mozilla::TimeDuration paramType;
+  static void Write(Message* aMsg, const paramType& aParam)
+  {
+    WriteParam(aMsg, aParam.mValue);
+  }
+  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
+  {
+    return ReadParam(aMsg, aIter, &aResult->mValue);
+  };
+};
+
+template<>
+struct ParamTraits<mozilla::TimeStamp>
+{
+  typedef mozilla::TimeStamp paramType;
+  static void Write(Message* aMsg, const paramType& aParam)
+  {
+    WriteParam(aMsg, aParam.mValue);
+  }
+  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
+  {
+    return ReadParam(aMsg, aIter, &aResult->mValue);
+  };
+};
+
+template <>
+struct ParamTraits<mozilla::SerializedStructuredCloneBuffer>
+{
+  typedef mozilla::SerializedStructuredCloneBuffer paramType;
+
+  static void Write(Message* aMsg, const paramType& aParam)
+  {
+    WriteParam(aMsg, aParam.dataLength);
+    if (aParam.dataLength) {
+      // Structured clone data must be 64-bit aligned.
+      aMsg->WriteBytes(aParam.data, aParam.dataLength, sizeof(uint64_t));
+    }
+  }
+
+  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
+  {
+    if (!ReadParam(aMsg, aIter, &aResult->dataLength)) {
+      return false;
+    }
+
+    if (aResult->dataLength) {
+      const char** buffer =
+        const_cast<const char**>(reinterpret_cast<char**>(&aResult->data));
+      // Structured clone data must be 64-bit aligned.
+      if (!aMsg->ReadBytes(aIter, buffer, aResult->dataLength,
+                           sizeof(uint64_t))) {
+        return false;
+      }
+    } else {
+      aResult->data = NULL;
+    }
+
+    return true;
+  }
+
+  static void Log(const paramType& aParam, std::wstring* aLog)
+  {
+    LogParam(aParam.dataLength, aLog);
   }
 };
 

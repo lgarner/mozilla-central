@@ -198,7 +198,7 @@ public:
   // This function optionally returns a reference to the new converter.
   nsresult PushStreamConverter(const char *fromType, const char *toType,
                                bool invalidatesContentLength = true,
-                               nsIStreamListener **converter = nsnull);
+                               nsIStreamListener **converter = nullptr);
 
 private:
   NS_DECL_NSISTREAMLISTENER
@@ -209,7 +209,7 @@ private:
 
   // Called when the callbacks available to this channel may have changed.
   void CallbacksChanged() {
-    mProgressSink = nsnull;
+    mProgressSink = nullptr;
     mQueriedProgressSink = false;
     OnCallbacksChanged();
   }
@@ -245,10 +245,8 @@ private:
   friend class RedirectRunnable;
 
   nsRefPtr<nsInputStreamPump>         mPump;
-  nsCOMPtr<nsIInterfaceRequestor>     mCallbacks;
   nsCOMPtr<nsIProgressEventSink>      mProgressSink;
   nsCOMPtr<nsIURI>                    mOriginalURI;
-  nsCOMPtr<nsIURI>                    mURI;
   nsCOMPtr<nsISupports>               mOwner;
   nsCOMPtr<nsISupports>               mSecurityInfo;
   nsCOMPtr<nsIChannel>                mRedirectChannel;
@@ -263,7 +261,9 @@ private:
   PRUint32                            mRedirectFlags;
 
 protected:
+  nsCOMPtr<nsIURI>                    mURI;
   nsCOMPtr<nsILoadGroup>              mLoadGroup;
+  nsCOMPtr<nsIInterfaceRequestor>     mCallbacks;
   nsCOMPtr<nsIStreamListener>         mListener;
   nsCOMPtr<nsISupports>               mListenerContext;
   nsresult                            mStatus;

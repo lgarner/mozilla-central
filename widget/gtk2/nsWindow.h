@@ -111,6 +111,7 @@ public:
     NS_IMETHOD         ConstrainPosition(bool aAllowSlop,
                                          PRInt32 *aX,
                                          PRInt32 *aY);
+    virtual void       SetSizeConstraints(const SizeConstraints& aConstraints);
     NS_IMETHOD         Move(PRInt32 aX,
                             PRInt32 aY);
     NS_IMETHOD         Show             (bool aState);
@@ -122,7 +123,7 @@ public:
                                          PRInt32 aWidth,
                                          PRInt32 aHeight,
                                          bool     aRepaint);
-    NS_IMETHOD         IsEnabled        (bool *aState);
+    virtual bool       IsEnabled() const;
 
 
     NS_IMETHOD         PlaceBehind(nsTopLevelWidgetZPlacement  aPlacement,

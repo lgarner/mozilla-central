@@ -57,14 +57,14 @@ Wrapper::New(JSContext *cx, JSObject *obj, JSObject *proto, JSObject *parent,
 }
 
 Wrapper *
-Wrapper::wrapperHandler(const JSObject *wrapper)
+Wrapper::wrapperHandler(RawObject wrapper)
 {
     JS_ASSERT(wrapper->isWrapper());
     return GetProxyHandler(wrapper)->toWrapper();
 }
 
 JSObject *
-Wrapper::wrappedObject(const JSObject *wrapper)
+Wrapper::wrappedObject(RawObject wrapper)
 {
     JS_ASSERT(wrapper->isWrapper());
     return GetProxyTargetObject(wrapper);
@@ -130,7 +130,7 @@ js::UnwrapOneChecked(JSContext *cx, JSObject *obj)
 }
 
 bool
-js::IsCrossCompartmentWrapper(const JSObject *wrapper)
+js::IsCrossCompartmentWrapper(RawObject wrapper)
 {
     return wrapper->isWrapper() &&
            !!(Wrapper::wrapperHandler(wrapper)->flags() & Wrapper::CROSS_COMPARTMENT);
@@ -377,9 +377,13 @@ DirectWrapper DirectWrapper::singleton((unsigned)0);
 namespace js {
 
 extern JSObject *
-TransparentObjectWrapper(JSContext *cx, JSObject *obj, JSObject *wrappedProto, JSObject *parent,
+TransparentObjectWrapper(JSContext *cx, JSObject *objArg, JSObject *wrappedProtoArg, JSObject *parentArg,
                          unsigned flags)
 {
+    RootedObject obj(cx, objArg);
+    RootedObject wrappedProto(cx, wrappedProtoArg);
+    RootedObject parent(cx, parentArg);
+
     // Allow wrapping outer window proxies.
     JS_ASSERT(!obj->isWrapper() || obj->getClass()->ext.innerObject);
     return Wrapper::New(cx, obj, wrappedProto, parent, &CrossCompartmentWrapper::singleton);
@@ -418,7 +422,6 @@ ForceFrame::enter()
 AutoCompartment::AutoCompartment(JSContext *cx, JSObject *target)
     : context(cx),
       origin(cx->compartment),
-      target(target),
       destination(target->compartment()),
       entered(false)
 {
@@ -435,7 +438,7 @@ AutoCompartment::enter()
 {
     JS_ASSERT(!entered);
     if (origin != destination) {
-        JSObject &scopeChain = target->global();
+        GlobalObject& scopeChain = *destination->maybeGlobal();
         JS_ASSERT(scopeChain.isNative());
 
         frame.construct();
@@ -674,9 +677,18 @@ Reify(JSContext *cx, JSCompartment *origin, Value *vp)
     if (!CloseIterator(cx, iterObj))
         return false;
 
-    if (isKeyIter)
-        return VectorToKeyIterator(cx, obj, ni->flags, keys, vp);
-    return VectorToValueIterator(cx, obj, ni->flags, keys, vp);
+    RootedValue value(cx, *vp);
+
+    if (isKeyIter) {
+        if (!VectorToKeyIterator(cx, obj, ni->flags, keys, &value))
+            return false;
+    } else {
+        if (!VectorToValueIterator(cx, obj, ni->flags, keys, &value))
+            return false;
+    }
+
+    *vp = value;
+    return true;
 }
 
 bool
@@ -693,11 +705,12 @@ CrossCompartmentWrapper::call(JSContext *cx, JSObject *wrapper_, unsigned argc, 
 {
     RootedObject wrapper(cx, wrapper_);
 
-    AutoCompartment call(cx, wrappedObject(wrapper));
+    JSObject *wrapped = wrappedObject(wrapper);
+    AutoCompartment call(cx, wrapped);
     if (!call.enter())
         return false;
 
-    vp[0] = ObjectValue(*call.target);
+    vp[0] = ObjectValue(*wrapped);
     if (!call.destination->wrap(cx, &vp[1]))
         return false;
     Value *argv = JS_ARGV(cx, vp);
@@ -762,10 +775,10 @@ CrossCompartmentWrapper::nativeCall(JSContext *cx, IsAcceptableThis test, Native
     if (!CallNonGenericMethod(cx, test, impl, dstArgs))
         return false;
 
-    srcArgs.rval() = dstArgs.rval();
+    srcArgs.rval().set(dstArgs.rval());
     dstArgs.pop();
     call.leave();
-    return cx->compartment->wrap(cx, &srcArgs.rval());
+    return cx->compartment->wrap(cx, srcArgs.rval().address());
 }
 
 bool
@@ -1020,6 +1033,13 @@ int DeadObjectProxy::sDeadObjectFamily;
 
 } // namespace js
 
+JSObject *
+js::NewDeadProxyObject(JSContext *cx, JSObject *parent)
+{
+    return NewProxyObject(cx, &DeadObjectProxy::singleton, NullValue(),
+                          NULL, parent, NULL, NULL);
+}
+
 void
 js::NukeCrossCompartmentWrapper(JSObject *wrapper)
 {
@@ -1095,16 +1115,25 @@ bool
 js::RemapWrapper(JSContext *cx, JSObject *wobj, JSObject *newTarget)
 {
     JS_ASSERT(IsCrossCompartmentWrapper(wobj));
+    JS_ASSERT(!IsCrossCompartmentWrapper(newTarget));
     JSObject *origTarget = Wrapper::wrappedObject(wobj);
     JS_ASSERT(origTarget);
     Value origv = ObjectValue(*origTarget);
     JSCompartment *wcompartment = wobj->compartment();
     WrapperMap &pmap = wcompartment->crossCompartmentWrappers;
 
+    // If we're mapping to a different target (as opposed to just recomputing
+    // for the same target), we must not have an existing wrapper for the new
+    // target, otherwise this will break.
+    JS_ASSERT_IF(origTarget != newTarget, !pmap.has(ObjectValue(*newTarget)));
+
+    // The old value should still be in the cross-compartment wrapper map, and
+    // the lookup should return wobj.
+    JS_ASSERT(&pmap.lookup(origv)->value.toObject() == wobj);
+    pmap.remove(origv);
+
     // When we remove origv from the wrapper map, its wrapper, wobj, must
     // immediately cease to be a cross-compartment wrapper. Neuter it.
-    JS_ASSERT(pmap.lookup(origv));
-    pmap.remove(origv);
     NukeCrossCompartmentWrapper(wobj);
 
     // First, we wrap it in the new compartment. This will return
@@ -1121,14 +1150,18 @@ js::RemapWrapper(JSContext *cx, JSObject *wobj, JSObject *newTarget)
     JS_ASSERT(tobj != wobj);
     if (!wobj->swap(cx, tobj))
         return false;
-    pmap.put(ObjectValue(*newTarget), ObjectValue(*wobj));
 
+    // Before swapping, this wrapper came out of wrap(), which enforces the
+    // invariant that the wrapper in the map points directly to the key.
+    JS_ASSERT(Wrapper::wrappedObject(wobj) == newTarget);
+
+    pmap.put(ObjectValue(*newTarget), ObjectValue(*wobj));
     return true;
 }
 
 // Remap all cross-compartment wrappers pointing to |oldTarget| to point to
 // |newTarget|. All wrappers are recomputed.
-bool
+JS_FRIEND_API(bool)
 js::RemapAllWrappersForObject(JSContext *cx, JSObject *oldTarget,
                               JSObject *newTarget)
 {

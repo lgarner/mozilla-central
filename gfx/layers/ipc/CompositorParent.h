@@ -19,8 +19,8 @@
 #include "mozilla/layers/PLayersParent.h"
 #include "base/thread.h"
 #include "mozilla/Monitor.h"
+#include "mozilla/TimeStamp.h"
 #include "ShadowLayersManager.h"
-
 class nsIWidget;
 
 namespace base {
@@ -31,6 +31,7 @@ namespace mozilla {
 namespace layers {
 
 class AsyncPanZoomController;
+class Layer;
 class LayerManager;
 
 // Represents (affine) transforms that are calculated from a content view.
@@ -70,6 +71,7 @@ public:
   virtual bool RecvResume() MOZ_OVERRIDE;
 
   virtual void ShadowLayersUpdated(ShadowLayersParent* aLayerTree,
+                                   const TargetConfig& aTargetConfig,
                                    bool isFirstPaint) MOZ_OVERRIDE;
   void Destroy();
 
@@ -136,6 +138,15 @@ public:
    */
   static PCompositorParent*
   Create(Transport* aTransport, ProcessId aOtherProcess);
+
+  /**
+   * Setup external message loop and thread ID for Compositor.
+   * Should be used when CompositorParent should work in existing thread/MessageLoop,
+   * for example moving Compositor into native toolkit main thread will allow to avoid
+   * extra synchronization and call ::Composite() right from toolkit::Paint event
+   */
+  static void StartUpWithExistingThread(MessageLoop* aMsgLoop,
+                                        PlatformThreadId aThreadID);
 
 protected:
   virtual PLayersParent* AllocPLayers(const LayersBackend& aBackendHint,
@@ -227,6 +238,7 @@ private:
 
   nsRefPtr<LayerManager> mLayerManager;
   nsIWidget* mWidget;
+  TargetConfig mTargetConfig;
   CancelableTask *mCurrentCompositeTask;
   TimeStamp mLastCompose;
 #ifdef COMPOSITOR_PERFORMANCE_WARNING

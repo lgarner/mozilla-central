@@ -454,6 +454,10 @@ public:
     t->SetPaused(true);
 
     // Get file path
+#ifdef ANDROID
+    nsCString tmpPath;
+    tmpPath.AppendPrintf("/sdcard/profile_%i_%i.txt", XRE_GetProcessType(), getpid());
+#else
     nsCOMPtr<nsIFile> tmpFile;
     nsCAutoString tmpPath;
     if (NS_FAILED(NS_GetSpecialDirectory(NS_OS_TEMP_DIR, getter_AddRefs(tmpFile)))) {
@@ -469,6 +473,7 @@ public:
     rv = tmpFile->GetNativePath(tmpPath);
     if (NS_FAILED(rv))
       return rv;
+#endif
 
     // Create a JSContext to run a JSObjectBuilder :(
     // Based on XPCShellEnvironment
@@ -508,7 +513,7 @@ public:
         if (autoComp.enter(cx, obj)) {
           JSObject* profileObj = mozilla_sampler_get_profile_data(cx);
           jsval val = OBJECT_TO_JSVAL(profileObj);
-          JS_Stringify(cx, &val, nsnull, JSVAL_NULL, WriteCallback, &stream);
+          JS_Stringify(cx, &val, nullptr, JSVAL_NULL, WriteCallback, &stream);
         } else {
           LOG("Failed to enter compartment");
         }

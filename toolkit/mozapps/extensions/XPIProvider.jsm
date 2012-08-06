@@ -1749,8 +1749,10 @@ var XPIProvider = {
       return;
 
     let data = this.enabledAddons;
-    for (let id in this.bootstrappedAddons)
-      data += (data ? "," : "") + id + ":" + this.bootstrappedAddons[id].version;
+    for (let id in this.bootstrappedAddons) {
+      data += (data ? "," : "") + encodeURIComponent(id) + ":" +
+              encodeURIComponent(this.bootstrappedAddons[id].version);
+    }
 
     try {
       Services.appinfo.annotateCrashReport("Add-ons", data);
@@ -2029,9 +2031,9 @@ var XPIProvider = {
 
               // We'll be replacing a currently active bootstrapped add-on so
               // call its uninstall method
-              let oldVersion = aManifests[aLocation.name][id].version;
-              let newVersion = oldBootstrap.version;
-              let uninstallReason = Services.vc.compare(newVersion, oldVersion) < 0 ?
+              let newVersion = aManifests[aLocation.name][id].version;
+              let oldVersion = oldBootstrap.version;
+              let uninstallReason = Services.vc.compare(oldVersion, newVersion) < 0 ?
                                     BOOTSTRAP_REASONS.ADDON_UPGRADE :
                                     BOOTSTRAP_REASONS.ADDON_DOWNGRADE;
 
@@ -2369,7 +2371,7 @@ var XPIProvider = {
       if (aOldAddon.visible) {
         visibleAddons[aOldAddon.id] = aOldAddon;
 
-        if (aOldAddon.bootstrap) {
+        if (aOldAddon.bootstrap && aOldAddon.active) {
           let bootstrap = oldBootstrappedAddons[aOldAddon.id];
           bootstrap.descriptor = aAddonState.descriptor;
           XPIProvider.bootstrappedAddons[aOldAddon.id] = bootstrap;

@@ -27,7 +27,6 @@
 #include "nsEventListenerManager.h"
 #include "nsIDOMEventTarget.h"
 #include "nsIDOMEventListener.h"
-#include "nsIDOMNSEvent.h"
 #include "nsPIDOMWindow.h"
 #include "nsPIWindowRoot.h"
 #include "nsIDOMWindow.h"
@@ -86,23 +85,23 @@ nsXBLPrototypeHandler::nsXBLPrototypeHandler(const PRUnichar* aEvent,
                                              const PRUnichar* aAllowUntrusted,
                                              nsXBLPrototypeBinding* aBinding,
                                              PRUint32 aLineNumber)
-  : mHandlerText(nsnull),
+  : mHandlerText(nullptr),
     mLineNumber(aLineNumber),
-    mNextHandler(nsnull),
+    mNextHandler(nullptr),
     mPrototypeBinding(aBinding)
 {
   Init();
 
-  ConstructPrototype(nsnull, aEvent, aPhase, aAction, aCommand, aKeyCode,
+  ConstructPrototype(nullptr, aEvent, aPhase, aAction, aCommand, aKeyCode,
                      aCharCode, aModifiers, aButton, aClickCount,
                      aGroup, aPreventDefault, aAllowUntrusted);
 }
 
 nsXBLPrototypeHandler::nsXBLPrototypeHandler(nsIContent* aHandlerElement)
-  : mHandlerElement(nsnull),
+  : mHandlerElement(nullptr),
     mLineNumber(0),
-    mNextHandler(nsnull),
-    mPrototypeBinding(nsnull)
+    mNextHandler(nullptr),
+    mPrototypeBinding(nullptr)
 {
   Init();
 
@@ -111,9 +110,9 @@ nsXBLPrototypeHandler::nsXBLPrototypeHandler(nsIContent* aHandlerElement)
 }
 
 nsXBLPrototypeHandler::nsXBLPrototypeHandler(nsXBLPrototypeBinding* aBinding)
-  : mHandlerText(nsnull),
-    mLineNumber(nsnull),
-    mNextHandler(nsnull),
+  : mHandlerText(nullptr),
+    mLineNumber(0),
+    mNextHandler(nullptr),
     mPrototypeBinding(aBinding)
 {
   Init();
@@ -137,12 +136,12 @@ nsXBLPrototypeHandler::GetHandlerElement()
 {
   if (mType & NS_HANDLER_TYPE_XUL) {
     nsCOMPtr<nsIContent> element = do_QueryReferent(mHandlerElement);
-    nsIContent* el = nsnull;
+    nsIContent* el = nullptr;
     element.swap(el);
     return el;
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 void
@@ -210,11 +209,8 @@ nsXBLPrototypeHandler::ExecuteHandler(nsIDOMEventTarget* aTarget,
   // XUL handlers and commands shouldn't be triggered by non-trusted
   // events.
   if (isXULKey || isXBLCommand) {
-    nsCOMPtr<nsIDOMNSEvent> domNSEvent = do_QueryInterface(aEvent);
     bool trustedEvent = false;
-    if (domNSEvent) {
-      domNSEvent->GetIsTrusted(&trustedEvent);
-    }
+    aEvent->GetIsTrusted(&trustedEvent);
 
     if (!trustedEvent)
       return NS_OK;
@@ -360,20 +356,17 @@ nsXBLPrototypeHandler::DispatchXBLCommand(nsIDOMEventTarget* aTarget, nsIDOMEven
   // This is a special-case optimization to make command handling fast.
   // It isn't really a part of XBL, but it helps speed things up.
 
-  // See if preventDefault has been set.  If so, don't execute.
-  bool preventDefault = false;
-  nsCOMPtr<nsIDOMNSEvent> domNSEvent = do_QueryInterface(aEvent);
-  if (domNSEvent) {
-    domNSEvent->GetPreventDefault(&preventDefault);
-  }
-
-  if (preventDefault)
-    return NS_OK;
-
   if (aEvent) {
-    bool dispatchStopped = aEvent->IsDispatchStopped();
-    if (dispatchStopped)
+    // See if preventDefault has been set.  If so, don't execute.
+    bool preventDefault = false;
+    aEvent->GetPreventDefault(&preventDefault);
+    if (preventDefault) {
       return NS_OK;
+    }
+    bool dispatchStopped = aEvent->IsDispatchStopped();
+    if (dispatchStopped) {
+      return NS_OK;
+    }
   }
 
   // Instead of executing JS, let's get the controller for the bound
@@ -511,7 +504,7 @@ nsXBLPrototypeHandler::DispatchXULKeyCommand(nsIDOMEvent* aEvent)
   keyEvent->GetMetaKey(&isMeta);
 
   nsContentUtils::DispatchXULCommand(handlerElement, true,
-                                     nsnull, nsnull,
+                                     nullptr, nullptr,
                                      isControl, isAlt, isShift, isMeta);
   return NS_OK;
 }
@@ -560,7 +553,7 @@ nsXBLPrototypeHandler::GetController(nsIDOMEventTarget* aTarget)
   if (controllers) {
     controllers->GetControllerAt(0, &controller);  // return reference
   }
-  else controller = nsnull;
+  else controller = nullptr;
 
   return controller;
 }
@@ -707,7 +700,7 @@ nsXBLPrototypeHandler::ConstructPrototype(nsIContent* aKeyElement,
   }
   else {
     mType |= aCommand ? NS_HANDLER_TYPE_XBL_COMMAND : NS_HANDLER_TYPE_XBL_JS;
-    mHandlerText = nsnull;
+    mHandlerText = nullptr;
   }
 
   mDetail = -1;
@@ -854,7 +847,7 @@ nsXBLPrototypeHandler::ReportKeyConflict(const PRUnichar* aKey, const PRUnichar*
                                   nsContentUtils::eXBL_PROPERTIES,
                                   aMessageName,
                                   params, ArrayLength(params),
-                                  nsnull, EmptyString(), mLineNumber);
+                                  nullptr, EmptyString(), mLineNumber);
 }
 
 bool

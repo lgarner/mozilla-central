@@ -41,6 +41,7 @@
 #include "nsPluginError.h"
 
 // Util headers
+#include "prenv.h"
 #include "prlog.h"
 
 #include "nsAutoPtr.h"
@@ -104,7 +105,7 @@ nsAsyncInstantiateEvent::Run()
   if (mContent->mPendingInstantiateEvent != this) {
     return NS_OK;
   }
-  mContent->mPendingInstantiateEvent = nsnull;
+  mContent->mPendingInstantiateEvent = nullptr;
 
   return mContent->SyncStartPluginInstance();
 }
@@ -298,7 +299,7 @@ nsPluginCrashedEvent::Run()
   variant->SetAsBool(mSubmittedCrashReport);
   containerEvent->SetData(NS_LITERAL_STRING("submittedCrashReport"), variant);
 
-  nsEventDispatcher::DispatchDOMEvent(mContent, nsnull, event, nsnull, nsnull);
+  nsEventDispatcher::DispatchDOMEvent(mContent, nullptr, event, nullptr, nullptr);
   return NS_OK;
 }
 
@@ -362,7 +363,7 @@ nsStopPluginRunnable::Run()
     }
   }
 
-  mTimer = nsnull;
+  mTimer = nullptr;
 
   static_cast<nsObjectLoadingContent*>(mContent.get())->
     DoStopPlugin(mInstanceOwner, false, true);
@@ -496,19 +497,29 @@ nsresult nsObjectLoadingContent::IsPluginEnabledForType(const nsCString& aMIMETy
     rv = topWindow->GetDocument(getter_AddRefs(topDocument));
     NS_ENSURE_SUCCESS(rv, rv);
     nsCOMPtr<nsIDocument> topDoc = do_QueryInterface(topDocument);
-    nsIURI* topUri = topDoc->GetDocumentURI();
 
     nsCOMPtr<nsIPermissionManager> permissionManager = do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
     NS_ENSURE_SUCCESS(rv, rv);
-    PRUint32 permission;
-    rv = permissionManager->TestPermission(topUri, "plugins", &permission);
-    NS_ENSURE_SUCCESS(rv, rv);
+    bool allowPerm = false;
+    // For now we always say that the system principal uses click-to-play since
+    // that maintains current behavior and we have tests that expect this.
+    // What we really should do is disable plugins entirely in pages that use
+    // the system principal, i.e. in chrome pages. That way the click-to-play
+    // code here wouldn't matter at all. Bug 775301 is tracking this.
+    if (!nsContentUtils::IsSystemPrincipal(topDoc->NodePrincipal())) {
+      PRUint32 permission;
+      rv = permissionManager->TestPermissionFromPrincipal(topDoc->NodePrincipal(),
+                                                          "plugins",
+                                                          &permission);
+      NS_ENSURE_SUCCESS(rv, rv);
+      allowPerm = permission == nsIPermissionManager::ALLOW_ACTION;
+    }
 
     PRUint32 state;
     rv = pluginHost->GetBlocklistStateForType(aMIMEType.get(), &state);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (permission == nsIPermissionManager::ALLOW_ACTION &&
+    if (allowPerm &&
         state != nsIBlocklistService::STATE_VULNERABLE_UPDATE_AVAILABLE &&
         state != nsIBlocklistService::STATE_VULNERABLE_NO_UPDATE) {
       mCTPPlayable = true;
@@ -595,8 +606,8 @@ nsObjectLoadingContent::UnbindFromTree(bool /*aDeep*/, bool /*aNullParent*/)
 }
 
 nsObjectLoadingContent::nsObjectLoadingContent()
-  : mPendingInstantiateEvent(nsnull)
-  , mChannel(nsnull)
+  : mPendingInstantiateEvent(nullptr)
+  , mChannel(nullptr)
   , mType(eType_Loading)
   , mInstantiating(false)
   , mUserDisabled(false)
@@ -867,7 +878,7 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest *aRequest,
                                  doc->NodePrincipal(),
                                  static_cast<nsIImageLoadingContent*>(this),
                                  mContentType,
-                                 nsnull, //extra
+                                 nullptr, //extra
                                  &shouldProcess,
                                  nsContentUtils::GetContentPolicy(),
                                  nsContentUtils::GetSecurityManager());
@@ -955,7 +966,7 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest *aRequest,
       if (!pluginHost) {
         return NS_ERROR_NOT_AVAILABLE;
       }
-      pluginHost->NewEmbeddedPluginStreamListener(uri, this, nsnull,
+      pluginHost->NewEmbeddedPluginStreamListener(uri, this, nullptr,
                                                   getter_AddRefs(mFinalListener));
       break;
     }
@@ -1016,11 +1027,11 @@ nsObjectLoadingContent::OnStopRequest(nsIRequest *aRequest,
     return NS_BINDING_ABORTED;
   }
 
-  mChannel = nsnull;
+  mChannel = nullptr;
 
   if (mFinalListener) {
     mFinalListener->OnStopRequest(aRequest, aContext, aStatusCode);
-    mFinalListener = nsnull;
+    mFinalListener = nullptr;
   }
 
   // Return value doesn't matter
@@ -1115,7 +1126,7 @@ NS_IMETHODIMP
 nsObjectLoadingContent::DisconnectFrame()
 {
   if (mInstanceOwner) {
-    mInstanceOwner->SetFrame(nsnull);
+    mInstanceOwner->SetFrame(nullptr);
   }
   return NS_OK;
 }
@@ -1123,7 +1134,7 @@ nsObjectLoadingContent::DisconnectFrame()
 NS_IMETHODIMP
 nsObjectLoadingContent::GetPluginInstance(nsNPAPIPluginInstance** aInstance)
 {
-  *aInstance = nsnull;
+  *aInstance = nullptr;
 
   if (!mInstanceOwner) {
     return NS_OK;
@@ -1210,9 +1221,16 @@ nsObjectLoadingContent::ObjectState() const
         case ePluginCrashed:
           state |= NS_EVENT_STATE_HANDLER_CRASHED;
           break;
-        case ePluginUnsupported:
-          state |= NS_EVENT_STATE_TYPE_UNSUPPORTED;
+        case ePluginUnsupported: {
+          // Check to see if plugins are blocked on this platform.
+          char* pluginsBlocked = PR_GetEnv("MOZ_PLUGINS_BLOCKED");
+          if (pluginsBlocked && pluginsBlocked[0] == '1') {
+            state |= NS_EVENT_STATE_TYPE_UNSUPPORTED_PLATFORM;
+          } else {
+            state |= NS_EVENT_STATE_TYPE_UNSUPPORTED;
+          }
           break;
+        }
         case ePluginOutdated:
         case ePluginOtherState:
           // Do nothing, but avoid a compile warning
@@ -1295,7 +1313,7 @@ nsObjectLoadingContent::LoadObject(nsIURI* aURI,
 
   // Need to revoke any potentially pending instantiate events
   if (mType == eType_Plugin && mPendingInstantiateEvent) {
-    mPendingInstantiateEvent = nsnull;
+    mPendingInstantiateEvent = nullptr;
   }
 
   AutoNotifier notifier(this, aNotify);
@@ -1328,10 +1346,10 @@ nsObjectLoadingContent::LoadObject(nsIURI* aURI,
       // NOTE: Since mFinalListener is only set in onStartRequest, which takes
       // care of calling mFinalListener->OnStartRequest, mFinalListener is only
       // non-null here if onStartRequest was already called.
-      mFinalListener->OnStopRequest(mChannel, nsnull, NS_BINDING_ABORTED);
-      mFinalListener = nsnull;
+      mFinalListener->OnStopRequest(mChannel, nullptr, NS_BINDING_ABORTED);
+      mFinalListener = nullptr;
     }
-    mChannel = nsnull;
+    mChannel = nullptr;
   }
 
   // Security checks
@@ -1363,7 +1381,7 @@ nsObjectLoadingContent::LoadObject(nsIURI* aURI,
                                 doc->NodePrincipal(),
                                 static_cast<nsIImageLoadingContent*>(this),
                                 aTypeHint,
-                                nsnull, //extra
+                                nullptr, //extra
                                 &shouldLoad,
                                 nsContentUtils::GetContentPolicy(),
                                 secMan);
@@ -1404,7 +1422,7 @@ nsObjectLoadingContent::LoadObject(nsIURI* aURI,
         mFrameLoader = nsFrameLoader::Create(thisContent->AsElement(),
                                              mNetworkCreated);
         if (!mFrameLoader) {
-          mURI = nsnull;
+          mURI = nullptr;
           return NS_OK;
         }
       }
@@ -1542,7 +1560,7 @@ nsObjectLoadingContent::LoadObject(nsIURI* aURI,
     channelPolicy->SetContentSecurityPolicy(csp);
     channelPolicy->SetLoadType(nsIContentPolicy::TYPE_OBJECT);
   }
-  rv = NS_NewChannel(getter_AddRefs(chan), aURI, nsnull, group, this,
+  rv = NS_NewChannel(getter_AddRefs(chan), aURI, nullptr, group, this,
                      nsIChannel::LOAD_CALL_CONTENT_SNIFFERS |
                      nsIChannel::LOAD_CLASSIFY_URI,
                      channelPolicy);
@@ -1576,7 +1594,7 @@ nsObjectLoadingContent::LoadObject(nsIURI* aURI,
 
   // AsyncOpen can fail if a file does not exist.
   // Show fallback content in that case.
-  rv = chan->AsyncOpen(this, nsnull);
+  rv = chan->AsyncOpen(this, nullptr);
   if (NS_SUCCEEDED(rv)) {
     LOG(("OBJLC [%p]: Channel opened.\n", this));
 
@@ -1609,11 +1627,11 @@ nsObjectLoadingContent::RemovedFromDocument()
   if (mFrameLoader) {
     // XXX This is very temporary and must go away
     mFrameLoader->Destroy();
-    mFrameLoader = nsnull;
+    mFrameLoader = nullptr;
 
     // Clear the current URI, so that LoadObject doesn't think that we
     // have already loaded the content.
-    mURI = nsnull;
+    mURI = nullptr;
   }
 
   // When a plugin instance node is removed from the document we'll
@@ -1684,7 +1702,7 @@ nsObjectLoadingContent::CanHandleURI(nsIURI* aURI)
   nsCOMPtr<nsIExternalProtocolHandler> extHandler =
     do_QueryInterface(handler);
   // We can handle this URI if its protocol handler is not the external one
-  return extHandler == nsnull;
+  return extHandler == nullptr;
 }
 
 bool
@@ -1737,7 +1755,7 @@ nsObjectLoadingContent::UnloadContent()
   CancelImageRequests(false);
   if (mFrameLoader) {
     mFrameLoader->Destroy();
-    mFrameLoader = nsnull;
+    mFrameLoader = nullptr;
   }
   mType = eType_Null;
   mUserDisabled = mSuppressed = false;
@@ -1870,7 +1888,7 @@ nsObjectLoadingContent::GetObjectBaseURI(nsIContent* thisContent, nsIURI** aURI)
 {
   // We want to use swap(); since this is just called from this file,
   // we can assert this (callers use comptrs)
-  NS_PRECONDITION(*aURI == nsnull, "URI must be inited to zero");
+  NS_PRECONDITION(*aURI == nullptr, "URI must be inited to zero");
 
   // For plugins, the codebase attribute is the base URI
   nsCOMPtr<nsIURI> baseURI = thisContent->GetBaseURI();
@@ -2180,7 +2198,7 @@ nsObjectLoadingContent::StopPluginInstance()
   nsRefPtr<nsNPAPIPluginInstance> inst;
   mInstanceOwner->GetInstance(getter_AddRefs(inst));
   if (inst) {
-    const char* mime = nsnull;
+    const char* mime = nullptr;
     if (NS_SUCCEEDED(inst->GetMIMEType(&mime)) && mime) {
       if (strcmp(mime, "audio/x-pn-realaudio-plugin") == 0) {
         delayedStop = true;
@@ -2191,7 +2209,7 @@ nsObjectLoadingContent::StopPluginInstance()
 
   DoStopPlugin(mInstanceOwner, delayedStop);
 
-  mInstanceOwner = nsnull;
+  mInstanceOwner = nullptr;
 
   return NS_OK;
 }
@@ -2227,7 +2245,7 @@ nsObjectLoadingContent::NotifyContentObjectWrapper()
     return;
   }
   
-  JSObject *obj = nsnull;
+  JSObject *obj = nullptr;
   nsresult rv = wrapper->GetJSObject(&obj);
   if (NS_FAILED(rv))
     return;

@@ -16,7 +16,6 @@
 
     throw new Error("osfile_unix_front.jsm cannot be used from the main thread yet");
   }
-  importScripts("resource://gre/modules/osfile/osfile_shared.jsm");
   importScripts("resource://gre/modules/osfile/osfile_unix_back.jsm");
   importScripts("resource://gre/modules/osfile/ospath_unix_back.jsm");
   (function(exports) {
@@ -160,62 +159,19 @@
          return throw_on_negative("setPosition",
            UnixFile.lseek(this.fd, pos, whence)
          );
+       },
+
+       /**
+        * Fetch the information on the file.
+        *
+        * @return File.Info The information on |this| file.
+        */
+       stat: function stat() {
+         throw_on_negative("stat", UnixFile.fstat(this.fd, gStatDataPtr));
+         return new File.Info(gStatData);
        }
      };
 
-     /**
-      * A File-related error.
-      *
-      * To obtain a human-readable error message, use method |toString|.
-      * To determine the cause of the error, use the various |becauseX|
-      * getters. To determine the operation that failed, use field
-      * |operation|.
-      *
-      * Additionally, this implementation offers a field
-      * |unixErrno|, which holds the OS-specific error
-      * constant. If you need this level of detail, you may match the value
-      * of this field against the error constants of |OS.Constants.libc|.
-      *
-      * @param {string=} operation The operation that failed. If unspecified,
-      * the name of the calling function is taken to be the operation that
-      * failed.
-      * @param {number=} lastError The OS-specific constant detailing the
-      * reason of the error. If unspecified, this is fetched from the system
-      * status.
-      *
-      * @constructor
-      * @extends {OS.Shared.Error}
-      */
-     File.Error = function(operation, errno) {
-       operation = operation || "unknown operation";
-       OS.Shared.Error.call(this, operation);
-       this.unixErrno = errno || ctypes.errno;
-     };
-     File.Error.prototype = new OS.Shared.Error();
-     File.Error.prototype.toString = function toString() {
-       return "Unix error " + this.unixErrno +
-         " during operation " + this.operation +
-         " (" + UnixFile.strerror(this.unixErrno).readString() + ")";
-     };
-
-     /**
-      * |true| if the error was raised because a file or directory
-      * already exists, |false| otherwise.
-      */
-     Object.defineProperty(File.Error.prototype, "becauseExists", {
-       get: function becauseExists() {
-         return this.unixErrno == OS.Constants.libc.EEXISTS;
-       }
-     });
-     /**
-      * |true| if the error was raised because a file or directory
-      * does not exist, |false| otherwise.
-      */
-     Object.defineProperty(File.Error.prototype, "becauseNoSuchFile", {
-       get: function becauseNoSuchFile() {
-         return this.unixErrno == OS.Constants.libc.ENOENT;
-       }
-     });
 
      // Constant used to normalize options.
      const noOptions = {};
@@ -674,7 +630,7 @@
        /**
         * |true| if the entry is a symbolic link, |false| otherwise
         */
-       get isLink() {
+       get isSymLink() {
          return this._d_type == OS.Constants.libc.DT_LNK;
        },
 
@@ -697,6 +653,126 @@
        }
      };
 
+     let gStatData = new OS.Shared.Type.stat.implementation();
+     let gStatDataPtr = gStatData.address();
+     let MODE_MASK = 4095 /*= 07777*/;
+     File.Info = function Info(stat) {
+       this._st_mode = stat.st_mode;
+       this._st_uid = stat.st_uid;
+       this._st_gid = stat.st_gid;
+       this._st_atime = stat.st_atime;
+       this._st_mtime = stat.st_mtime;
+       this._st_ctime = stat.st_ctime;
+       this._st_size = stat.st_size;
+     };
+     File.Info.prototype = {
+       /**
+        * |true| if this file is a directory, |false| otherwise
+        */
+       get isDir() {
+         return (this._st_mode & OS.Constants.libc.S_IFMT) == OS.Constants.libc.S_IFDIR;
+       },
+       /**
+        * |true| if this file is a symbolink link, |false| otherwise
+        */
+       get isSymLink() {
+         return (this._st_mode & OS.Constants.libc.S_IFMT) == OS.Constants.libc.S_IFLNK;
+       },
+       /**
+        * The size of the file, in bytes.
+        *
+        * Note that the result may be |NaN| if the size of the file cannot be
+        * represented in JavaScript.
+        *
+        * @type {number}
+        */
+       get size() {
+         delete this.size;
+         let size;
+         try {
+           size = OS.Shared.projectValue(this._st_size);
+         } catch(x) {
+           LOG("get size error", x);
+           size = NaN;
+         }
+         Object.defineProperty(this, "size", { value: size });
+         return size;
+       },
+       /**
+        * The date of creation of this file
+        *
+        * @type {Date}
+        */
+       get creationDate() {
+         delete this.creationDate;
+         let date = new Date(this._st_ctime * 1000);
+         Object.defineProperty(this, "creationDate", { value: date });
+         return date;
+       },
+       /**
+        * The date of last access to this file.
+        *
+        * Note that the definition of last access may depend on the
+        * underlying operating system and file system.
+        *
+        * @type {Date}
+        */
+       get lastAccessDate() {
+         delete this.lastAccessDate;
+         let date = new Date(this._st_atime * 1000);
+         Object.defineProperty(this, "lastAccessDate", {value: date});
+         return date;
+       },
+       /**
+        * Return the date of last modification of this file.
+        */
+       get lastModificationDate() {
+         delete this.lastModificationDate;
+         let date = new Date(this._st_mtime * 1000);
+         Object.defineProperty(this, "lastModificationDate", {value: date});
+         return date;
+       },
+       /**
+        * Return the Unix owner of this file.
+        */
+       get unixOwner() {
+         return this._st_uid;
+       },
+       /**
+        * Return the Unix group of this file.
+        */
+       get unixGroup() {
+         return this._st_gid;
+       },
+       /**
+        * Return the Unix mode of this file.
+        */
+       get unixMode() {
+         return this._st_mode & MODE_MASK;
+       }
+     };
+
+     /**
+      * Fetch the information on a file.
+      *
+      * @param {string} path The full name of the file to open.
+      * @param {*=} options Additional options. In this implementation:
+      *
+      * - {bool} unixNoFollowingLinks If set and |true|, if |path|
+      * represents a symbolic link, the call will return the information
+      * of the link itself, rather than that of the target file.
+      *
+      * @return {File.Information}
+      */
+     File.stat = function stat(path, options) {
+       options = options || noOptions;
+       if (options.unixNoFollowingLinks) {
+         throw_on_negative("stat", UnixFile.lstat(path, gStatDataPtr));
+       } else {
+         throw_on_negative("stat", UnixFile.stat(path, gStatDataPtr));
+       }
+       return new File.Info(gStatData);
+     };
 
      /**
       * Get/set the current directory.
@@ -756,6 +832,8 @@
      File.POS_END = exports.OS.Constants.libc.SEEK_END;
 
      File.Unix = exports.OS.Unix.File;
+     File.Error = exports.OS.Shared.Unix.Error;
      exports.OS.File = File;
+
    })(this);
 }

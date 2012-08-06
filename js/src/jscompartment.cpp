@@ -41,9 +41,13 @@ JSCompartment::JSCompartment(JSRuntime *rt)
   : rt(rt),
     principals(NULL),
     global_(NULL),
+#ifdef JSGC_GENERATIONAL
+    gcStoreBuffer(&gcNursery),
+#endif
     needsBarrier_(false),
     gcState(NoGCScheduled),
     gcPreserveCode(false),
+    gcStarted(false),
     gcBytes(0),
     gcTriggerBytes(0),
     gcHeapGrowthFactor(3.0),
@@ -66,7 +70,7 @@ JSCompartment::JSCompartment(JSRuntime *rt)
     sourceMapMap(NULL),
     debugScriptMap(NULL)
 {
-    setGCMaxMallocBytes(rt->gcMaxMallocBytes * 0.9);
+    setGCMaxMallocBytes(rt->gcMaxMallocBytes);
 }
 
 JSCompartment::~JSCompartment()
@@ -89,6 +93,20 @@ JSCompartment::init(JSContext *cx)
     if (!regExps.init(cx))
         return false;
 
+#ifdef JSGC_GENERATIONAL
+    /*
+     * If we are in the middle of post-barrier verification, we need to
+     * immediately begin collecting verification data on new compartments.
+     */
+    if (rt->gcVerifyPostData) {
+        if (!gcNursery.enable())
+            return false;
+
+        if (!gcStoreBuffer.enable())
+            return false;
+    }
+#endif
+
     return debuggees.init();
 }
 
@@ -103,15 +121,18 @@ JSCompartment::setNeedsBarrier(bool needs)
 }
 
 static bool
-WrapForSameCompartment(JSContext *cx, JSObject *obj, Value *vp)
+WrapForSameCompartment(JSContext *cx, HandleObject obj, Value *vp)
 {
     JS_ASSERT(cx->compartment == obj->compartment());
-    if (cx->runtime->sameCompartmentWrapObjectCallback) {
-        obj = cx->runtime->sameCompartmentWrapObjectCallback(cx, obj);
-        if (!obj)
-            return false;
+    if (!cx->runtime->sameCompartmentWrapObjectCallback) {
+        vp->setObject(*obj);
+        return true;
     }
-    vp->setObject(*obj);
+
+    JSObject *wrapped = cx->runtime->sameCompartmentWrapObjectCallback(cx, obj);
+    if (!wrapped)
+        return false;
+    vp->setObject(*wrapped);
     return true;
 }
 
@@ -163,7 +184,8 @@ JSCompartment::wrap(JSContext *cx, Value *vp)
     if (cx->hasfp()) {
         global = &cx->fp()->global();
     } else {
-        global = JS_ObjectToInnerObject(cx, cx->globalObject);
+        global = cx->globalObject;
+        global = JS_ObjectToInnerObject(cx, global);
         if (!global)
             return false;
     }
@@ -215,7 +237,7 @@ JSCompartment::wrap(JSContext *cx, Value *vp)
         if (vp->isObject()) {
             RootedObject obj(cx, &vp->toObject());
             JS_ASSERT(obj->isCrossCompartmentWrapper());
-            if (global->getClass() != &dummy_class && obj->getParent() != global) {
+            if (obj->getParent() != global) {
                 do {
                     if (!JSObject::setParent(cx, obj, global))
                         return false;
@@ -269,9 +291,6 @@ JSCompartment::wrap(JSContext *cx, Value *vp)
     JS_ASSERT(Wrapper::wrappedObject(wrapper) == &key.get().toObject());
 
     vp->setObject(*wrapper);
-
-    if (wrapper->getProto() != proto && !SetProto(cx, wrapper, proto, false))
-        return false;
 
     if (!crossCompartmentWrappers.put(key, *vp))
         return false;
@@ -553,7 +572,7 @@ JSCompartment::sweep(FreeOp *fop, bool releaseTypes)
 
         {
             gcstats::AutoPhase ap2(rt->gcStats, gcstats::PHASE_FREE_TI_ARENA);
-            oldAlloc.freeAll();
+            rt->freeLifoAlloc.transferFrom(&oldAlloc);
             if (types.constrainedOutputs) {
                 fop->delete_(types.constrainedOutputs);
                 types.constrainedOutputs = NULL;

@@ -30,6 +30,13 @@ protected:
 public:
   NS_DECL_FRAMEARENA_HELPERS
 
+  // nsIFrame methods:
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists) {
+    return NS_OK;
+  }
+
   // nsSVGClipPathFrame methods:
   nsresult ClipPaint(nsRenderingContext* aContext,
                      nsIFrame* aParent,
@@ -42,7 +49,7 @@ public:
   // Check if this clipPath is made up of more than one geometry object.
   // If so, the clipping API in cairo isn't enough and we need to use
   // mask based clipping.
-  bool IsTrivial(nsISVGChildFrame **aSingleChild = nsnull);
+  bool IsTrivial(nsISVGChildFrame **aSingleChild = nullptr);
 
   bool IsValid();
 

@@ -85,9 +85,6 @@ public:
   bool SetupCairoStroke(gfxContext *aContext);
 
 protected:
-  nsSVGPaintServerFrame *GetPaintServer(const nsStyleSVGPaint *aPaint,
-                                        const FramePropertyDescriptor *aProperty);
-
   /**
    * This function returns a set of bit flags indicating which parts of the
    * element (fill, stroke, bounds) should intercept pointer events. It takes
@@ -104,8 +101,6 @@ protected:
    * given 'fill-opacity'/'stroke-opacity' is returned unmodified.
    */
   float MaybeOptimizeOpacity(float aFillOrStrokeOpacity);
-
-  nsRect mCoveredRegion;
 
 private:
   bool GetStrokeDashData(FallibleTArray<gfxFloat>& dashes, gfxFloat *dashOffset);

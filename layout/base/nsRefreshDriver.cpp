@@ -24,6 +24,7 @@
 #include "nsContentUtils.h"
 #include "mozilla/Preferences.h"
 #include "nsIViewManager.h"
+#include "sampler.h"
 
 using mozilla::TimeStamp;
 using mozilla::TimeDuration;
@@ -111,7 +112,7 @@ nsRefreshDriver::AdvanceTimeAndRefresh(PRInt64 aMilliseconds)
   mMostRecentRefresh += TimeDuration::FromMilliseconds(aMilliseconds);
   nsCxPusher pusher;
   if (pusher.PushNull()) {
-    Notify(nsnull);
+    Notify(nullptr);
     pusher.Pop();
   }
 }
@@ -122,7 +123,7 @@ nsRefreshDriver::RestoreNormalRefresh()
   mTestControllingRefreshes = false;
   nsCxPusher pusher;
   if (pusher.PushNull()) {
-    Notify(nsnull); // will call UpdateMostRecentRefresh()
+    Notify(nullptr); // will call UpdateMostRecentRefresh()
     pusher.Pop();
   }
 }
@@ -148,7 +149,7 @@ nsRefreshDriver::AddRefreshObserver(nsARefreshObserver *aObserver,
                                     mozFlushType aFlushType)
 {
   ObserverArray& array = ArrayFor(aFlushType);
-  bool success = array.AppendElement(aObserver) != nsnull;
+  bool success = array.AppendElement(aObserver) != nullptr;
 
   EnsureTimerStarted(false);
 
@@ -217,7 +218,7 @@ nsRefreshDriver::EnsureTimerStarted(bool aAdjustingTimer)
                                          GetRefreshTimerInterval(),
                                          timerType);
   if (NS_FAILED(rv)) {
-    mTimer = nsnull;
+    mTimer = nullptr;
   }
 }
 
@@ -229,7 +230,7 @@ nsRefreshDriver::StopTimer()
   }
 
   mTimer->Cancel();
-  mTimer = nsnull;
+  mTimer = nullptr;
 }
 
 PRUint32
@@ -281,7 +282,7 @@ nsRefreshDriver::ArrayFor(mozFlushType aFlushType)
       return mObservers[2];
     default:
       NS_ABORT_IF_FALSE(false, "bad flush type");
-      return *static_cast<ObserverArray*>(nsnull);
+      return *static_cast<ObserverArray*>(nullptr);
   }
 }
 
@@ -298,6 +299,8 @@ NS_IMPL_ISUPPORTS1(nsRefreshDriver, nsITimerCallback)
 NS_IMETHODIMP
 nsRefreshDriver::Notify(nsITimer *aTimer)
 {
+  SAMPLE_LABEL("nsRefreshDriver", "Notify");
+
   NS_PRECONDITION(!mFrozen, "Why are we notified while frozen?");
   NS_PRECONDITION(mPresContext, "Why are we notified after disconnection?");
   NS_PRECONDITION(!nsContentUtils::GetCurrentJSContext(),
@@ -495,7 +498,7 @@ nsRefreshDriver::DoRefresh()
 {
   // Don't do a refresh unless we're in a state where we should be refreshing.
   if (!mFrozen && mPresContext && mTimer) {
-    Notify(nsnull);
+    Notify(nullptr);
   }
 }
 

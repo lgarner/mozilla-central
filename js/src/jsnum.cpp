@@ -351,7 +351,7 @@ js::num_parseInt(JSContext *cx, unsigned argc, Value *vp)
     if (args.length() == 1 ||
         (args[1].isInt32() && (args[1].toInt32() == 0 || args[1].toInt32() == 10))) {
         if (args[0].isInt32()) {
-            args.rval() = args[0];
+            args.rval().set(args[0]);
             return true;
         }
         /*
@@ -665,7 +665,7 @@ num_toLocaleString_impl(JSContext *cx, CallArgs args)
     int digits = nint - num;
     const char *end = num + digits;
     if (!digits) {
-        args.rval() = StringValue(str);
+        args.rval().setString(str);
         return true;
     }
 
@@ -741,7 +741,7 @@ num_toLocaleString_impl(JSContext *cx, CallArgs args)
         Rooted<Value> v(cx, StringValue(str));
         bool ok = !!cx->localeCallbacks->localeToUnicode(cx, buf, v.address());
         if (ok)
-            args.rval() = v;
+            args.rval().set(v);
         cx->free_(buf);
         return ok;
     }
@@ -751,7 +751,7 @@ num_toLocaleString_impl(JSContext *cx, CallArgs args)
     if (!str)
         return false;
 
-    args.rval() = StringValue(str);
+    args.rval().setString(str);
     return true;
 }
 
@@ -810,7 +810,7 @@ DToStrResult(JSContext *cx, double d, JSDToStrMode mode, int precision, CallArgs
     JSString *str = js_NewStringCopyZ(cx, numStr);
     if (!str)
         return false;
-    args.rval() = StringValue(str);
+    args.rval().setString(str);
     return true;
 }
 
@@ -1158,12 +1158,14 @@ js_InitNumberClass(JSContext *cx, JSObject *obj)
     if (!JS_DefineFunctions(cx, global, number_functions))
         return NULL;
 
+    RootedValue valueNaN(cx, cx->runtime->NaNValue);
+    RootedValue valueInfinity(cx, cx->runtime->positiveInfinityValue);
+
     /* ES5 15.1.1.1, 15.1.1.2 */
-    if (!DefineNativeProperty(cx, global, cx->runtime->atomState.NaNAtom,
-                              cx->runtime->NaNValue, JS_PropertyStub, JS_StrictPropertyStub,
+    if (!DefineNativeProperty(cx, global, cx->runtime->atomState.NaNAtom, valueNaN,
+                              JS_PropertyStub, JS_StrictPropertyStub,
                               JSPROP_PERMANENT | JSPROP_READONLY, 0, 0) ||
-        !DefineNativeProperty(cx, global, cx->runtime->atomState.InfinityAtom,
-                              cx->runtime->positiveInfinityValue,
+        !DefineNativeProperty(cx, global, cx->runtime->atomState.InfinityAtom, valueInfinity,
                               JS_PropertyStub, JS_StrictPropertyStub,
                               JSPROP_PERMANENT | JSPROP_READONLY, 0, 0))
     {
@@ -1398,6 +1400,44 @@ ToNumberSlow(JSContext *cx, Value v, double *out)
     return true;
 }
 
+/*
+ * Convert a value to an int64_t, according to the WebIDL rules for long long
+ * conversion. Return converted value in *out on success, false on failure.
+ */
+JS_PUBLIC_API(bool)
+ToInt64Slow(JSContext *cx, const Value &v, int64_t *out)
+{
+    JS_ASSERT(!v.isInt32());
+    double d;
+    if (v.isDouble()) {
+        d = v.toDouble();
+    } else {
+        if (!ToNumberSlow(cx, v, &d))
+            return false;
+    }
+    *out = ToInt64(d);
+    return true;
+}
+
+/*
+ * Convert a value to an uint64_t, according to the WebIDL rules for unsigned long long
+ * conversion. Return converted value in *out on success, false on failure.
+ */
+JS_PUBLIC_API(bool)
+ToUint64Slow(JSContext *cx, const Value &v, uint64_t *out)
+{
+    JS_ASSERT(!v.isInt32());
+    double d;
+    if (v.isDouble()) {
+        d = v.toDouble();
+    } else {
+        if (!ToNumberSlow(cx, v, &d))
+            return false;
+    }
+    *out = ToUint64(d);
+    return true;
+}
+
 JS_PUBLIC_API(bool)
 ToInt32Slow(JSContext *cx, const Value &v, int32_t *out)
 {
@@ -1413,7 +1453,7 @@ ToInt32Slow(JSContext *cx, const Value &v, int32_t *out)
     return true;
 }
 
-bool
+JS_PUBLIC_API(bool)
 ToUint32Slow(JSContext *cx, const Value &v, uint32_t *out)
 {
     JS_ASSERT(!v.isInt32());
@@ -1428,8 +1468,8 @@ ToUint32Slow(JSContext *cx, const Value &v, uint32_t *out)
     return true;
 }
 
-bool
-ValueToUint16Slow(JSContext *cx, const Value &v, uint16_t *out)
+JS_PUBLIC_API(bool)
+ToUint16Slow(JSContext *cx, const Value &v, uint16_t *out)
 {
     JS_ASSERT(!v.isInt32());
     double d;

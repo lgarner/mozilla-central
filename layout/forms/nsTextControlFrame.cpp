@@ -51,7 +51,6 @@
 #include "nsIStyleRule.h"//observe documents to send onchangenotifications
 #include "nsIDOMEventListener.h"//observe documents to send onchangenotifications
 #include "nsGUIEvent.h"
-#include "nsIDOMNSEvent.h"
 
 #include "nsIDOMCharacterData.h" //for selection setting helper func
 #include "nsIDOMNodeList.h" //for selection setting helper func
@@ -104,7 +103,7 @@ nsTextControlFrame::CreateAccessible()
                                                      PresContext()->PresShell());
   }
 
-  return nsnull;
+  return nullptr;
 }
 #endif
 
@@ -998,7 +997,7 @@ nsTextControlFrame::OffsetToDOMPoint(PRInt32 aOffset,
 {
   NS_ENSURE_ARG_POINTER(aResult && aPosition);
 
-  *aResult = nsnull;
+  *aResult = nullptr;
   *aPosition = 0;
 
   nsCOMPtr<nsIDOMElement> rootElement;
@@ -1416,7 +1415,7 @@ nsTextControlFrame::SaveState(nsIStatefulFrame::SpecialStateID aStateID, nsPresS
 {
   NS_ENSURE_ARG_POINTER(aState);
 
-  *aState = nsnull;
+  *aState = nullptr;
 
   nsCOMPtr<nsITextControlElement> txtCtrl = do_QueryInterface(GetContent());
   NS_ASSERTION(txtCtrl, "Content not a text control element");

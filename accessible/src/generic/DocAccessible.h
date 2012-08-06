@@ -10,8 +10,8 @@
 #include "nsIAccessibleDocument.h"
 #include "nsIAccessiblePivot.h"
 
+#include "AccEvent.h"
 #include "HyperTextAccessibleWrap.h"
-#include "nsEventShell.h"
 
 #include "nsClassHashtable.h"
 #include "nsDataHashtable.h"
@@ -22,7 +22,6 @@
 #include "nsIScrollPositionListener.h"
 #include "nsITimer.h"
 #include "nsIWeakReference.h"
-#include "nsCOMArray.h"
 #include "nsIDocShellTreeNode.h"
 
 template<class Class, class Arg>
@@ -72,7 +71,7 @@ public:
   NS_DECL_NSIDOCUMENTOBSERVER
 
   // nsAccessNode
-  virtual bool Init();
+  virtual void Init();
   virtual void Shutdown();
   virtual nsIFrame* GetFrame() const;
   virtual nsINode* GetNode() const { return mDocument; }
@@ -155,7 +154,7 @@ public:
    * Return the parent document.
    */
   DocAccessible* ParentDocument() const
-    { return mParent ? mParent->Document() : nsnull; }
+    { return mParent ? mParent->Document() : nullptr; }
 
   /**
    * Return the child document count.
@@ -167,7 +166,7 @@ public:
    * Return the child document at the given index.
    */
   DocAccessible* GetChildDocumentAt(PRUint32 aIndex) const
-    { return mChildDocuments.SafeElementAt(aIndex, nsnull); }
+    { return mChildDocuments.SafeElementAt(aIndex, nullptr); }
 
   /**
    * Non-virtual method to fire a delayed event after a 0 length timeout.
@@ -190,17 +189,7 @@ public:
   /**
    * Fire value change event on the given accessible if applicable.
    */
-  void MaybeNotifyOfValueChange(Accessible* aAccessible)
-  {
-    mozilla::a11y::role role = aAccessible->Role();
-    if (role == mozilla::a11y::roles::ENTRY ||
-        role == mozilla::a11y::roles::COMBOBOX) {
-      nsRefPtr<AccEvent> valueChangeEvent =
-        new AccEvent(nsIAccessibleEvent::EVENT_VALUE_CHANGE, aAccessible,
-                     eAutoDetect, AccEvent::eRemoveDupes);
-      FireDelayedAccessibleEvent(valueChangeEvent);
-    }
-  }
+  void MaybeNotifyOfValueChange(Accessible* aAccessible);
 
   /**
    * Get/set the anchor jump.
@@ -272,7 +261,7 @@ public:
    */
   Accessible* GetContainerAccessible(nsINode* aNode)
   {
-    return aNode ? GetAccessibleOrContainer(aNode->GetNodeParent()) : nsnull;
+    return aNode ? GetAccessibleOrContainer(aNode->GetNodeParent()) : nullptr;
   }
 
   /**
@@ -283,13 +272,13 @@ public:
    *       while it's called for XUL elements (where XBL is used widely).
    */
   bool IsDependentID(const nsAString& aID) const
-    { return mDependentIDsHash.Get(aID, nsnull); }
+    { return mDependentIDsHash.Get(aID, nullptr); }
 
   /**
    * Initialize the newly created accessible and put it into document caches.
    *
    * @param  aAccessible    [in] created accessible
-   * @param  aRoleMapEntry  [in] the role map entry role the ARIA role or nsnull
+   * @param  aRoleMapEntry  [in] the role map entry role the ARIA role or nullptr
    *                          if none
    */
   bool BindToDocument(Accessible* aAccessible, nsRoleMapEntry* aRoleMapEntry);
@@ -387,7 +376,7 @@ protected:
    * @param aRelAttr     [in, optional] relation attribute
    */
   void AddDependentIDsFor(Accessible* aRelProvider,
-                          nsIAtom* aRelAttr = nsnull);
+                          nsIAtom* aRelAttr = nullptr);
 
   /**
    * Remove dependent IDs pointed by accessible element by relation attribute
@@ -398,7 +387,7 @@ protected:
    * @param aRelAttr     [in, optional] relation attribute
    */
   void RemoveDependentIDsFor(Accessible* aRelProvider,
-                             nsIAtom* aRelAttr = nsnull);
+                             nsIAtom* aRelAttr = nullptr);
 
   /**
    * Update or recreate an accessible depending on a changed attribute.
@@ -603,7 +592,7 @@ inline DocAccessible*
 Accessible::AsDoc()
 {
   return mFlags & eDocAccessible ?
-    static_cast<DocAccessible*>(this) : nsnull;
+    static_cast<DocAccessible*>(this) : nullptr;
 }
 
 #endif

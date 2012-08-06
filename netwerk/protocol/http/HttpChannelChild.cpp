@@ -363,19 +363,19 @@ HttpChannelChild::OnTransportAndData(const nsresult& status,
   {
     // OnStatus
     //
-    NS_ASSERTION(status == nsISocketTransport::STATUS_RECEIVING_FROM ||
-                 status == nsITransport::STATUS_READING,
+    NS_ASSERTION(status == NS_NET_STATUS_RECEIVING_FROM ||
+                 status == NS_NET_STATUS_READING,
                  "unexpected status code");
 
     nsCAutoString host;
     mURI->GetHost(host);
-    mProgressSink->OnStatus(this, nsnull, status,
+    mProgressSink->OnStatus(this, nullptr, status,
                             NS_ConvertUTF8toUTF16(host).get());
     // OnProgress
     //
     if (progress > 0) {
       NS_ASSERTION(progress <= progressMax, "unexpected progress values");
-      mProgressSink->OnProgress(this, nsnull, progress, progressMax);
+      mProgressSink->OnProgress(this, nullptr, progress, progressMax);
     }
   }
 
@@ -449,7 +449,7 @@ HttpChannelChild::OnStopRequest(const nsresult& statusCode)
     mListenerContext = 0;
     mCacheEntryAvailable = false;
     if (mLoadGroup)
-      mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+      mLoadGroup->RemoveRequest(this, nullptr, mStatus);
   }
 
   if (mLoadFlags & LOAD_DOCUMENT_URI) {
@@ -514,7 +514,7 @@ HttpChannelChild::OnProgress(const PRUint64& progress,
   {
     if (progress > 0) {
       NS_ASSERTION(progress <= progressMax, "unexpected progress values");
-      mProgressSink->OnProgress(this, nsnull, progress, progressMax);
+      mProgressSink->OnProgress(this, nullptr, progress, progressMax);
     }
   }
 }
@@ -565,7 +565,7 @@ HttpChannelChild::OnStatus(const nsresult& status)
   {
     nsCAutoString host;
     mURI->GetHost(host);
-    mProgressSink->OnStatus(this, nsnull, status,
+    mProgressSink->OnStatus(this, nullptr, status,
                             NS_ConvertUTF8toUTF16(host).get());
   }
 }
@@ -722,7 +722,7 @@ HttpChannelChild::Redirect1Begin(const PRUint32& newChannelId,
   bool rewriteToGET = ShouldRewriteRedirectToGET(mResponseHead->Status(), 
                                                  mRequestHead.Method());
   
-  rv = SetupReplacementChannel(uri, newChannel, !rewriteToGET, false);
+  rv = SetupReplacementChannel(uri, newChannel, !rewriteToGET);
   if (NS_FAILED(rv)) {
     // Veto redirect.  nsHttpChannel decides to cancel or continue.
     OnRedirectVerifyCallback(rv);
@@ -775,13 +775,13 @@ HttpChannelChild::Redirect3Complete()
 
   // Redirecting to new channel: shut this down and init new channel
   if (mLoadGroup)
-    mLoadGroup->RemoveRequest(this, nsnull, NS_BINDING_ABORTED);
+    mLoadGroup->RemoveRequest(this, nullptr, NS_BINDING_ABORTED);
 
   if (NS_FAILED(rv))
     NS_WARNING("CompleteRedirectSetup failed, HttpChannelChild already open?");
 
   // Release ref to new channel.
-  mRedirectChannelChild = nsnull;
+  mRedirectChannelChild = nullptr;
 }
 
 //-----------------------------------------------------------------------------
@@ -791,7 +791,7 @@ HttpChannelChild::Redirect3Complete()
 NS_IMETHODIMP
 HttpChannelChild::ConnectParent(PRUint32 id)
 {
-  mozilla::dom::TabChild* tabChild = nsnull;
+  mozilla::dom::TabChild* tabChild = nullptr;
   nsCOMPtr<nsITabChild> iTabChild;
   GetCallback(iTabChild);
   if (iTabChild) {
@@ -834,7 +834,7 @@ HttpChannelChild::CompleteRedirectSetup(nsIStreamListener *listener,
 
   // add ourselves to the load group. 
   if (mLoadGroup)
-    mLoadGroup->AddRequest(this, nsnull);
+    mLoadGroup->AddRequest(this, nullptr);
 
   // We already have an open IPDL connection to the parent. If on-modify-request
   // listeners or load group observers canceled us, let the parent handle it
@@ -955,7 +955,7 @@ HttpChannelChild::AsyncOpen(nsIStreamListener *listener, nsISupports *aContext)
   if (mCanceled)
     return mStatus;
 
-  NS_ENSURE_TRUE(gNeckoChild != nsnull, NS_ERROR_FAILURE);
+  NS_ENSURE_TRUE(gNeckoChild != nullptr, NS_ERROR_FAILURE);
   NS_ENSURE_ARG_POINTER(listener);
   NS_ENSURE_TRUE(!mIsPending, NS_ERROR_IN_PROGRESS);
   NS_ENSURE_TRUE(!mWasOpened, NS_ERROR_ALREADY_OPENED);
@@ -989,7 +989,7 @@ HttpChannelChild::AsyncOpen(nsIStreamListener *listener, nsISupports *aContext)
 
   // add ourselves to the load group. 
   if (mLoadGroup)
-    mLoadGroup->AddRequest(this, nsnull);
+    mLoadGroup->AddRequest(this, nullptr);
 
   if (mCanceled) {
     // We may have been canceled already, either by on-modify-request
@@ -1015,13 +1015,31 @@ HttpChannelChild::AsyncOpen(nsIStreamListener *listener, nsISupports *aContext)
     }
   }
 
+  // Get info from nsILoadContext, if any
+  bool haveLoadContext = false;
+  bool isContent = false;
+  bool usePrivateBrowsing = false;
+  bool isInBrowserElement = false;
+  PRUint32 appId = 0;
+  nsCAutoString extendedOrigin;
+  nsCOMPtr<nsILoadContext> loadContext;
+  GetCallback(loadContext);
+  if (loadContext) {
+    haveLoadContext = true;
+    loadContext->GetIsContent(&isContent);
+    loadContext->GetUsePrivateBrowsing(&usePrivateBrowsing);
+    loadContext->GetIsInBrowserElement(&isInBrowserElement);
+    loadContext->GetAppId(&appId);
+    loadContext->GetExtendedOrigin(mURI, extendedOrigin);
+  }
+
   //
   // Send request to the chrome process...
   //
 
   // FIXME: bug 558623: Combine constructor and SendAsyncOpen into one IPC msg
 
-  mozilla::dom::TabChild* tabChild = nsnull;
+  mozilla::dom::TabChild* tabChild = nullptr;
   nsCOMPtr<nsITabChild> iTabChild;
   GetCallback(iTabChild);
   if (iTabChild) {
@@ -1040,8 +1058,9 @@ HttpChannelChild::AsyncOpen(nsIStreamListener *listener, nsISupports *aContext)
                 IPC::InputStream(mUploadStream), mUploadStreamHasHeaders,
                 mPriority, mRedirectionLimit, mAllowPipelining,
                 mForceAllowThirdPartyCookie, mSendResumeAt,
-                mStartPos, mEntityID, mChooseApplicationCache, 
-                appCacheClientId, mAllowSpdy, UsePrivateBrowsing());
+                mStartPos, mEntityID, mChooseApplicationCache,
+                appCacheClientId, mAllowSpdy, haveLoadContext, isContent,
+                usePrivateBrowsing, isInBrowserElement, appId, extendedOrigin);
 
   return NS_OK;
 }
@@ -1224,7 +1243,7 @@ HttpChannelChild::SetApplicationCache(nsIApplicationCache *aApplicationCache)
 NS_IMETHODIMP
 HttpChannelChild::GetApplicationCacheForWrite(nsIApplicationCache **aApplicationCache)
 {
-  *aApplicationCache = nsnull;
+  *aApplicationCache = nullptr;
   return NS_OK;
 }
 NS_IMETHODIMP

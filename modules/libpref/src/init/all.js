@@ -166,7 +166,9 @@ pref("media.webm.enabled", true);
 #ifdef MOZ_GSTREAMER
 pref("media.h264.enabled", true);
 #endif
-
+#ifdef MOZ_WEBRTC
+pref("media.navigator.enabled", false);
+#endif
 
 // Whether to autostart a media element with an |autoplay| attribute
 pref("media.autoplay.enabled", true);
@@ -225,10 +227,17 @@ pref("gfx.font_rendering.directwrite.use_gdi_table_loading", true);
 
 #ifdef XP_WIN
 pref("gfx.canvas.azure.enabled", true);
+// comma separated list of backends to use in order of preference
+// e.g., pref("gfx.canvas.azure.backends", "direct2d,skia,cairo");
+pref("gfx.canvas.azure.backends", "direct2d,cairo");
 pref("gfx.content.azure.enabled", true);
 #else
 #ifdef XP_MACOSX
 pref("gfx.canvas.azure.enabled", true);
+pref("gfx.canvas.azure.backends", "cg");
+#else
+pref("gfx.canvas.azure.enabled", false);
+pref("gfx.canvas.azure.backends", "cairo");
 #endif
 #endif
 
@@ -781,8 +790,6 @@ pref("network.http.use-cache", true);
 // HTTP traffic.  an empty value indicates the normal TCP/IP socket type.
 pref("network.http.default-socket-type", "");
 
-pref("network.http.keep-alive", true); // set it to false in case of problems
-pref("network.http.proxy.keep-alive", true);
 // There is a problem with some IIS7 servers that don't close the connection
 // properly after it times out (bug #491541). Default timeout on IIS7 is
 // 120 seconds. We need to reuse or drop the connection within this time.
@@ -796,17 +803,12 @@ pref("network.http.keep-alive.timeout", 115);
 // file descriptors for things other than sockets.   
 pref("network.http.max-connections", 256);
 
-// limit the absolute number of http connections that can be established per
-// host.  if a http proxy server is enabled, then the "server" is the proxy
-// server.  Otherwise, "server" is the http origin server.
-pref("network.http.max-connections-per-server", 15);
-
-// if network.http.keep-alive is true, and if NOT connecting via a proxy, then
+// If NOT connecting via a proxy, then
 // a new connection will only be attempted if the number of active persistent
 // connections to the server is less then max-persistent-connections-per-server.
 pref("network.http.max-persistent-connections-per-server", 6);
 
-// if network.http.keep-alive is true, and if connecting via a proxy, then a
+// If connecting via a proxy, then a
 // new connection will only be attempted if the number of active persistent
 // connections to the proxy is less then max-persistent-connections-per-proxy.
 pref("network.http.max-persistent-connections-per-proxy", 8);
@@ -874,6 +876,10 @@ pref("network.http.qos", 0);
 // to wait before trying a different connection. 0 means do not use a second
 // connection.
 pref("network.http.connection-retry-timeout", 250);
+
+// The number of seconds after sending initial SYN for an HTTP connection
+// to give up if the OS does not give up first
+pref("network.http.connection-timeout", 90);
 
 // Disable IPv6 for backup connections to workaround problems about broken
 // IPv6 connectivity.
@@ -1550,6 +1556,9 @@ pref("layout.css.dpi", -1);
 // we have to get this feature working on all platforms.
 pref("layout.css.devPixelsPerPx", "1.0");
 
+// Is support for the the @supports rule enabled?
+pref("layout.css.supports-rule.enabled", true);
+
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction
 // 1 = end-side in document/content direction
@@ -1661,6 +1670,10 @@ pref("dom.ipc.plugins.enabled.602plugin.so", false);
 pref("dom.ipc.processCount", 1);
 
 pref("svg.smil.enabled", true);
+
+// Enable the use of display-lists for SVG hit-testing and painting.
+pref("svg.display-lists.hit-testing.enabled", true);
+pref("svg.display-lists.painting.enabled", true);
 
 pref("font.minimum-size.ar", 0);
 pref("font.minimum-size.x-armn", 0);
@@ -3505,6 +3518,10 @@ pref("layers.acceleration.disabled", false);
 pref("layers.acceleration.force-enabled", false);
 
 pref("layers.acceleration.draw-fps", false);
+
+// Whether to animate simple opacity and transforms on the compositor
+pref("layers.offmainthreadcomposition.animate-opacity", false);
+pref("layers.offmainthreadcomposition.animate-transform", false);
 
 #ifdef MOZ_X11
 #ifdef MOZ_WIDGET_GTK2

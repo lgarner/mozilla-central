@@ -5,29 +5,18 @@
 
 package org.mozilla.gecko;
 
-import java.io.File;
-import java.io.InputStream;
-import java.io.IOException;
-import java.net.URL;
-import java.net.MalformedURLException;
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
-
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.db.BrowserDB.URLColumns;
 import org.mozilla.gecko.sync.setup.SyncAccounts;
 import org.mozilla.gecko.sync.setup.activities.SetupSyncActivity;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.accounts.OnAccountsUpdateListener;
-import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -39,31 +28,41 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.text.SpannableString;
+import android.text.TextUtils;
 import android.text.style.StyleSpan;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.GridView;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.SimpleCursorAdapter;
 import android.widget.TextView;
-import android.text.TextUtils;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public class AboutHomeContent extends ScrollView
        implements TabsAccessor.OnQueryTabsCompleteListener {
     private static final String LOGTAG = "GeckoAboutHome";
 
-    private static final int NUMBER_OF_TOP_SITES_PORTRAIT = 4;
-    private static final int NUMBER_OF_TOP_SITES_LANDSCAPE = 3;
-
-    private static final int NUMBER_OF_COLS_PORTRAIT = 2;
-    private static final int NUMBER_OF_COLS_LANDSCAPE = 3;
-
     private static final int NUMBER_OF_REMOTE_TABS = 5;
+
+    private static int mNumberOfTopSites;
+    private static int mNumberOfCols;
 
     static enum UpdateFlags {
         TOP_SITES,
@@ -74,6 +73,8 @@ public class AboutHomeContent extends ScrollView
         public static final EnumSet<UpdateFlags> ALL = EnumSet.allOf(UpdateFlags.class);
     }
 
+    private Context mContext;
+    private BrowserApp mActivity;
     private Cursor mCursor;
     UriLoadCallback mUriLoadCallback = null;
     private LayoutInflater mInflater;
@@ -89,6 +90,7 @@ public class AboutHomeContent extends ScrollView
     protected AboutHomeSection mRemoteTabs;
 
     private View.OnClickListener mRemoteTabClickListener;
+    private OnInterceptTouchListener mOnInterceptTouchListener;
 
     public interface UriLoadCallback {
         public void callback(String uriSpec);
@@ -96,36 +98,49 @@ public class AboutHomeContent extends ScrollView
 
     public AboutHomeContent(Context context) {
         super(context);
+        mContext = context;
     }
 
     public AboutHomeContent(Context context, AttributeSet attrs) {
         super(context, attrs);
+        mContext = context;
+        mActivity = (BrowserApp) context;
     }
 
     public void init() {
-        final Context context = getContext();
-        mInflater = (LayoutInflater) context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        mInflater.inflate(R.layout.abouthome_content, this);
+        inflate();
 
-        mAccountManager = AccountManager.get(context);
+        mAccountManager = AccountManager.get(mContext);
 
         // The listener will run on the background thread (see 2nd argument)
         mAccountManager.addOnAccountsUpdatedListener(mAccountListener = new OnAccountsUpdateListener() {
             public void onAccountsUpdated(Account[] accounts) {
-                final GeckoApp.StartupMode startupMode = GeckoApp.mAppContext.getStartupMode();
-                final boolean syncIsSetup = SyncAccounts.syncAccountsExist(context);
-
-                GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
-                    public void run() {
-                        // The listener might run before the UI is initially updated.
-                        // In this case, we should simply wait for the initial setup
-                        // to happen.
-                        if (mTopSitesAdapter != null)
-                            updateLayout(startupMode, syncIsSetup);
-                    }
-                });
+                updateLayoutForSync();
             }
         }, GeckoAppShell.getHandler(), false);
+
+        mRemoteTabClickListener = new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String url = ((String) v.getTag());
+                JSONObject args = new JSONObject();
+                try {
+                    args.put("url", url);
+                    args.put("engine", null);
+                    args.put("userEntered", false);
+                } catch (Exception e) {
+                    Log.e(LOGTAG, "error building JSON arguments");
+                }
+    
+                Log.d(LOGTAG, "Sending message to Gecko: " + SystemClock.uptimeMillis() + " - Tab:Add");
+                GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Tab:Add", args.toString()));
+            }
+        };
+    }
+
+    private void inflate() {
+        mInflater = (LayoutInflater) mContext.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+        mInflater.inflate(R.layout.abouthome_content, this);
 
         mTopSitesGrid = (GridView)findViewById(R.id.top_sites_grid);
         mTopSitesGrid.setOnItemClickListener(new AdapterView.OnItemClickListener() {
@@ -147,7 +162,7 @@ public class AboutHomeContent extends ScrollView
         TextView allTopSitesText = (TextView) findViewById(R.id.all_top_sites_text);
         allTopSitesText.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                GeckoApp.mAppContext.showAwesomebar(AwesomeBar.Target.CURRENT_TAB);
+                mActivity.showAwesomebar(AwesomeBar.Target.CURRENT_TAB);
             }
         });
 
@@ -160,7 +175,7 @@ public class AboutHomeContent extends ScrollView
 
         mRemoteTabs.setOnMoreTextClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                GeckoApp.mAppContext.showRemoteTabs();
+                mActivity.showRemoteTabs();
             }
         });
 
@@ -177,7 +192,7 @@ public class AboutHomeContent extends ScrollView
             syncTextView.setText(spannableText, TextView.BufferType.SPANNABLE);
         }
 
-        RelativeLayout syncBox = (RelativeLayout) findViewById(R.id.sync_box);
+        LinearLayout syncBox = (LinearLayout) findViewById(R.id.sync_box);
         syncBox.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 Context context = v.getContext();
@@ -186,23 +201,7 @@ public class AboutHomeContent extends ScrollView
             }
         });
 
-        mRemoteTabClickListener = new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                String url = ((String) v.getTag());
-                JSONObject args = new JSONObject();
-                try {
-                    args.put("url", url);
-                    args.put("engine", null);
-                    args.put("userEntered", false);
-                } catch (Exception e) {
-                    Log.e(LOGTAG, "error building JSON arguments");
-                }
-    
-                Log.d(LOGTAG, "Sending message to Gecko: " + SystemClock.uptimeMillis() + " - Tab:Add");
-                GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Tab:Add", args.toString()));
-            }
-        };
+        setTopSitesConstants();
     }
 
     public void onDestroy() {
@@ -235,27 +234,7 @@ public class AboutHomeContent extends ScrollView
 
     private void setSyncVisibility(boolean visible) {
         int visibility = visible ? View.VISIBLE : View.GONE;
-        findViewById(R.id.sync_box_container).setVisibility(visibility);
-    }
-
-    private void updateSyncLayout(boolean isFirstRun, boolean hasTopSites) {
-        RelativeLayout syncContainer = (RelativeLayout) findViewById(R.id.sync_box_container);
-        RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) syncContainer.getLayoutParams();
-
-        int below = R.id.all_top_sites_text;
-        if (isFirstRun && !hasTopSites)
-            below = R.id.top_sites_top;
-        else if (!hasTopSites)
-            below = R.id.no_top_sites_text;
-
-        int background = R.drawable.abouthome_bg_repeat;
-        if (isFirstRun && !hasTopSites)
-            background = 0;
-
-        params.addRule(RelativeLayout.BELOW, below);
-        syncContainer.setLayoutParams(params);
-
-        syncContainer.setBackgroundResource(background);
+        findViewById(R.id.sync_box).setVisibility(visibility);
     }
 
     private void updateLayout(GeckoApp.StartupMode startupMode, boolean syncIsSetup) {
@@ -268,36 +247,42 @@ public class AboutHomeContent extends ScrollView
 
         setTopSitesVisibility(!isFirstRun || hasTopSites, hasTopSites);
         setSyncVisibility(!syncIsSetup);
-        updateSyncLayout(isFirstRun, hasTopSites);
     }
 
-    private int getNumberOfTopSites() {
-        Configuration config = getContext().getResources().getConfiguration();
-        if (config.orientation == Configuration.ORIENTATION_LANDSCAPE)
-            return NUMBER_OF_TOP_SITES_LANDSCAPE;
-        else
-            return NUMBER_OF_TOP_SITES_PORTRAIT;
+    private void updateLayoutForSync() {
+        final GeckoApp.StartupMode startupMode = mActivity.getStartupMode();
+        final boolean syncIsSetup = SyncAccounts.syncAccountsExist(mContext);
+
+        post(new Runnable() {
+            public void run() {
+                // The listener might run before the UI is initially updated.
+                // In this case, we should simply wait for the initial setup
+                // to happen.
+                if (mTopSitesAdapter != null)
+                    updateLayout(startupMode, syncIsSetup);
+            }
+        });
     }
 
-    private void loadTopSites(final Activity activity) {
+    private void loadTopSites() {
         // Ensure we initialize GeckoApp's startup mode in
         // background thread before we use it when updating
         // the top sites section layout in main thread.
-        final GeckoApp.StartupMode startupMode = GeckoApp.mAppContext.getStartupMode();
+        final GeckoApp.StartupMode startupMode = mActivity.getStartupMode();
 
         // The SyncAccounts.syncAccountsExist method should not be called on
         // UI thread as it touches disk to access a sqlite DB.
-        final boolean syncIsSetup = SyncAccounts.syncAccountsExist(activity);
+        final boolean syncIsSetup = SyncAccounts.syncAccountsExist(mActivity);
 
-        final ContentResolver resolver = GeckoApp.mAppContext.getContentResolver();
+        final ContentResolver resolver = mActivity.getContentResolver();
         final Cursor oldCursor = mCursor;
         // Swap in the new cursor.
-        mCursor = BrowserDB.getTopSites(resolver, NUMBER_OF_TOP_SITES_PORTRAIT);;
+        mCursor = BrowserDB.getTopSites(resolver, mNumberOfTopSites);
 
-        GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
+        post(new Runnable() {
             public void run() {
                 if (mTopSitesAdapter == null) {
-                    mTopSitesAdapter = new TopSitesCursorAdapter(activity,
+                    mTopSitesAdapter = new TopSitesCursorAdapter(mActivity,
                                                                  R.layout.abouthome_topsite_item,
                                                                  mCursor,
                                                                  new String[] { URLColumns.TITLE,
@@ -319,20 +304,20 @@ public class AboutHomeContent extends ScrollView
         });
     }
 
-    void update(final Activity activity, final EnumSet<UpdateFlags> flags) {
+    void update(final EnumSet<UpdateFlags> flags) {
         GeckoAppShell.getHandler().post(new Runnable() {
             public void run() {
                 if (flags.contains(UpdateFlags.TOP_SITES))
-                    loadTopSites(activity);
+                    loadTopSites();
 
                 if (flags.contains(UpdateFlags.PREVIOUS_TABS))
-                    readLastTabs(activity);
+                    readLastTabs();
 
                 if (flags.contains(UpdateFlags.RECOMMENDED_ADDONS))
-                    readRecommendedAddons(activity);
+                    readRecommendedAddons();
 
                 if (flags.contains(UpdateFlags.REMOTE_TABS))
-                    loadRemoteTabs(activity);
+                    loadRemoteTabs();
             }
         });
     }
@@ -341,8 +326,13 @@ public class AboutHomeContent extends ScrollView
         mUriLoadCallback = uriLoadCallback;
     }
 
-    public void onActivityContentChanged(Activity activity) {
-        update(activity, EnumSet.of(UpdateFlags.TOP_SITES));
+    public void onActivityContentChanged() {
+        update(EnumSet.of(UpdateFlags.TOP_SITES));
+    }
+
+    private void setTopSitesConstants() {
+        mNumberOfTopSites = getResources().getInteger(R.integer.number_of_top_sites);
+        mNumberOfCols = getResources().getInteger(R.integer.number_of_top_sites_cols);
     }
 
     @Override
@@ -350,15 +340,38 @@ public class AboutHomeContent extends ScrollView
         if (mTopSitesAdapter != null)
             mTopSitesAdapter.notifyDataSetChanged();
 
+        removeAllViews(); // We must remove the currently inflated view to allow for reinflation.
+        inflate();
+        mTopSitesGrid.setAdapter(mTopSitesAdapter); // mTopSitesGrid is a new instance (from loadTopSites()).
+        update(AboutHomeContent.UpdateFlags.ALL); // Refresh all elements.
+
         super.onConfigurationChanged(newConfig);
     }
 
-    private String readFromZipFile(Activity activity, String filename) {
+    @Override
+    public boolean onInterceptTouchEvent(MotionEvent event) {
+        if (mOnInterceptTouchListener != null && mOnInterceptTouchListener.onInterceptTouchEvent(this, event))
+            return true;
+        return super.onInterceptTouchEvent(event);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (mOnInterceptTouchListener != null && mOnInterceptTouchListener.onTouch(this, event))
+            return true;
+        return super.onTouchEvent(event);
+    }
+
+    public void setOnInterceptTouchListener(OnInterceptTouchListener listener) {
+        mOnInterceptTouchListener = listener;
+    }
+
+    private String readFromZipFile(String filename) {
         ZipFile zip = null;
         String str = null;
         try {
             InputStream fileStream = null;
-            File applicationPackage = new File(activity.getApplication().getPackageResourcePath());
+            File applicationPackage = new File(mActivity.getApplication().getPackageResourcePath());
             zip = new ZipFile(applicationPackage);
             if (zip == null)
                 return null;
@@ -424,14 +437,14 @@ public class AboutHomeContent extends ScrollView
         return pageUrl;
     }
 
-    private void readRecommendedAddons(final Activity activity) {
+    private void readRecommendedAddons() {
         final String addonsFilename = "recommended-addons.json";
         String jsonString;
         try {
-            jsonString = GeckoApp.mAppContext.getProfile().readFile(addonsFilename);
+            jsonString = mActivity.getProfile().readFile(addonsFilename);
         } catch (IOException ioe) {
             Log.i(LOGTAG, "filestream is null");
-            jsonString = readFromZipFile(activity, addonsFilename);
+            jsonString = readFromZipFile(addonsFilename);
         }
 
         JSONArray addonsArray = null;
@@ -444,7 +457,7 @@ public class AboutHomeContent extends ScrollView
         }
 
         final JSONArray array = addonsArray;
-        GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
+        post(new Runnable() {
             public void run() {
                 try {
                     if (array == null || array.length() == 0) {
@@ -470,7 +483,7 @@ public class AboutHomeContent extends ScrollView
                             }
                         });
 
-                        Favicons favicons = GeckoApp.mAppContext.getFavicons();
+                        Favicons favicons = mActivity.getFavicons();
                         favicons.loadFavicon(pageUrl, iconUrl,
                                     new Favicons.OnFaviconLoadedListener() {
                             public void onFaviconLoaded(String url, Drawable favicon) {
@@ -492,8 +505,8 @@ public class AboutHomeContent extends ScrollView
         });
     }
 
-    private void readLastTabs(final Activity activity) {
-        String jsonString = GeckoApp.mAppContext.getProfile().readSessionFile(GeckoApp.sIsGeckoReady);
+    private void readLastTabs() {
+        String jsonString = mActivity.getProfile().readSessionFile(GeckoApp.sIsGeckoReady);
         if (jsonString == null) {
             // no previous session data
             return;
@@ -535,11 +548,11 @@ public class AboutHomeContent extends ScrollView
             if (url.startsWith("about:"))
                 continue;
 
-            ContentResolver resolver = GeckoApp.mAppContext.getContentResolver();
+            ContentResolver resolver = mActivity.getContentResolver();
             final BitmapDrawable favicon = BrowserDB.getFaviconForUrl(resolver, url);
             lastTabUrlsList.add(url);
 
-            GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
+            post(new Runnable() {
                 public void run() {
                     View container = mInflater.inflate(R.layout.abouthome_last_tabs_row, mLastTabs.getItemsContainer(), false);
                     ((TextView) container.findViewById(R.id.last_tab_title)).setText(title);
@@ -549,7 +562,7 @@ public class AboutHomeContent extends ScrollView
 
                     container.setOnClickListener(new View.OnClickListener() {
                         public void onClick(View v) {
-                            GeckoApp.mAppContext.loadUrlInTab(url);
+                            mActivity.loadUrlInTab(url);
                         }
                     });
 
@@ -559,14 +572,14 @@ public class AboutHomeContent extends ScrollView
         }
 
         final int numLastTabs = lastTabUrlsList.size();
-        GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
+        post(new Runnable() {
             public void run() {
                 if (numLastTabs > 1) {
                     mLastTabs.showMoreText();
                     mLastTabs.setOnMoreTextClickListener(new View.OnClickListener() {
                         public void onClick(View v) {
                             for (String url : lastTabUrlsList)
-                                GeckoApp.mAppContext.loadUrlInTab(url);
+                                mActivity.loadUrlInTab(url);
                         }
                     });
                     mLastTabs.show();
@@ -578,9 +591,9 @@ public class AboutHomeContent extends ScrollView
         });
     }
 
-    private void loadRemoteTabs(final Activity activity) {
-        if (!SyncAccounts.syncAccountsExist(activity)) {
-            GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
+    private void loadRemoteTabs() {
+        if (!SyncAccounts.syncAccountsExist(mActivity)) {
+            post(new Runnable() {
                 public void run() {
                     mRemoteTabs.hide();
                 }
@@ -621,22 +634,8 @@ public class AboutHomeContent extends ScrollView
     }
 
     public static class TopSitesGridView extends GridView {
-        /** From layout xml:
-         *  80dip image height 
-         * + 2dip image paddingTop
-         * + 1dip image padding (for bottom)
-         * + 3dip marginTop on the TextView
-         * +15dip TextView height
-         * + 8dip vertical spacing in the GridView
-         * ------
-         * 109dip total height per top site grid item
-         */
-        private static final int kTopSiteItemHeight = 109;
-        float mDisplayDensity ;
-
         public TopSitesGridView(Context context, AttributeSet attrs) {
             super(context, attrs);
-            mDisplayDensity = GeckoApp.mAppContext.getDisplayMetrics().density;
         }
 
         @Override
@@ -652,19 +651,13 @@ public class AboutHomeContent extends ScrollView
                     nSites = c.getCount();
             }
 
-            Configuration config = getContext().getResources().getConfiguration();
-            if (config.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                nSites = Math.min(nSites, NUMBER_OF_TOP_SITES_LANDSCAPE);
-                numRows = (int) Math.round((double) nSites / NUMBER_OF_COLS_LANDSCAPE);
-                setNumColumns(NUMBER_OF_COLS_LANDSCAPE);
-            } else {
-                nSites = Math.min(nSites, NUMBER_OF_TOP_SITES_PORTRAIT);
-                numRows = (int) Math.round((double) nSites / NUMBER_OF_COLS_PORTRAIT);
-                setNumColumns(NUMBER_OF_COLS_PORTRAIT);
-            }
-            int expandedHeightSpec = 
-                MeasureSpec.makeMeasureSpec((int)(mDisplayDensity * numRows * kTopSiteItemHeight),
-                                            MeasureSpec.EXACTLY);
+            nSites = Math.min(nSites, mNumberOfTopSites);
+            numRows = (int) Math.round((double) nSites / mNumberOfCols);
+            setNumColumns(mNumberOfCols);
+
+            int expandedHeightSpec = MeasureSpec.makeMeasureSpec(numRows * getResources().
+                    getDimensionPixelSize(R.dimen.abouthome_content_top_sites_item_height),
+                    MeasureSpec.EXACTLY);
 
             super.onMeasure(widthMeasureSpec, expandedHeightSpec);
         }
@@ -678,7 +671,7 @@ public class AboutHomeContent extends ScrollView
 
         @Override
         public int getCount() {
-            return Math.min(super.getCount(), getNumberOfTopSites());
+            return Math.min(super.getCount(), mNumberOfTopSites);
         }
 
         @Override

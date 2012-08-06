@@ -21,8 +21,10 @@ namespace analyze {
 
 #ifdef DEBUG
 void
-PrintBytecode(JSContext *cx, JSScript *script, jsbytecode *pc)
+PrintBytecode(JSContext *cx, JSScript *scriptArg, jsbytecode *pc)
 {
+    RootedScript script(cx, scriptArg);
+
     printf("#%u:", script->id());
     Sprinter sprinter(cx);
     if (!sprinter.init())
@@ -568,6 +570,8 @@ ScriptAnalysis::analyzeBytecode(JSContext *cx)
           case JSOP_RETRVAL:
           case JSOP_GETGNAME:
           case JSOP_CALLGNAME:
+          case JSOP_INTRINSICNAME:
+          case JSOP_CALLINTRINSIC:
           case JSOP_SETGNAME:
           case JSOP_REGEXP:
           case JSOP_OBJECT:

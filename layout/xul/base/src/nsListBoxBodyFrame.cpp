@@ -125,7 +125,7 @@ nsListScrollSmoother::Stop()
 {
   if ( mRepeatTimer ) {
     mRepeatTimer->Cancel();
-    mRepeatTimer = nsnull;
+    mRepeatTimer = nullptr;
   }
 }
 
@@ -137,10 +137,10 @@ nsListBoxBodyFrame::nsListBoxBodyFrame(nsIPresShell* aPresShell,
                                        nsStyleContext* aContext,
                                        nsBoxLayout* aLayoutManager)
   : nsBoxFrame(aPresShell, aContext, false, aLayoutManager),
-    mTopFrame(nsnull),
-    mBottomFrame(nsnull),
-    mLinkupFrame(nsnull),
-    mScrollSmoother(nsnull),
+    mTopFrame(nullptr),
+    mBottomFrame(nullptr),
+    mLinkupFrame(nullptr),
+    mScrollSmoother(nullptr),
     mRowsToPrepend(0),
     mRowCount(-1),
     mRowHeight(0),
@@ -163,7 +163,7 @@ nsListBoxBodyFrame::~nsListBoxBodyFrame()
 
 #if USE_TIMER_TO_DELAY_SCROLLING
   StopScrollTracking();
-  mAutoScrollTimer = nsnull;
+  mAutoScrollTimer = nullptr;
 #endif
 
 }
@@ -184,7 +184,7 @@ nsListBoxBodyFrame::Init(nsIContent*     aContent,
   NS_ENSURE_SUCCESS(rv, rv);
   nsIScrollableFrame* scrollFrame = nsLayoutUtils::GetScrollableFrameFor(this);
   if (scrollFrame) {
-    nsIBox* verticalScrollbar = scrollFrame->GetScrollbarBox(true);
+    nsIFrame* verticalScrollbar = scrollFrame->GetScrollbarBox(true);
     nsScrollbarFrame* scrollbarFrame = do_QueryFrame(verticalScrollbar);
     if (scrollbarFrame) {
       scrollbarFrame->SetScrollbarMediatorContent(GetContent());
@@ -234,8 +234,6 @@ nsListBoxBodyFrame::AttributeChanged(PRInt32 aNameSpaceID,
   return rv;
  
 }
-
-/////////// nsIBox ///////////////
 
 /* virtual */ void
 nsListBoxBodyFrame::MarkIntrinsicWidthsDirty()
@@ -564,7 +562,7 @@ nsListBoxBodyFrame::GetIndexOfItem(nsIDOMElement* aItem, PRInt32* _retval)
 nsresult
 nsListBoxBodyFrame::GetItemAtIndex(PRInt32 aIndex, nsIDOMElement** aItem)
 {
-  *aItem = nsnull;
+  *aItem = nullptr;
   if (aIndex < 0)
     return NS_OK;
   
@@ -601,7 +599,7 @@ nsListBoxBodyFrame::GetRowCount()
 PRInt32
 nsListBoxBodyFrame::GetFixedRowSize()
 {
-  PRInt32 dummy;
+  nsresult dummy;
 
   nsAutoString rows;
   mContent->GetAttr(kNameSpaceID_None, nsGkAtoms::rows, rows);
@@ -664,7 +662,7 @@ nsListBoxBodyFrame::ComputeIntrinsicWidth(nsBoxLayoutState& aBoxLayoutState)
     nsRefPtr<nsStyleContext> styleContext;
     nsPresContext *presContext = aBoxLayoutState.PresContext();
     styleContext = presContext->StyleSet()->
-      ResolveStyleFor(firstRowContent->AsElement(), nsnull);
+      ResolveStyleFor(firstRowContent->AsElement(), nullptr);
 
     nscoord width = 0;
     nsMargin margin(0,0,0,0);
@@ -863,7 +861,7 @@ nsListBoxBodyFrame::DoInternalPositionChanged(bool aUp, PRInt32 aDelta)
         // scrolling up, destroy rows from the bottom downwards
         ReverseDestroyRows(loseRows);
         mRowsToPrepend += aDelta;
-        mLinkupFrame = nsnull;
+        mLinkupFrame = nullptr;
       }
       else {
         // scrolling down, destroy rows from the top upwards
@@ -886,7 +884,7 @@ nsListBoxBodyFrame::DoInternalPositionChanged(bool aUp, PRInt32 aDelta)
     }
 
     // clear frame markers so that CreateRows will re-create
-    mTopFrame = mBottomFrame = nsnull; 
+    mTopFrame = mBottomFrame = nullptr; 
   
     mYPosition = mCurrentIndex*mRowHeight;
     mScrolling = true;
@@ -995,7 +993,7 @@ nsListBoxBodyFrame::CreateRows()
   
   // get the first tree box. If there isn't one create one.
   bool created = false;
-  nsIBox* box = GetFirstItemBox(0, &created);
+  nsIFrame* box = GetFirstItemBox(0, &created);
   nscoord rowHeight = GetRowHeightAppUnits();
   while (box) {  
     if (created && mRowsToPrepend > 0)
@@ -1017,7 +1015,7 @@ nsListBoxBodyFrame::CreateRows()
   }
 
   mRowsToPrepend = 0;
-  mLinkupFrame = nsnull;
+  mLinkupFrame = nullptr;
 }
 
 void
@@ -1075,7 +1073,7 @@ static bool
 IsListItemChild(nsListBoxBodyFrame* aParent, nsIContent* aChild,
                 nsIFrame** aChildFrame)
 {
-  *aChildFrame = nsnull;
+  *aChildFrame = nullptr;
   if (!aChild->IsXUL() || aChild->Tag() != nsGkAtoms::listitem) {
     return false;
   }
@@ -1088,10 +1086,10 @@ IsListItemChild(nsListBoxBodyFrame* aParent, nsIContent* aChild,
 }
 
 //
-// Get the nsIBox for the first visible listitem, and if none exists,
+// Get the nsIFrame for the first visible listitem, and if none exists,
 // create one.
 //
-nsIBox* 
+nsIFrame*
 nsListBoxBodyFrame::GetFirstItemBox(PRInt32 aOffset, bool* aCreated)
 {
   if (aCreated)
@@ -1101,7 +1099,7 @@ nsListBoxBodyFrame::GetFirstItemBox(PRInt32 aOffset, bool* aCreated)
   mBottomFrame = mTopFrame;
 
   if (mTopFrame) {
-    return mTopFrame->IsBoxFrame() ? static_cast<nsIBox*>(mTopFrame) : nsnull;
+    return mTopFrame->IsBoxFrame() ? mTopFrame : nullptr;
   }
 
   // top frame was cleared out
@@ -1109,7 +1107,7 @@ nsListBoxBodyFrame::GetFirstItemBox(PRInt32 aOffset, bool* aCreated)
   mBottomFrame = mTopFrame;
 
   if (mTopFrame && mRowsToPrepend <= 0) {
-    return mTopFrame->IsBoxFrame() ? static_cast<nsIBox*>(mTopFrame) : nsnull;
+    return mTopFrame->IsBoxFrame() ? mTopFrame : nullptr;
   }
 
   // At this point, we either have no frames at all, 
@@ -1125,7 +1123,7 @@ nsListBoxBodyFrame::GetFirstItemBox(PRInt32 aOffset, bool* aCreated)
     PRInt32 contentIndex = topParent->IndexOf(topContent);
     contentIndex -= aOffset;
     if (contentIndex < 0)
-      return nsnull;
+      return nullptr;
     startContent = topParent->GetChildAt(contentIndex - mRowsToPrepend);
   } else {
     // This will be the first item frame we create.  Use the content
@@ -1139,7 +1137,7 @@ nsListBoxBodyFrame::GetFirstItemBox(PRInt32 aOffset, bool* aCreated)
       return GetFirstItemBox(++aOffset, aCreated);
     }
     if (existingFrame) {
-      return existingFrame->IsBoxFrame() ? existingFrame : nsnull;
+      return existingFrame->IsBoxFrame() ? existingFrame : nullptr;
     }
 
     // Either append the new frame, or prepend it (at index 0)
@@ -1149,9 +1147,9 @@ nsListBoxBodyFrame::GetFirstItemBox(PRInt32 aOffset, bool* aCreated)
     
     nsPresContext* presContext = PresContext();
     nsCSSFrameConstructor* fc = presContext->PresShell()->FrameConstructor();
-    nsIFrame* topFrame = nsnull;
-    fc->CreateListBoxContent(presContext, this, nsnull, startContent,
-                             &topFrame, isAppend, false, nsnull);
+    nsIFrame* topFrame = nullptr;
+    fc->CreateListBoxContent(presContext, this, nullptr, startContent,
+                             &topFrame, isAppend, false, nullptr);
     mTopFrame = topFrame;
     if (mTopFrame) {
       if (aCreated)
@@ -1159,20 +1157,20 @@ nsListBoxBodyFrame::GetFirstItemBox(PRInt32 aOffset, bool* aCreated)
 
       mBottomFrame = mTopFrame;
 
-      return mTopFrame->IsBoxFrame() ? static_cast<nsIBox*>(mTopFrame) : nsnull;
+      return mTopFrame->IsBoxFrame() ? mTopFrame : nullptr;
     } else
       return GetFirstItemBox(++aOffset, 0);
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 //
-// Get the nsIBox for the next visible listitem after aBox, and if none
+// Get the nsIFrame for the next visible listitem after aBox, and if none
 // exists, create one.
 //
-nsIBox* 
-nsListBoxBodyFrame::GetNextItemBox(nsIBox* aBox, PRInt32 aOffset,
+nsIFrame*
+nsListBoxBodyFrame::GetNextItemBox(nsIFrame* aBox, PRInt32 aOffset,
                                    bool* aCreated)
 {
   if (aCreated)
@@ -1199,12 +1197,12 @@ nsListBoxBodyFrame::GetNextItemBox(nsIBox* aBox, PRInt32 aOffset,
       if (!existingFrame) {
         // Either append the new frame, or insert it after the current frame
         bool isAppend = result != mLinkupFrame && mRowsToPrepend <= 0;
-        nsIFrame* prevFrame = isAppend ? nsnull : aBox;
+        nsIFrame* prevFrame = isAppend ? nullptr : aBox;
       
         nsPresContext* presContext = PresContext();
         nsCSSFrameConstructor* fc = presContext->PresShell()->FrameConstructor();
         fc->CreateListBoxContent(presContext, this, prevFrame, nextContent,
-                                 &result, isAppend, false, nsnull);
+                                 &result, isAppend, false, nullptr);
 
         if (result) {
           if (aCreated)
@@ -1215,19 +1213,19 @@ nsListBoxBodyFrame::GetNextItemBox(nsIBox* aBox, PRInt32 aOffset,
         result = existingFrame;
       }
             
-      mLinkupFrame = nsnull;
+      mLinkupFrame = nullptr;
     }
   }
 
   if (!result)
-    return nsnull;
+    return nullptr;
 
   mBottomFrame = result;
 
   NS_ASSERTION(!result->IsBoxFrame() || result->GetParent() == this,
                "returning frame that is not in childlist");
 
-  return result->IsBoxFrame() ? result : nsnull;
+  return result->IsBoxFrame() ? result : nullptr;
 }
 
 bool
@@ -1244,7 +1242,7 @@ nsListBoxBodyFrame::ContinueReflow(nscoord height)
   if (height <= 0) {
     nsIFrame* lastChild = GetLastFrame();
     nsIFrame* startingPoint = mBottomFrame;
-    if (startingPoint == nsnull) {
+    if (startingPoint == nullptr) {
       // We just want to delete everything but the first item.
       startingPoint = GetFirstFrame();
     }
@@ -1280,7 +1278,7 @@ nsListBoxBodyFrame::ListBoxAppendFrames(nsFrameList& aFrameList)
 {
   // append them after
   nsBoxLayoutState state(PresContext());
-  const nsFrameList::Slice& newFrames = mFrames.AppendFrames(nsnull, aFrameList);
+  const nsFrameList::Slice& newFrames = mFrames.AppendFrames(nullptr, aFrameList);
   if (mLayoutManager)
     mLayoutManager->ChildrenAppended(this, state, newFrames);
   PresContext()->PresShell()->
@@ -1297,7 +1295,7 @@ nsListBoxBodyFrame::ListBoxInsertFrames(nsIFrame* aPrevFrame,
   // insert the frames to our info list
   nsBoxLayoutState state(PresContext());
   const nsFrameList::Slice& newFrames =
-    mFrames.InsertFrames(nsnull, aPrevFrame, aFrameList);
+    mFrames.InsertFrames(nullptr, aPrevFrame, aFrameList);
   if (mLayoutManager)
     mLayoutManager->ChildrenInserted(this, state, aPrevFrame, newFrames);
   PresContext()->PresShell()->
@@ -1332,7 +1330,7 @@ nsListBoxBodyFrame::OnContentInserted(nsPresContext* aPresContext, nsIContent* a
   // if we're inserting our item before the first visible content,
   // then we need to shift all rows down by one
   if (siblingIndex >= 0 &&  siblingIndex-1 <= mCurrentIndex) {
-    mTopFrame = nsnull;
+    mTopFrame = nullptr;
     mRowsToPrepend = 1;
   } else if (nextSiblingContent) {
     // we may be inserting before a frame that is on screen
@@ -1398,7 +1396,7 @@ nsListBoxBodyFrame::OnContentRemoved(nsPresContext* aPresContext,
         nsIFrame* lastChildFrame = lastChild->GetPrimaryFrame();
       
         if (lastChildFrame) {
-          mTopFrame = nsnull;
+          mTopFrame = nullptr;
           mRowsToPrepend = 1;
           --mCurrentIndex;
           mYPosition = mCurrentIndex*mRowHeight;
@@ -1426,7 +1424,7 @@ nsListBoxBodyFrame::OnContentRemoved(nsPresContext* aPresContext,
 void
 nsListBoxBodyFrame::GetListItemContentAt(PRInt32 aIndex, nsIContent** aContent)
 {
-  *aContent = nsnull;
+  *aContent = nullptr;
 
   PRInt32 itemsFound = 0;
   ChildIterator iter, last;
@@ -1448,9 +1446,9 @@ nsListBoxBodyFrame::GetListItemContentAt(PRInt32 aIndex, nsIContent** aContent)
 void
 nsListBoxBodyFrame::GetListItemNextSibling(nsIContent* aListItem, nsIContent** aContent, PRInt32& aSiblingIndex)
 {
-  *aContent = nsnull;
+  *aContent = nullptr;
   aSiblingIndex = -1;
-  nsIContent *prevKid = nsnull;
+  nsIContent *prevKid = nullptr;
   ChildIterator iter, last;
   for (ChildIterator::Init(mContent, &iter, &last);
        iter != last;
@@ -1509,7 +1507,7 @@ NS_NewListBoxBodyFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
 {
   nsCOMPtr<nsBoxLayout> layout = NS_NewListBoxLayout();
   if (!layout) {
-    return nsnull;
+    return nullptr;
   }
 
   return new (aPresShell) nsListBoxBodyFrame(aPresShell, aContext, layout);

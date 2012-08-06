@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-DEPTH            = ../..
+DEPTH            = @DEPTH@
 topsrcdir        = @top_srcdir@
 srcdir           = @srcdir@
 VPATH            = @srcdir@
@@ -33,7 +33,10 @@ CPPSRCS += \
   BluetoothAdapter.cpp \
   BluetoothDevice.cpp \
   BluetoothDeviceEvent.cpp \
+  BluetoothPropertyEvent.cpp \
   BluetoothReplyRunnable.cpp \
+  BluetoothPropertyContainer.cpp \
+  BluetoothUtils.cpp \
   $(NULL)
 
 XPIDLSRCS = \
@@ -42,6 +45,7 @@ XPIDLSRCS = \
   nsIDOMBluetoothAdapter.idl \
   nsIDOMBluetoothDevice.idl \
   nsIDOMBluetoothDeviceEvent.idl \
+  nsIDOMBluetoothPropertyEvent.idl \
   $(NULL)
 
 ifeq (gonk,$(MOZ_WIDGET_TOOLKIT))

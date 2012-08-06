@@ -17,6 +17,7 @@
 #include "nsRect.h"
 #include "nsRenderingContext.h"
 #include "nsTextFrame.h"
+#include "nsStyleStructInlines.h"
 #include "mozilla/Util.h"
 
 namespace mozilla {
@@ -53,7 +54,7 @@ static bool
 IsAtomicElement(nsIFrame* aFrame, const nsIAtom* aFrameType)
 {
   NS_PRECONDITION(!nsLayoutUtils::GetAsBlock(aFrame) ||
-                  !aFrame->GetStyleDisplay()->IsBlockOutside(),
+                  !aFrame->IsBlockOutside(),
                   "unexpected block frame");
   NS_PRECONDITION(aFrameType != nsGkAtoms::placeholderFrame,
                   "unexpected placeholder frame");
@@ -76,7 +77,7 @@ IsFullyClipped(nsTextFrame* aFrame, nscoord aLeft, nscoord aRight,
 static bool
 IsHorizontalOverflowVisible(nsIFrame* aFrame)
 {
-  NS_PRECONDITION(nsLayoutUtils::GetAsBlock(aFrame) != nsnull,
+  NS_PRECONDITION(nsLayoutUtils::GetAsBlock(aFrame) != nullptr,
                   "expected a block frame");
 
   nsIFrame* f = aFrame;
@@ -221,12 +222,10 @@ nsDisplayTextOverflowMarker::PaintTextToContext(nsRenderingContext* aCtx,
 
 void
 TextOverflow::Init(nsDisplayListBuilder*   aBuilder,
-                   const nsDisplayListSet& aLists,
                    nsIFrame*               aBlockFrame)
 {
   mBuilder = aBuilder;
   mBlock = aBlockFrame;
-  mMarkerList = aLists.PositionedDescendants();
   mContentArea = aBlockFrame->GetContentRectRelativeToSelf();
   mScrollableFrame = nsLayoutUtils::GetScrollableFrameFor(aBlockFrame);
   PRUint8 direction = aBlockFrame->GetStyleVisibility()->mDirection;
@@ -268,14 +267,13 @@ TextOverflow::Init(nsDisplayListBuilder*   aBuilder,
 
 /* static */ TextOverflow*
 TextOverflow::WillProcessLines(nsDisplayListBuilder*   aBuilder,
-                               const nsDisplayListSet& aLists,
                                nsIFrame*               aBlockFrame)
 {
   if (!CanHaveTextOverflow(aBuilder, aBlockFrame)) {
-    return nsnull;
+    return nullptr;
   }
   nsAutoPtr<TextOverflow> textOverflow(new TextOverflow);
-  textOverflow->Init(aBuilder, aLists, aBlockFrame);
+  textOverflow->Init(aBuilder, aBlockFrame);
   return textOverflow.forget();
 }
 
@@ -620,7 +618,7 @@ TextOverflow::PruneDisplayListContents(nsDisplayList*        aList,
     }
 
     nsCharClipDisplayItem* charClip = itemFrame ? 
-      nsCharClipDisplayItem::CheckCast(item) : nsnull;
+      nsCharClipDisplayItem::CheckCast(item) : nullptr;
     if (charClip && GetSelfOrNearestBlock(itemFrame) == mBlock) {
       nsRect rect = itemFrame->GetScrollableOverflowRect() +
                     itemFrame->GetOffsetTo(mBlock);
@@ -683,7 +681,7 @@ void
 TextOverflow::CreateMarkers(const nsLineBox* aLine,
                             bool             aCreateLeft,
                             bool             aCreateRight,
-                            const nsRect&    aInsideMarkersArea) const
+                            const nsRect&    aInsideMarkersArea)
 {
   if (aCreateLeft) {
     nsRect markerRect = nsRect(aInsideMarkersArea.x - mLeft.mIntrinsicWidth,
@@ -698,7 +696,7 @@ TextOverflow::CreateMarkers(const nsLineBox* aLine,
                           mContentArea + mBuilder->ToReferenceFrame(mBlock),
                           &markerRect);
     }
-    mMarkerList->AppendNewToTop(marker);
+    mMarkerList.AppendNewToTop(marker);
   }
 
   if (aCreateRight) {
@@ -714,7 +712,7 @@ TextOverflow::CreateMarkers(const nsLineBox* aLine,
                           mContentArea + mBuilder->ToReferenceFrame(mBlock),
                           &markerRect);
     }
-    mMarkerList->AppendNewToTop(marker);
+    mMarkerList.AppendNewToTop(marker);
   }
 }
 

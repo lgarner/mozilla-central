@@ -88,7 +88,7 @@ GetIndexFromCache(const nsAttrAndChildArray* aArray)
   ((sizeof(Impl) - sizeof(mImpl->mBuffer)) / sizeof(void*))
 
 nsAttrAndChildArray::nsAttrAndChildArray()
-  : mImpl(nsnull)
+  : mImpl(nullptr)
 {
 }
 
@@ -110,7 +110,7 @@ nsAttrAndChildArray::GetSafeChildAt(PRUint32 aPos) const
     return ChildAt(aPos);
   }
   
-  return nsnull;
+  return nullptr;
 }
 
 nsIContent * const *
@@ -119,7 +119,7 @@ nsAttrAndChildArray::GetChildArray(PRUint32* aChildCount) const
   *aChildCount = ChildCount();
   
   if (!*aChildCount) {
-    return nsnull;
+    return nullptr;
   }
   
   return reinterpret_cast<nsIContent**>(mImpl->mBuffer + AttrSlotsSize());
@@ -205,7 +205,7 @@ nsAttrAndChildArray::TakeChildAt(PRUint32 aPos)
   if (child->mNextSibling) {
     child->mNextSibling->mPreviousSibling = child->mPreviousSibling;
   }
-  child->mPreviousSibling = child->mNextSibling = nsnull;
+  child->mPreviousSibling = child->mNextSibling = nullptr;
 
   memmove(pos, pos + 1, (childCount - aPos - 1) * sizeof(nsIContent*));
   SetChildCount(childCount - 1);
@@ -316,7 +316,7 @@ nsAttrAndChildArray::GetAttr(nsIAtom* aLocalName, PRInt32 aNamespaceID) const
     }
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 const nsAttrValue*
@@ -349,7 +349,7 @@ nsAttrAndChildArray::GetAttr(const nsAString& aName,
     }
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 const nsAttrValue*
@@ -444,10 +444,8 @@ nsAttrAndChildArray::RemoveAttrAt(PRUint32 aPos, nsAttrValue& aValue)
       return NS_OK;
     }
 
-    nsRefPtr<nsMappedAttributes> mapped;
-    nsresult rv = GetModifiableMapped(nsnull, nsnull, false,
-                                      getter_AddRefs(mapped));
-    NS_ENSURE_SUCCESS(rv, rv);
+    nsRefPtr<nsMappedAttributes> mapped =
+      GetModifiableMapped(nullptr, nullptr, false);
 
     mapped->RemoveAttrAt(aPos, aValue);
 
@@ -462,7 +460,7 @@ nsAttrAndChildArray::RemoveAttrAt(PRUint32 aPos, nsAttrValue& aValue)
   memmove(&ATTRS(mImpl)[aPos],
           &ATTRS(mImpl)[aPos + 1],
           (slotCount - aPos - 1) * sizeof(InternalAttr));
-  memset(&ATTRS(mImpl)[slotCount - 1], nsnull, sizeof(InternalAttr));
+  memset(&ATTRS(mImpl)[slotCount - 1], 0, sizeof(InternalAttr));
 
   return NS_OK;
 }
@@ -491,12 +489,12 @@ nsAttrAndChildArray::GetSafeAttrNameAt(PRUint32 aPos) const
 
   aPos -= mapped;
   if (aPos >= AttrSlotCount()) {
-    return nsnull;
+    return nullptr;
   }
 
   void** pos = mImpl->mBuffer + aPos * ATTRSIZE;
   if (!*pos) {
-    return nsnull;
+    return nullptr;
   }
 
   return &reinterpret_cast<InternalAttr*>(pos)->mName;
@@ -516,7 +514,7 @@ nsAttrAndChildArray::GetExistingAttrNameFromQName(const nsAString& aName) const
     return mImpl->mMappedAttrs->GetExistingAttrNameFromQName(aName);
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 PRInt32
@@ -558,18 +556,15 @@ nsAttrAndChildArray::SetAndTakeMappedAttr(nsIAtom* aLocalName,
                                           nsMappedAttributeElement* aContent,
                                           nsHTMLStyleSheet* aSheet)
 {
-  nsRefPtr<nsMappedAttributes> mapped;
-
   bool willAdd = true;
   if (mImpl && mImpl->mMappedAttrs) {
-    willAdd = mImpl->mMappedAttrs->GetAttr(aLocalName) == nsnull;
+    willAdd = !mImpl->mMappedAttrs->GetAttr(aLocalName);
   }
 
-  nsresult rv = GetModifiableMapped(aContent, aSheet, willAdd,
-                                    getter_AddRefs(mapped));
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsRefPtr<nsMappedAttributes> mapped =
+    GetModifiableMapped(aContent, aSheet, willAdd);
 
-  rv = mapped->SetAndTakeAttr(aLocalName, aValue);
+  nsresult rv = mapped->SetAndTakeAttr(aLocalName, aValue);
   NS_ENSURE_SUCCESS(rv, rv);
 
   return MakeMappedUnique(mapped);
@@ -584,10 +579,8 @@ nsAttrAndChildArray::DoSetMappedAttrStyleSheet(nsHTMLStyleSheet* aSheet)
     return NS_OK;
   }
 
-  nsRefPtr<nsMappedAttributes> mapped;
-  nsresult rv = GetModifiableMapped(nsnull, nsnull, false, 
-                                    getter_AddRefs(mapped));
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsRefPtr<nsMappedAttributes> mapped =
+    GetModifiableMapped(nullptr, nullptr, false);
 
   mapped->SetStyleSheet(aSheet);
 
@@ -625,7 +618,7 @@ nsAttrAndChildArray::Compact()
   PRUint32 newSize = attrCount * ATTRSIZE + childCount;
   if (!newSize && !mImpl->mMappedAttrs) {
     PR_Free(mImpl);
-    mImpl = nsnull;
+    mImpl = nullptr;
   }
   else if (newSize < mImpl->mBufferSize) {
     mImpl = static_cast<Impl*>(PR_Realloc(mImpl, (newSize + NS_IMPL_EXTRA_SIZE) * sizeof(nsIContent*)));
@@ -669,7 +662,7 @@ nsAttrAndChildArray::Clear()
     // to point to each other but keep the kid being removed pointing to them
     // through ContentRemoved so consumers can find where it used to be in the
     // list?
-    child->mPreviousSibling = child->mNextSibling = nsnull;
+    child->mPreviousSibling = child->mNextSibling = nullptr;
     NS_RELEASE(child);
   }
 
@@ -697,33 +690,20 @@ nsAttrAndChildArray::MappedAttrCount() const
   return mImpl && mImpl->mMappedAttrs ? (PRUint32)mImpl->mMappedAttrs->Count() : 0;
 }
 
-nsresult
+nsMappedAttributes*
 nsAttrAndChildArray::GetModifiableMapped(nsMappedAttributeElement* aContent,
                                          nsHTMLStyleSheet* aSheet,
-                                         bool aWillAddAttr,
-                                         nsMappedAttributes** aModifiable)
+                                         bool aWillAddAttr)
 {
-  *aModifiable = nsnull;
-
   if (mImpl && mImpl->mMappedAttrs) {
-    *aModifiable = mImpl->mMappedAttrs->Clone(aWillAddAttr);
-    NS_ENSURE_TRUE(*aModifiable, NS_ERROR_OUT_OF_MEMORY);
-
-    NS_ADDREF(*aModifiable);
-    
-    return NS_OK;
+    return mImpl->mMappedAttrs->Clone(aWillAddAttr);
   }
 
-  NS_ASSERTION(aContent, "Trying to create modifiable without content");
+  MOZ_ASSERT(aContent, "Trying to create modifiable without content");
 
   nsMapRuleToAttributesFunc mapRuleFunc =
     aContent->GetAttributeMappingFunction();
-  *aModifiable = new nsMappedAttributes(aSheet, mapRuleFunc);
-  NS_ENSURE_TRUE(*aModifiable, NS_ERROR_OUT_OF_MEMORY);
-
-  NS_ADDREF(*aModifiable);
-
-  return NS_OK;
+  return new nsMappedAttributes(aSheet, mapRuleFunc);
 }
 
 nsresult
@@ -785,7 +765,7 @@ nsAttrAndChildArray::GrowBy(PRUint32 aGrowSize)
 
   // Set initial counts if we didn't have a buffer before
   if (needToInitialize) {
-    mImpl->mMappedAttrs = nsnull;
+    mImpl->mMappedAttrs = nullptr;
     SetAttrSlotAndChildCount(0, 0);
   }
 
@@ -813,8 +793,8 @@ nsAttrAndChildArray::AddAttrSlot()
   }
 
   SetAttrSlotCount(slotCount + 1);
-  offset[0] = nsnull;
-  offset[1] = nsnull;
+  offset[0] = nullptr;
+  offset[1] = nullptr;
 
   return true;
 }

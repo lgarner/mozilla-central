@@ -35,6 +35,7 @@
 #include "nsTArray.h"
 #include "nsWindow.h"
 #include "cutils/properties.h"
+#include "BasicLayers.h"
 
 #define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, "Gonk" , ## args)
 #define LOGW(args...) __android_log_print(ANDROID_LOG_WARN, "Gonk", ## args)
@@ -57,9 +58,9 @@ static gfxMatrix sRotationMatrix;
 
 static nsRefPtr<GLContext> sGLContext;
 static nsTArray<nsWindow *> sTopWindows;
-static nsWindow *gWindowToRedraw = nsnull;
-static nsWindow *gFocusedWindow = nsnull;
-static android::FramebufferNativeWindow *gNativeWindow = nsnull;
+static nsWindow *gWindowToRedraw = nullptr;
+static nsWindow *gFocusedWindow = nullptr;
+static android::FramebufferNativeWindow *gNativeWindow = nullptr;
 static bool sFramebufferOpen;
 static bool sUsingOMTC;
 static bool sScreenInitialized;
@@ -67,6 +68,23 @@ static nsRefPtr<gfxASurface> sOMTCSurface;
 static pthread_t sFramebufferWatchThread;
 
 namespace {
+
+android::FramebufferNativeWindow*
+NativeWindow()
+{
+    if (!gNativeWindow) {
+        // We (apparently) don't have a way to tell if allocating the
+        // fbs succeeded or failed.
+        gNativeWindow = new android::FramebufferNativeWindow();
+    }
+    return gNativeWindow;
+}
+
+static PRUint32
+EffectiveScreenRotation()
+{
+    return (sScreenRotation + sPhysicalScreenRotation) % (360 / 90);
+}
 
 class ScreenOnOffEvent : public nsRunnable {
 public:
@@ -126,7 +144,7 @@ static void *frameBufferWatcher(void *) {
             NS_DispatchToMainThread(mScreenOnEvent);
         }
     }
-    
+
     return NULL;
 }
 
@@ -144,12 +162,8 @@ nsWindow::nsWindow()
             NS_RUNTIMEABORT("Failed to create framebufferWatcherThread, aborting...");
         }
 
-        // We (apparently) don't have a way to tell if allocating the
-        // fbs succeeded or failed.
-        gNativeWindow = new android::FramebufferNativeWindow();
-
         nsIntSize screenSize;
-        bool gotFB = Framebuffer::GetSize(&screenSize);
+        mozilla::DebugOnly<bool> gotFB = Framebuffer::GetSize(&screenSize);
         MOZ_ASSERT(gotFB);
         gScreenBounds = nsIntRect(nsIntPoint(0, 0), screenSize);
 
@@ -236,7 +250,8 @@ nsWindow::DoDraw(void)
 
             // No double-buffering needed.
             AutoLayerManagerSetup setupLayerManager(
-                gWindowToRedraw, ctx, BasicLayerManager::BUFFER_NONE);
+                gWindowToRedraw, ctx, mozilla::layers::BUFFER_NONE,
+                ScreenRotation(EffectiveScreenRotation()));
             gWindowToRedraw->mEventCallback(&event);
         }
 
@@ -295,9 +310,9 @@ nsWindow::Destroy(void)
 {
     sTopWindows.RemoveElement(this);
     if (this == gWindowToRedraw)
-        gWindowToRedraw = nsnull;
+        gWindowToRedraw = nullptr;
     if (this == gFocusedWindow)
-        gFocusedWindow = nsnull;
+        gFocusedWindow = nullptr;
     return NS_OK;
 }
 
@@ -389,11 +404,10 @@ nsWindow::Enable(bool aState)
     return NS_OK;
 }
 
-NS_IMETHODIMP
-nsWindow::IsEnabled(bool *aState)
+bool
+nsWindow::IsEnabled() const
 {
-    *aState = true;
-    return NS_OK;
+    return true;
 }
 
 NS_IMETHODIMP
@@ -449,11 +463,11 @@ nsWindow::GetNativeData(PRUint32 aDataType)
 {
     switch (aDataType) {
     case NS_NATIVE_WINDOW:
-        return gNativeWindow;
+        return NativeWindow();
     case NS_NATIVE_WIDGET:
         return this;
     }
-    return nsnull;
+    return nullptr;
 }
 
 NS_IMETHODIMP
@@ -485,7 +499,7 @@ nsWindow::ReparentNativeWidget(nsIWidget* aNewParent)
 float
 nsWindow::GetDPI()
 {
-    return gNativeWindow->xdpi;
+    return NativeWindow()->xdpi;
 }
 
 LayerManager *
@@ -506,7 +520,7 @@ nsWindow::GetLayerManager(PLayersChild* aShadowManager,
 
     if (!topWindow) {
         LOGW(" -- no topwindow\n");
-        return nsnull;
+        return nullptr;
     }
 
     if (sUsingOMTC) {
@@ -603,6 +617,12 @@ nsWindow::GetGLFrameBufferFormat()
     return LOCAL_GL_NONE;
 }
 
+nsIntRect
+nsWindow::GetNaturalBounds()
+{
+    return gScreenBounds;
+}
+
 // nsScreenGonk.cpp
 
 nsScreenGonk::nsScreenGonk(void *nativeScreen)
@@ -636,7 +656,7 @@ nsScreenGonk::GetAvailRect(PRInt32 *outLeft,  PRInt32 *outTop,
 static uint32_t
 ColorDepth()
 {
-    switch (gNativeWindow->getDevice()->format) {
+    switch (NativeWindow()->getDevice()->format) {
     case GGL_PIXEL_FORMAT_RGB_565:
         return 16;
     case GGL_PIXEL_FORMAT_RGBA_8888:
@@ -670,39 +690,23 @@ nsScreenGonk::GetRotation(PRUint32* aRotation)
 NS_IMETHODIMP
 nsScreenGonk::SetRotation(PRUint32 aRotation)
 {
-    if (!(ROTATION_0_DEG <= aRotation && aRotation <= ROTATION_270_DEG))
+    if (!(aRotation <= ROTATION_270_DEG))
         return NS_ERROR_ILLEGAL_VALUE;
 
     if (sScreenRotation == aRotation)
         return NS_OK;
 
     sScreenRotation = aRotation;
-    sRotationMatrix.Reset();
-    switch ((aRotation + sPhysicalScreenRotation) % (360 / 90)) {
-    case nsIScreen::ROTATION_0_DEG:
-        sVirtualBounds = gScreenBounds;
-        break;
-    case nsIScreen::ROTATION_90_DEG:
-        sRotationMatrix.Translate(gfxPoint(gScreenBounds.width, 0));
-        sRotationMatrix.Rotate(M_PI / 2);
+    sRotationMatrix =
+        ComputeGLTransformForRotation(gScreenBounds,
+                                      ScreenRotation(EffectiveScreenRotation()));
+    PRUint32 rotation = EffectiveScreenRotation();
+    if (rotation == nsIScreen::ROTATION_90_DEG ||
+        rotation == nsIScreen::ROTATION_270_DEG) {
         sVirtualBounds = nsIntRect(0, 0, gScreenBounds.height,
-                                         gScreenBounds.width);
-        break;
-    case nsIScreen::ROTATION_180_DEG:
-        sRotationMatrix.Translate(gfxPoint(gScreenBounds.width,
-                                           gScreenBounds.height));
-        sRotationMatrix.Rotate(M_PI);
+                                   gScreenBounds.width);
+    } else {
         sVirtualBounds = gScreenBounds;
-        break;
-    case nsIScreen::ROTATION_270_DEG:
-        sRotationMatrix.Translate(gfxPoint(0, gScreenBounds.height));
-        sRotationMatrix.Rotate(M_PI * 3 / 2);
-        sVirtualBounds = nsIntRect(0, 0, gScreenBounds.height,
-                                         gScreenBounds.width);
-        break;
-    default:
-        MOZ_NOT_REACHED("Unknown rotation");
-        break;
     }
 
     for (unsigned int i = 0; i < sTopWindows.Length(); i++)
@@ -764,7 +768,7 @@ NS_IMPL_ISUPPORTS1(nsScreenManagerGonk, nsIScreenManager)
 
 nsScreenManagerGonk::nsScreenManagerGonk()
 {
-    mOneScreen = new nsScreenGonk(nsnull);
+    mOneScreen = new nsScreenGonk(nullptr);
 }
 
 nsScreenManagerGonk::~nsScreenManagerGonk()

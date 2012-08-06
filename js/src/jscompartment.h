@@ -14,13 +14,11 @@
 #include "jsobj.h"
 #include "jsscope.h"
 
+#include "gc/StoreBuffer.h"
 #include "vm/GlobalObject.h"
 #include "vm/RegExpObject.h"
 
 namespace js {
-
-/* Defined in jsapi.cpp */
-extern Class dummy_class;
 
 /*
  * A single-entry cache for some base-10 double-to-string conversions. This
@@ -144,6 +142,11 @@ struct JSCompartment
   public:
     js::gc::ArenaLists           arenas;
 
+#ifdef JSGC_GENERATIONAL
+    js::gc::Nursery              gcNursery;
+    js::gc::StoreBuffer          gcStoreBuffer;
+#endif
+
   private:
     bool                         needsBarrier_;
   public:
@@ -168,6 +171,7 @@ struct JSCompartment
 
     CompartmentGCState           gcState;
     bool                         gcPreserveCode;
+    bool                         gcStarted;
 
   public:
     bool isCollecting() const {
@@ -218,6 +222,19 @@ struct JSCompartment
 
     void setPreservingCode(bool preserving) {
         gcPreserveCode = preserving;
+    }
+
+    bool wasGCStarted() const {
+        return gcStarted;
+    }
+
+    void setGCStarted(bool started) {
+        JS_ASSERT(rt->isHeapBusy());
+        gcStarted = started;
+    }
+
+    bool isGCSweeping() {
+        return wasGCStarted() && rt->gcIncrementalState == js::gc::SWEEP;
     }
 
     size_t                       gcBytes;
@@ -510,7 +527,6 @@ class AutoCompartment
   public:
     JSContext * const context;
     JSCompartment * const origin;
-    JSObject * const target;
     JSCompartment * const destination;
   private:
     Maybe<DummyFrameGuard> frame;

@@ -379,7 +379,7 @@ JSStructuredCloneWriter::checkStack()
     /* To avoid making serialization O(n^2), limit stack-checking at 10. */
     const size_t MAX = 10;
 
-    size_t limit = JS_MIN(counts.length(), MAX);
+    size_t limit = Min(counts.length(), MAX);
     JS_ASSERT(objs.length() == counts.length());
     size_t total = 0;
     for (size_t i = 0; i < limit; i++) {
@@ -401,11 +401,12 @@ JS_PUBLIC_API(JSBool)
 JS_WriteTypedArray(JSStructuredCloneWriter *w, jsval v)
 {
     JS_ASSERT(v.isObject());
-    return w->writeTypedArray(&v.toObject());
+    RootedObject obj(w->context(), &v.toObject());
+    return w->writeTypedArray(obj);
 }
 
 bool
-JSStructuredCloneWriter::writeTypedArray(JSObject *arr)
+JSStructuredCloneWriter::writeTypedArray(HandleObject arr)
 {
     if (!out.writePair(ArrayTypeToTag(TypedArray::type(arr)), TypedArray::length(arr)))
         return false;
@@ -431,7 +432,7 @@ JSStructuredCloneWriter::writeTypedArray(JSObject *arr)
 }
 
 bool
-JSStructuredCloneWriter::writeArrayBuffer(JSObject *obj)
+JSStructuredCloneWriter::writeArrayBuffer(JSHandleObject obj)
 {
     ArrayBufferObject &buffer = obj->asArrayBuffer();
     return out.writePair(SCTAG_ARRAY_BUFFER_OBJECT, buffer.byteLength()) &&
@@ -439,7 +440,7 @@ JSStructuredCloneWriter::writeArrayBuffer(JSObject *obj)
 }
 
 bool
-JSStructuredCloneWriter::startObject(JSObject *obj)
+JSStructuredCloneWriter::startObject(JSHandleObject obj)
 {
     JS_ASSERT(obj->isArray() || obj->isObject());
 
@@ -492,7 +493,7 @@ JSStructuredCloneWriter::startWrite(const Value &v)
     } else if (v.isUndefined()) {
         return out.writePair(SCTAG_UNDEFINED, 0);
     } else if (v.isObject()) {
-        JSObject *obj = &v.toObject();
+        RootedObject obj(context(), &v.toObject());
 
         // The object might be a security wrapper. See if we can clone what's
         // behind it. If we can, unwrap the object.
@@ -570,7 +571,7 @@ JSStructuredCloneWriter::write(const Value &v)
                 }
 
                 if (prop) {
-                    Value val;
+                    RootedValue val(context());
                     if (!writeId(id) ||
                         !obj->getGeneric(context(), id, &val) ||
                         !startWrite(val))
@@ -653,7 +654,7 @@ JS_ReadTypedArray(JSStructuredCloneReader *r, jsval *vp)
 bool
 JSStructuredCloneReader::readTypedArray(uint32_t tag, uint32_t nelems, Value *vp)
 {
-    JSObject *obj = NULL;
+    RootedObject obj(context(), NULL);
 
     switch (tag) {
       case SCTAG_TYPED_ARRAY_INT8:
@@ -911,8 +912,8 @@ JSStructuredCloneReader::read(Value *vp)
         if (JSID_IS_VOID(id)) {
             objs.popBack();
         } else {
-            Value v;
-            if (!startRead(&v) || !obj->defineGeneric(context(), id, v))
+            RootedValue v(context());
+            if (!startRead(v.address()) || !obj->defineGeneric(context(), id, v))
                 return false;
         }
     }

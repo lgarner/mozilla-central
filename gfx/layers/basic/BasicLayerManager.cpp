@@ -22,6 +22,7 @@
 #include "BasicThebesLayer.h"
 #include "BasicContainerLayer.h"
 #include "mozilla/Preferences.h"
+#include "nsIWidget.h"
 
 using namespace mozilla::gfx;
 
@@ -73,7 +74,11 @@ BasicLayerManager::PushGroupForLayer(gfxContext* aContext, Layer* aLayer,
   } else {
     *aNeedsClipToVisibleRegion = false;
     result = aContext;
-    aContext->PushGroupAndCopyBackground(gfxASurface::CONTENT_COLOR_ALPHA);
+    if (aLayer->GetContentFlags() & Layer::CONTENT_COMPONENT_ALPHA) {
+      aContext->PushGroupAndCopyBackground(gfxASurface::CONTENT_COLOR_ALPHA);
+    } else {
+      aContext->PushGroup(gfxASurface::CONTENT_COLOR_ALPHA);
+    }
   }
   return result.forget();
 }
@@ -111,7 +116,7 @@ BasicLayerManager::BasicLayerManager() :
 #ifdef DEBUG
   mPhase(PHASE_NONE),
 #endif
-  mWidget(nsnull)
+  mWidget(nullptr)
   , mDoubleBuffering(BUFFER_NONE), mUsingDefaultTarget(false)
   , mCachedSurfaceInUse(false)
   , mTransactionIncomplete(false)
@@ -125,14 +130,15 @@ BasicLayerManager::~BasicLayerManager()
 
   ClearCachedResources();
 
-  mRoot = nsnull;
+  mRoot = nullptr;
 
   MOZ_COUNT_DTOR(BasicLayerManager);
 }
 
 void
 BasicLayerManager::SetDefaultTarget(gfxContext* aContext,
-                                    BufferMode aDoubleBuffering)
+                                    BufferMode aDoubleBuffering,
+                                    ScreenRotation aRotation)
 {
   NS_ASSERTION(!InTransaction(),
                "Must set default target outside transaction");
@@ -444,14 +450,14 @@ BasicLayerManager::EndTransactionInternal(DrawThebesLayerCallback aCallback,
       }
     }
 
-    PaintLayer(mTarget, mRoot, aCallback, aCallbackData, nsnull);
+    PaintLayer(mTarget, mRoot, aCallback, aCallbackData, nullptr);
     if (mWidget) {
       FlashWidgetUpdateArea(mTarget);
     }
 
     if (!mTransactionIncomplete) {
       // Clear out target if we have a complete transaction.
-      mTarget = nsnull;
+      mTarget = nullptr;
     }
   }
 
@@ -508,7 +514,7 @@ BasicLayerManager::EndEmptyTransaction()
     return false;
   }
 
-  return EndTransactionInternal(nsnull, nsnull);
+  return EndTransactionInternal(nullptr, nullptr);
 }
 
 void
@@ -574,7 +580,7 @@ PixmanTransform(const gfxImageSurface *aDest,
 
   pixman_image_composite32(PIXMAN_OP_SRC,
                            src,
-                           nsnull,
+                           nullptr,
                            dest,
                            aDestOffset.x,
                            aDestOffset.y,
@@ -599,7 +605,7 @@ PixmanTransform(const gfxImageSurface *aDest,
  * @param aTransform    Transformation matrix.
  * @param aDrawOffset   Location to draw returned surface on aDest.
  * @param aDontBlit     Never draw to aDest if this is true.
- * @return              Transformed surface, or nsnull if it has been drawn to aDest.
+ * @return              Transformed surface, or nullptr if it has been drawn to aDest.
  */
 static already_AddRefed<gfxASurface> 
 Transform3D(gfxASurface* aSource, gfxContext* aDest, 
@@ -647,7 +653,7 @@ Transform3D(gfxASurface* aSource, gfxContext* aDest,
   PixmanTransform(destImage, sourceImage, translation * aTransform, offset);
 
   if (blitComplete) {
-    return nsnull;
+    return nullptr;
   }
 
   // If we haven't actually drawn to aDest then return our temporary image so that
@@ -744,8 +750,8 @@ BasicLayerManager::PaintLayer(gfxContext* aTarget,
           (aLayer->GetContentFlags() & Layer::CONTENT_OPAQUE) &&
           !transform.HasNonAxisAlignedTransform()) {
 
-        Rect opaqueRect = dt->GetTransform().TransformBounds(
-          Rect(bounds.x, bounds.y, bounds.width, bounds.height));
+        gfx::Rect opaqueRect = dt->GetTransform().TransformBounds(
+          gfx::Rect(bounds.x, bounds.y, bounds.width, bounds.height));
         opaqueRect.RoundIn();
         IntRect intOpaqueRect;
         if (opaqueRect.ToIntRect(&intOpaqueRect)) {
@@ -789,7 +795,7 @@ BasicLayerManager::PaintLayer(gfxContext* aTarget,
       HasShadowManager()) {
     // 'paint' the mask so that it gets sent to the shadow layer tree
     static_cast<BasicImplData*>(aLayer->GetMaskLayer()->ImplData())
-      ->Paint(nsnull, nsnull);
+      ->Paint(nullptr, nullptr);
   }
 
   /* Only paint ourself, or our children - This optimization relies on this! */
@@ -875,7 +881,7 @@ BasicLayerManager::PaintLayer(gfxContext* aTarget,
       }
       AutoSetOperator setOperator(aTarget, container->GetOperator());
       PaintWithMask(aTarget, aLayer->GetEffectiveOpacity(),
-                    HasShadowManager() ? nsnull : aLayer->GetMaskLayer());
+                    HasShadowManager() ? nullptr : aLayer->GetMaskLayer());
     }
   }
 
@@ -922,7 +928,8 @@ BasicLayerManager::CreateReadbackLayer()
 }
 
 BasicShadowLayerManager::BasicShadowLayerManager(nsIWidget* aWidget) :
-  BasicLayerManager(aWidget)
+  BasicLayerManager(aWidget), mTargetRotation(ROTATION_0),
+  mRepeatTransaction(false)
 {
   MOZ_COUNT_CTOR(BasicShadowLayerManager);
 }
@@ -940,6 +947,18 @@ BasicShadowLayerManager::GetMaxTextureSize() const
   }
 
   return PR_INT32_MAX;
+}
+
+void
+BasicShadowLayerManager::SetDefaultTarget(gfxContext* aContext,
+                                          BufferMode aDoubleBuffering,
+                                          ScreenRotation aRotation)
+{
+  BasicLayerManager::SetDefaultTarget(aContext, aDoubleBuffering, aRotation);
+  mTargetRotation = aRotation;
+  if (mWidget) {
+    mTargetBounds = mWidget->GetNaturalBounds();
+  }
 }
 
 void
@@ -981,7 +1000,7 @@ BasicShadowLayerManager::BeginTransactionWithTarget(gfxContext* aTarget)
   // don't signal a new transaction to ShadowLayerForwarder. Carry on adding
   // to the previous transaction.
   if (HasShadowManager()) {
-    ShadowLayerForwarder::BeginTransaction();
+    ShadowLayerForwarder::BeginTransaction(mTargetBounds, mTargetRotation);
 
     // If we have a non-default target, we need to let our shadow manager draw
     // to it. This will happen at the end of the transaction.
@@ -1015,7 +1034,7 @@ BasicShadowLayerManager::EndTransaction(DrawThebesLayerCallback aCallback,
   } else if (mShadowTarget) {
     // Draw to shadow target at the recursion tail of the repeat transactions
     ShadowLayerForwarder::ShadowDrawToTarget(mShadowTarget);
-    mShadowTarget = nsnull;
+    mShadowTarget = nullptr;
   }
 }
 

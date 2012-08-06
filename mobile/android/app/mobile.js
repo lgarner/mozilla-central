@@ -78,7 +78,6 @@ pref("network.http.proxy.pipelining", true);
 pref("network.http.pipelining.maxrequests" , 6);
 pref("network.http.keep-alive.timeout", 600);
 pref("network.http.max-connections", 20);
-pref("network.http.max-connections-per-server", 15);
 pref("network.http.max-persistent-connections-per-server", 6);
 pref("network.http.max-persistent-connections-per-proxy", 8);
 
@@ -686,3 +685,6 @@ pref("reader.margin_size", 5);
 
 // The default color scheme in reader (light, dark, sepia)
 pref("reader.color_scheme", "light");
+
+// Used to show a first-launch tip in reader
+pref("reader.has_used_toolbar", false);

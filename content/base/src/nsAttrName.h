@@ -139,7 +139,7 @@ public:
 
   nsIAtom* GetPrefix() const
   {
-    return IsAtom() ? nsnull : NodeInfo()->GetPrefixAtom();
+    return IsAtom() ? nullptr : NodeInfo()->GetPrefixAtom();
   }
 
   bool QualifiedNameEquals(const nsAString& aName) const
@@ -158,6 +158,7 @@ public:
     }
   }
 
+#ifdef MOZILLA_INTERNAL_API
   void GetPrefix(nsAString& aStr) const
   {
     if (IsAtom()) {
@@ -167,6 +168,7 @@ public:
       NodeInfo()->GetPrefix(aStr);
     }
   }
+#endif
 
   PRUint32 HashValue() const
   {

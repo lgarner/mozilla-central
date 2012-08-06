@@ -22,6 +22,8 @@
 
 #include "nsGkAtoms.h"
 #include "nsIIdleServiceInternal.h"
+#include "nsIRunnable.h"
+#include "nsThreadUtils.h"
 
 #ifdef MOZ_LOGGING
 
@@ -103,7 +105,7 @@ public:
     CreateChild(const nsIntRect&  aRect,
                 EVENT_CALLBACK    aHandleEventFunction,
                 nsDeviceContext* aContext,
-                nsWidgetInitData* aInitData = nsnull,
+                nsWidgetInitData* aInitData = nullptr,
                 bool              aForceUseIWidgetParent = true);
 
     NS_IMETHOD         Destroy(void);
@@ -188,7 +190,7 @@ public:
     }
 
     // Some of the nsIWidget methods
-    NS_IMETHOD         IsEnabled        (bool *aState);
+    virtual bool IsEnabled() const;
 
     // called when we are destroyed
     void OnDestroy(void);
@@ -328,7 +330,7 @@ private:
     nsCOMPtr<nsIIdleServiceInternal> mIdleService;
 
     bool         mIsTransparent;
- 
+
     // all of our DND stuff
     // this is the last window that had a drag event happen on it.
     void   InitDragEvent         (nsMouseEvent &aEvent);

@@ -29,12 +29,17 @@ namespace net {
 
 HttpChannelParent::HttpChannelParent(PBrowserParent* iframeEmbedding)
   : mIPCClosed(false)
-  , mStoredStatus(0)
+  , mStoredStatus(NS_OK)
   , mStoredProgress(0)
   , mStoredProgressMax(0)
   , mSentRedirect1Begin(false)
   , mSentRedirect1BeginFailed(false)
   , mReceivedRedirect2Verify(false)
+  , mHaveLoadContext(false)
+  , mIsContent(false)
+  , mUsePrivateBrowsing(false)
+  , mIsInBrowserElement(false)
+  , mAppId(0)
 {
   // Ensure gHttpHandler is initialized: we need the atom table up and running.
   nsIHttpProtocolHandler* handler;
@@ -62,7 +67,8 @@ HttpChannelParent::ActorDestroy(ActorDestroyReason why)
 // HttpChannelParent::nsISupports
 //-----------------------------------------------------------------------------
 
-NS_IMPL_ISUPPORTS6(HttpChannelParent,
+NS_IMPL_ISUPPORTS7(HttpChannelParent,
+                   nsILoadContext,
                    nsIInterfaceRequestor,
                    nsIProgressEventSink,
                    nsIRequestObserver,
@@ -83,6 +89,11 @@ HttpChannelParent::GetInterface(const nsIID& aIID, void **result)
       return NS_NOINTERFACE;
 
     return mTabParent->QueryInterface(aIID, result);
+  }
+
+  // Only support nsILoadContext if child channel's callbacks did too
+  if (aIID.Equals(NS_GET_IID(nsILoadContext)) && !mHaveLoadContext) {
+    return NS_NOINTERFACE;
   }
 
   return QueryInterface(aIID, result);
@@ -112,7 +123,12 @@ HttpChannelParent::RecvAsyncOpen(const IPC::URI&            aURI,
                                  const bool&                chooseApplicationCache,
                                  const nsCString&           appCacheClientID,
                                  const bool&                allowSpdy,
-                                 const bool&                usingPrivateBrowsing)
+                                 const bool&                haveLoadContext,
+                                 const bool&                isContent,
+                                 const bool&                usePrivateBrowsing,
+                                 const bool&                isInBrowserElement,
+                                 const PRUint32&            appId,
+                                 const nsCString&           extendedOrigin)
 {
   nsCOMPtr<nsIURI> uri(aURI);
   nsCOMPtr<nsIURI> originalUri(aOriginalURI);
@@ -130,9 +146,17 @@ HttpChannelParent::RecvAsyncOpen(const IPC::URI&            aURI,
   if (NS_FAILED(rv))
     return SendFailedAsyncOpen(rv);
 
-  rv = NS_NewChannel(getter_AddRefs(mChannel), uri, ios, nsnull, nsnull, loadFlags);
+  rv = NS_NewChannel(getter_AddRefs(mChannel), uri, ios, nullptr, nullptr, loadFlags);
   if (NS_FAILED(rv))
     return SendFailedAsyncOpen(rv);
+
+  // fields needed to impersonate nsILoadContext
+  mHaveLoadContext = haveLoadContext;
+  mIsContent = isContent;
+  mUsePrivateBrowsing = usePrivateBrowsing;
+  mIsInBrowserElement = isInBrowserElement;
+  mAppId = appId;
+  mExtendedOrigin = extendedOrigin;
 
   nsHttpChannel *httpChan = static_cast<nsHttpChannel *>(mChannel.get());
 
@@ -200,7 +224,7 @@ HttpChannelParent::RecvAsyncOpen(const IPC::URI&            aURI,
         do_GetService("@mozilla.org/offlinecacheupdate-service;1", &rv);
       if (NS_SUCCEEDED(rv)) {
         rv = offlineUpdateService->OfflineAppAllowedForURI(uri,
-                                                           nsnull,
+                                                           nullptr,
                                                            &setChooseApplicationCache);
 
         if (setChooseApplicationCache && NS_SUCCEEDED(rv))
@@ -209,9 +233,7 @@ HttpChannelParent::RecvAsyncOpen(const IPC::URI&            aURI,
     }
   }
 
-  httpChan->OverridePrivateBrowsing(usingPrivateBrowsing);
-
-  rv = httpChan->AsyncOpen(channelListener, nsnull);
+  rv = httpChan->AsyncOpen(channelListener, nullptr);
   if (NS_FAILED(rv))
     return SendFailedAsyncOpen(rv);
 
@@ -337,7 +359,7 @@ HttpChannelParent::RecvRedirect2Verify(const nsresult& result,
 
   if (mRedirectCallback) {
     mRedirectCallback->OnRedirectVerifyCallback(result);
-    mRedirectCallback = nsnull;
+    mRedirectCallback = nullptr;
   }
 
   return true;
@@ -487,15 +509,15 @@ HttpChannelParent::OnProgress(nsIRequest *aRequest,
 {
   // OnStatus has always just set mStoredStatus. If it indicates this precedes
   // OnDataAvailable, store and ODA will send to child.
-  if (mStoredStatus == nsISocketTransport::STATUS_RECEIVING_FROM ||
-      mStoredStatus == nsITransport::STATUS_READING)
+  if (mStoredStatus == NS_NET_STATUS_RECEIVING_FROM ||
+      mStoredStatus == NS_NET_STATUS_READING)
   {
     mStoredProgress = aProgress;
     mStoredProgressMax = aProgressMax;
   } else {
     // Send to child now.  The only case I've observed that this handles (i.e.
     // non-ODA status with progress > 0) is data upload progress notification
-    // (status == nsISocketTransport::STATUS_SENDING_TO)
+    // (status == NS_NET_STATUS_SENDING_TO)
     if (mIPCClosed || !SendOnProgress(aProgress, aProgressMax))
       return NS_ERROR_UNEXPECTED;
   }
@@ -510,8 +532,8 @@ HttpChannelParent::OnStatus(nsIRequest *aRequest,
                             const PRUnichar *aStatusArg)
 {
   // If this precedes OnDataAvailable, store and ODA will send to child.
-  if (aStatus == nsISocketTransport::STATUS_RECEIVING_FROM ||
-      aStatus == nsITransport::STATUS_READING)
+  if (aStatus == NS_NET_STATUS_RECEIVING_FROM ||
+      aStatus == NS_NET_STATUS_READING)
   {
     mStoredStatus = aStatus;
     return NS_OK;
@@ -582,7 +604,82 @@ HttpChannelParent::CompleteRedirect(bool succeeded)
     unused << SendRedirect3Complete();
   }
 
-  mRedirectChannel = nsnull;
+  mRedirectChannel = nullptr;
+  return NS_OK;
+}
+
+//-----------------------------------------------------------------------------
+// HttpChannelParent::nsILoadContext
+//-----------------------------------------------------------------------------
+
+NS_IMETHODIMP
+HttpChannelParent::GetAssociatedWindow(nsIDOMWindow**)
+{
+  // can't support this in the parent process
+  return NS_ERROR_UNEXPECTED;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::GetTopWindow(nsIDOMWindow**)
+{
+  // can't support this in the parent process
+  return NS_ERROR_UNEXPECTED;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::IsAppOfType(PRUint32, bool*)
+{
+  // don't expect we need this in parent (Thunderbird/SeaMonkey specific?)
+  return NS_ERROR_UNEXPECTED;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::GetIsContent(bool *aIsContent)
+{
+  NS_ENSURE_ARG_POINTER(aIsContent);
+
+  *aIsContent = mIsContent;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::GetUsePrivateBrowsing(bool* aUsePrivateBrowsing)
+{
+  NS_ENSURE_ARG_POINTER(aUsePrivateBrowsing);
+
+  *aUsePrivateBrowsing = mUsePrivateBrowsing;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::SetUsePrivateBrowsing(bool aUsePrivateBrowsing)
+{
+  // We shouldn't need this on parent...
+  return NS_ERROR_UNEXPECTED;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::GetIsInBrowserElement(bool* aIsInBrowserElement)
+{
+  NS_ENSURE_ARG_POINTER(aIsInBrowserElement);
+
+  *aIsInBrowserElement = mIsInBrowserElement;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::GetAppId(PRUint32* aAppId)
+{
+  NS_ENSURE_ARG_POINTER(aAppId);
+
+  *aAppId = mAppId;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+HttpChannelParent::GetExtendedOrigin(nsIURI *aUri, nsACString &aResult)
+{
+  aResult = mExtendedOrigin;
   return NS_OK;
 }
 

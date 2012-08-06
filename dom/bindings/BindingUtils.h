@@ -690,8 +690,6 @@ JSBool
 QueryInterface(JSContext* cx, unsigned argc, JS::Value* vp);
 JSBool
 ThrowingConstructor(JSContext* cx, unsigned argc, JS::Value* vp);
-JSBool
-ThrowingConstructorWorkers(JSContext* cx, unsigned argc, JS::Value* vp);
 
 template<class T>
 class NonNull
@@ -857,6 +855,7 @@ enum StringificationBehavior {
   eNull
 };
 
+// pval must not be null and must point to a rooted JS::Value
 static inline bool
 ConvertJSValueToString(JSContext* cx, const JS::Value& v, JS::Value* pval,
                        StringificationBehavior nullBehavior,
@@ -876,12 +875,7 @@ ConvertJSValueToString(JSContext* cx, const JS::Value& v, JS::Value* pval,
       behavior = eStringify;
     }
 
-    // If pval is null, that means the argument was optional and
-    // not passed; turn those into void strings if they're
-    // supposed to be stringified.
-    if (behavior != eStringify || !pval) {
-      // Here behavior == eStringify implies !pval, so both eNull and
-      // eStringify should end up with void strings.
+    if (behavior != eStringify) {
       if (behavior == eEmpty) {
         result.Truncate();
       } else {
