@@ -421,6 +421,10 @@
 @BINPATH@/components/DOMWifiManager.js
 @BINPATH@/components/DOMWifiManager.manifest
 #endif
+#ifdef MOZ_B2G_NFC
+@BINPATH@/components/Nfc.manifest
+@BINPATH@/components/Nfc.js
+#endif
 #ifdef XP_MACOSX
 @BINPATH@/components/libalerts.dylib
 #endif

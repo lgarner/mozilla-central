@@ -50,7 +50,8 @@
 #include "BluetoothManager.h"
 #endif
 #ifdef MOZ_B2G_NFC
-#include "NfcFactory.h"
+#include "nsIDOMNfc.h"
+#include "nsNfc.h"
 #endif
 #include "nsIDOMCameraManager.h"
 #include "DOMCameraManager.h"

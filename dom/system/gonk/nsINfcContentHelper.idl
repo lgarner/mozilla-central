@@ -1,0 +1,18 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+#include "nsISupports.idl"
+#include "nsIDOMDOMRequest.idl"
+ 
+interface nsINfcCallback;
+ 
+[scriptable, uuid(28c8f240-da8c-11e1-9b23-0800200c9a66)]
+interface nsINfcContentHelper : nsISupports
+{
+  void registerCallback(in nsINfcCallback callback);
+  void unregisterCallback(in nsINfcCallback callback);
+ 
+  void writeNdefTag(in jsval records, in nsIDOMDOMRequest aDomRequest);
+  void sendToNfcd(in DOMString message);
+};

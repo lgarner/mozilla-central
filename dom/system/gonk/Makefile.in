@@ -38,6 +38,8 @@ XPIDLSRCS = \
   nsINetworkManager.idl \
   nsIRadioInterfaceLayer.idl \
   nsINfc.idl \
+  nsINfcCallback.idl \
+  nsINfcContentHelper.idl \
   nsIVolume.idl \
   nsIVolumeService.idl \
   nsIVolumeStat.idl \
@@ -78,6 +80,7 @@ EXTRA_COMPONENTS = \
   NetworkManager.js \
   Nfc.manifest \
   Nfc.js \
+  NfcContentHelper.js \
   RadioInterfaceLayer.manifest \
   RadioInterfaceLayer.js \
   RILContentHelper.js \
@@ -85,7 +88,6 @@ EXTRA_COMPONENTS = \
 
 EXTRA_JS_MODULES = \
   net_worker.js \
-  nfc_consts.js \
   nfc_worker.js \
   ril_consts.js \
   ril_worker.js \

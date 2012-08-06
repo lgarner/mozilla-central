@@ -441,6 +441,7 @@
 #ifdef MOZ_B2G_NFC
 @BINPATH@/components/Nfc.manifest
 @BINPATH@/components/Nfc.js
+@BINPATH@/components/NfcContentHelper.js
 #endif
 @BINPATH@/components/BrowserProfileMigrators.manifest
 @BINPATH@/components/ProfileMigrator.js

@@ -521,7 +521,8 @@ using mozilla::dom::indexedDB::IDBWrapperCache;
 #endif
 
 #ifdef MOZ_B2G_NFC
-#include "Nfc.h"
+#include "nsNfc.h"
+#include "nsIDOMNfc.h"
 #include "NfcNdefEvent.h"
 #include "NdefRecord.h"
 #endif
