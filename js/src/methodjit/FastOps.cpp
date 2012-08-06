@@ -28,14 +28,22 @@ using namespace js::mjit;
 
 typedef JSC::MacroAssembler::RegisterID RegisterID;
 
+static inline bool
+SuitableForBitop(FrameEntry *fe)
+{
+    return !(fe->isNotType(JSVAL_TYPE_INT32) &&
+             fe->isNotType(JSVAL_TYPE_DOUBLE) &&
+             fe->isNotType(JSVAL_TYPE_BOOLEAN));
+}
+
 void
 mjit::Compiler::ensureInteger(FrameEntry *fe, Uses uses)
 {
+    JS_ASSERT(SuitableForBitop(fe));
+
     if (fe->isConstant()) {
-        if (!fe->isType(JSVAL_TYPE_INT32)) {
-            JS_ASSERT(fe->isType(JSVAL_TYPE_DOUBLE));
-            fe->convertConstantDoubleToInt32(cx);
-        }
+        if (!fe->isType(JSVAL_TYPE_INT32))
+            fe->convertConstantDoubleOrBooleanToInt32(cx);
     } else if (fe->isType(JSVAL_TYPE_DOUBLE)) {
         FPRegisterID fpreg = frame.tempFPRegForData(fe);
         FPRegisterID fptemp = frame.allocFPReg();
@@ -68,7 +76,7 @@ mjit::Compiler::ensureInteger(FrameEntry *fe, Uses uses)
 
         frame.freeReg(fptemp);
         frame.learnType(fe, JSVAL_TYPE_INT32, data);
-    } else if (!fe->isType(JSVAL_TYPE_INT32)) {
+    } else if (!fe->isType(JSVAL_TYPE_INT32) && !fe->isType(JSVAL_TYPE_BOOLEAN)) {
         if (masm.supportsFloatingPoint()) {
             FPRegisterID fptemp = frame.allocFPReg();
             RegisterID typeReg = frame.tempRegForType(fe);
@@ -114,7 +122,7 @@ mjit::Compiler::jsop_bitnot()
     FrameEntry *top = frame.peek(-1);
 
     /* We only want to handle integers here. */
-    if (top->isNotType(JSVAL_TYPE_INT32) && top->isNotType(JSVAL_TYPE_DOUBLE)) {
+    if (!SuitableForBitop(top)) {
         prepareStubCall(Uses(1));
         INLINE_STUBCALL(stubs::BitNot, REJOIN_FALLTHROUGH);
         frame.pop();
@@ -170,12 +178,11 @@ mjit::Compiler::jsop_bitop(JSOp op)
     }
 
     /* Convert a double RHS to integer if it's constant for the test below. */
-    if (rhs->isConstant() && rhs->getValue().isDouble())
-        rhs->convertConstantDoubleToInt32(cx);
+    if (rhs->isConstant() && (rhs->isType(JSVAL_TYPE_DOUBLE) || rhs->isType(JSVAL_TYPE_BOOLEAN)))
+        rhs->convertConstantDoubleOrBooleanToInt32(cx);
 
     /* We only want to handle integers here. */
-    if ((lhs->isNotType(JSVAL_TYPE_INT32) && lhs->isNotType(JSVAL_TYPE_DOUBLE)) ||
-        (rhs->isNotType(JSVAL_TYPE_INT32) && rhs->isNotType(JSVAL_TYPE_DOUBLE)) ||
+    if (!SuitableForBitop(lhs) || !SuitableForBitop(rhs) ||
         (op == JSOP_URSH && rhs->isConstant() && rhs->getValue().toInt32() % 32 == 0)) {
         prepareStubCall(Uses(2));
         INLINE_STUBCALL(stub, REJOIN_FALLTHROUGH);
@@ -563,7 +570,7 @@ mjit::Compiler::jsop_not()
     if (top->isConstant()) {
         const Value &v = top->getValue();
         frame.pop();
-        frame.push(BooleanValue(!js_ValueToBoolean(v)));
+        frame.push(BooleanValue(!ToBoolean(v)));
         return;
     }
 
@@ -839,7 +846,7 @@ mjit::Compiler::jsop_ifneq(JSOp op, jsbytecode *target)
     FrameEntry *fe = frame.peek(-1);
 
     if (fe->isConstant()) {
-        JSBool b = js_ValueToBoolean(fe->getValue());
+        JSBool b = ToBoolean(fe->getValue());
 
         frame.pop();
 
@@ -866,7 +873,7 @@ mjit::Compiler::jsop_andor(JSOp op, jsbytecode *target)
     FrameEntry *fe = frame.peek(-1);
 
     if (fe->isConstant()) {
-        JSBool b = js_ValueToBoolean(fe->getValue());
+        JSBool b = ToBoolean(fe->getValue());
 
         /* Short-circuit. */
         if ((op == JSOP_OR && b == JS_TRUE) ||

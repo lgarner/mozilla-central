@@ -41,9 +41,14 @@ namespace mozilla {
 // the cycle, as NS_SVG_VAL_IMPL_CYCLE_COLLECTION does.)
 NS_IMPL_CYCLE_COLLECTION_CLASS(DOMSVGLengthList)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(DOMSVGLengthList)
-  // No need to null check tmp - script/SMIL can't detach us from mAList
-  ( tmp->IsAnimValList() ? tmp->mAList->mAnimVal : tmp->mAList->mBaseVal ) = nsnull;
-  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mAList)
+  if (tmp->mAList) {
+    if (tmp->IsAnimValList()) {
+      tmp->mAList->mAnimVal = nullptr;
+    } else {
+      tmp->mAList->mBaseVal = nullptr;
+    }
+    NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mAList)
+  }
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(DOMSVGLengthList)
@@ -85,7 +90,7 @@ DOMSVGLengthList::GetItemAt(PRUint32 aIndex)
     EnsureItemAt(aIndex);
     return mItems[aIndex];
   }
-  return nsnull;
+  return nullptr;
 }
 
 void
@@ -122,7 +127,7 @@ DOMSVGLengthList::InternalListLengthWillChange(PRUint32 aNewLength)
 
   // If our length has increased, null out the new pointers:
   for (PRUint32 i = oldLength; i < aNewLength; ++i) {
-    mItems[i] = nsnull;
+    mItems[i] = nullptr;
   }
 }
 
@@ -174,7 +179,7 @@ NS_IMETHODIMP
 DOMSVGLengthList::Initialize(nsIDOMSVGLength *newItem,
                              nsIDOMSVGLength **_retval)
 {
-  *_retval = nsnull;
+  *_retval = nullptr;
   if (IsAnimValList()) {
     return NS_ERROR_DOM_NO_MODIFICATION_ALLOWED_ERR;
   }
@@ -216,7 +221,7 @@ DOMSVGLengthList::InsertItemBefore(nsIDOMSVGLength *newItem,
                                    PRUint32 index,
                                    nsIDOMSVGLength **_retval)
 {
-  *_retval = nsnull;
+  *_retval = nullptr;
   if (IsAnimValList()) {
     return NS_ERROR_DOM_NO_MODIFICATION_ALLOWED_ERR;
   }
@@ -258,7 +263,7 @@ DOMSVGLengthList::InsertItemBefore(nsIDOMSVGLength *newItem,
   if (mAList->IsAnimating()) {
     Element()->AnimationNeedsResample();
   }
-  *_retval = domItem.forget().get();
+  domItem.forget(_retval);
   return NS_OK;
 }
 
@@ -267,7 +272,7 @@ DOMSVGLengthList::ReplaceItem(nsIDOMSVGLength *newItem,
                               PRUint32 index,
                               nsIDOMSVGLength **_retval)
 {
-  *_retval = nsnull;
+  *_retval = nullptr;
   if (IsAnimValList()) {
     return NS_ERROR_DOM_NO_MODIFICATION_ALLOWED_ERR;
   }
@@ -309,7 +314,7 @@ NS_IMETHODIMP
 DOMSVGLengthList::RemoveItem(PRUint32 index,
                              nsIDOMSVGLength **_retval)
 {
-  *_retval = nsnull;
+  *_retval = nullptr;
   if (IsAnimValList()) {
     return NS_ERROR_DOM_NO_MODIFICATION_ALLOWED_ERR;
   }
@@ -380,7 +385,7 @@ DOMSVGLengthList::MaybeInsertNullInAnimValListAt(PRUint32 aIndex)
   NS_ABORT_IF_FALSE(animVal->mItems.Length() == mItems.Length(),
                     "animVal list not in sync!");
 
-  animVal->mItems.InsertElementAt(aIndex, static_cast<DOMSVGLength*>(nsnull));
+  animVal->mItems.InsertElementAt(aIndex, static_cast<DOMSVGLength*>(nullptr));
 
   UpdateListIndicesFromIndex(animVal->mItems, aIndex + 1);
 }

@@ -8,6 +8,7 @@
 
 #include "mozilla/dom/Element.h"
 #include "nsComputedDOMStyle.h"
+#include "nsIFrame.h"
 
 using namespace mozilla;
 using namespace mozilla::a11y;
@@ -17,7 +18,7 @@ StyleInfo::StyleInfo(dom::Element* aElement, nsIPresShell* aPresShell) :
 {
   mStyleContext =
     nsComputedDOMStyle::GetStyleContextForElementNoFlush(aElement,
-                                                         nsnull,
+                                                         nullptr,
                                                          aPresShell);
 }
 

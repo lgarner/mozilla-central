@@ -160,7 +160,14 @@ class MochitestOptions(optparse.OptionParser):
                     help = "sets the given variable in the application's "
                            "environment")
     defaults["environment"] = []
-    
+
+    self.add_option("--exclude-extension",
+                    action = "append", type = "string",
+                    dest = "extensionsToExclude",
+                    help = "excludes the given extension from being installed "
+                           "in the test profile")
+    defaults["extensionsToExclude"] = []
+
     self.add_option("--browser-arg",
                     action = "append", type = "string",
                     dest = "browserArgs", metavar = "ARG",
@@ -672,14 +679,6 @@ class Mochitest(object):
     else:
       timeout = 330.0 # default JS harness timeout is 300 seconds
 
-    # it's a debug build, we can parse leaked DOMWindows and docShells
-    # but skip for WebappRT chrome tests, where DOMWindow "leaks" aren't
-    # meaningful.  See https://bugzilla.mozilla.org/show_bug.cgi?id=733631#c46
-    if Automation.IS_DEBUG_BUILD and not options.webapprtChrome:
-      logger = ShutdownLeakLogger(self.automation.log)
-    else:
-      logger = None
-
     if options.vmwareRecording:
       self.startVMwareRecording(options);
 
@@ -693,7 +692,6 @@ class Mochitest(object):
                                   certPath=options.certPath,
                                   debuggerInfo=debuggerInfo,
                                   symbolsPath=options.symbolsPath,
-                                  logger = logger,
                                   timeout = timeout)
     except KeyboardInterrupt:
       self.automation.log.info("INFO | runtests.py | Received keyboard interrupt.\n");
@@ -708,9 +706,6 @@ class Mochitest(object):
     self.stopWebServer(options)
     self.stopWebSocketServer(options)
     processLeakLog(self.leak_report_file, options.leakThreshold)
-
-    if logger:
-      logger.parse()
 
     self.automation.log.info("\nINFO | runtests.py | Running tests: end.")
 
@@ -884,9 +879,10 @@ overlay chrome://webapprt/content/webapp.xul chrome://mochikit/content/browser-t
     for extensionDir in extensionDirs:
       if os.path.isdir(extensionDir):
         for dirEntry in os.listdir(extensionDir):
-          path = os.path.join(extensionDir, dirEntry)
-          if os.path.isdir(path) or (os.path.isfile(path) and path.endswith(".xpi")):
-            self.installExtensionFromPath(options, path)
+          if dirEntry not in options.extensionsToExclude:
+            path = os.path.join(extensionDir, dirEntry)
+            if os.path.isdir(path) or (os.path.isfile(path) and path.endswith(".xpi")):
+              self.installExtensionFromPath(options, path)
 
     # Install custom extensions passed on the command line.
     for path in options.extensionsToInstall:

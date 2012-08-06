@@ -10,6 +10,7 @@
 
 #include "mozilla/Mutex.h"
 #include "mozilla/storage.h"
+#include "mozilla/dom/ContentParent.h"
 #include "nsDOMClassInfo.h"
 #include "nsDOMLists.h"
 #include "nsJSUtils.h"
@@ -33,6 +34,7 @@
 #include "ipc/IndexedDBChild.h"
 
 USING_INDEXEDDB_NAMESPACE
+using mozilla::dom::ContentParent;
 
 namespace {
 
@@ -40,7 +42,7 @@ class NoRequestDatabaseHelper : public AsyncConnectionHelper
 {
 public:
   NoRequestDatabaseHelper(IDBTransaction* aTransaction)
-  : AsyncConnectionHelper(aTransaction, nsnull)
+  : AsyncConnectionHelper(aTransaction, nullptr)
   {
     NS_ASSERTION(IndexedDatabaseManager::IsMainProcess(), "Wrong process!");
     NS_ASSERTION(aTransaction, "Null transaction!");
@@ -110,7 +112,7 @@ public:
                             jsval* aVal);
   void ReleaseMainThreadObjects()
   {
-    mFileInfo = nsnull;
+    mFileInfo = nullptr;
     AsyncConnectionHelper::ReleaseMainThreadObjects();
   }
 
@@ -155,7 +157,7 @@ public:
 
   void forget()
   {
-    mInfo = nsnull;
+    mInfo = nullptr;
   }
 
 private:
@@ -170,7 +172,8 @@ already_AddRefed<IDBDatabase>
 IDBDatabase::Create(IDBWrapperCache* aOwnerCache,
                     already_AddRefed<DatabaseInfo> aDatabaseInfo,
                     const nsACString& aASCIIOrigin,
-                    FileManager* aFileManager)
+                    FileManager* aFileManager,
+                    mozilla::dom::ContentParent* aContentParent)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
   NS_ASSERTION(!aASCIIOrigin.IsEmpty(), "Empty origin!");
@@ -182,7 +185,7 @@ IDBDatabase::Create(IDBWrapperCache* aOwnerCache,
 
   db->BindToOwner(aOwnerCache);
   if (!db->SetScriptOwner(aOwnerCache->GetScriptOwner())) {
-    return nsnull;
+    return nullptr;
   }
 
   db->mDatabaseId = databaseInfo->id;
@@ -191,13 +194,14 @@ IDBDatabase::Create(IDBWrapperCache* aOwnerCache,
   databaseInfo.swap(db->mDatabaseInfo);
   db->mASCIIOrigin = aASCIIOrigin;
   db->mFileManager = aFileManager;
+  db->mContentParent = aContentParent;
 
   IndexedDatabaseManager* mgr = IndexedDatabaseManager::Get();
   NS_ASSERTION(mgr, "This should never be null!");
 
   if (!mgr->RegisterDatabase(db)) {
     // Either out of memory or shutting down.
-    return nsnull;
+    return nullptr;
   }
 
   return db.forget();
@@ -205,8 +209,9 @@ IDBDatabase::Create(IDBWrapperCache* aOwnerCache,
 
 IDBDatabase::IDBDatabase()
 : mDatabaseId(0),
-  mActorChild(nsnull),
-  mActorParent(nsnull),
+  mActorChild(nullptr),
+  mActorParent(nullptr),
+  mContentParent(nullptr),
   mInvalidated(0),
   mRegistered(false),
   mClosed(false),
@@ -322,7 +327,7 @@ IDBDatabase::ExitSetVersionTransaction()
 {
   NS_ASSERTION(mRunningVersionChange, "How did that happen?");
 
-  mPreviousDatabaseInfo = nsnull;
+  mPreviousDatabaseInfo = nullptr;
 
   mRunningVersionChange = false;
 }
@@ -331,7 +336,7 @@ void
 IDBDatabase::RevertToPreviousState()
 {
   mDatabaseInfo = mPreviousDatabaseInfo;
-  mPreviousDatabaseInfo = nsnull;
+  mPreviousDatabaseInfo = nullptr;
 }
 
 void
@@ -730,7 +735,7 @@ IDBDatabase::MozCreateFileHandle(const nsAString& aName,
     return NS_ERROR_DOM_INDEXEDDB_NOT_ALLOWED_ERR;
   }
 
-  nsRefPtr<IDBRequest> request = IDBRequest::Create(nsnull, this, nsnull, aCx);
+  nsRefPtr<IDBRequest> request = IDBRequest::Create(nullptr, this, nullptr, aCx);
 
   nsRefPtr<CreateFileHelper> helper =
     new CreateFileHelper(this, request, aName, aType);
@@ -784,7 +789,7 @@ IDBDatabase::SetThreadLocals()
 void
 IDBDatabase::UnsetThreadLocals()
 {
-  IndexedDatabaseManager::SetCurrentWindow(nsnull);
+  IndexedDatabaseManager::SetCurrentWindow(nullptr);
 }
 
 nsresult
@@ -867,7 +872,7 @@ CreateObjectStoreHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
 void
 CreateObjectStoreHelper::ReleaseMainThreadObjects()
 {
-  mObjectStore = nsnull;
+  mObjectStore = nullptr;
   NoRequestDatabaseHelper::ReleaseMainThreadObjects();
 }
 

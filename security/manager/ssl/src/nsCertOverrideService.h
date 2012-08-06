@@ -15,6 +15,7 @@
 #include "nsIFile.h"
 #include "secoidt.h"
 #include "nsWeakReference.h"
+#include "mozilla/Attributes.h"
 
 class nsCertOverride
 {
@@ -62,7 +63,7 @@ public:
 
 
 // hash entry class
-class nsCertOverrideEntry : public PLDHashEntryHdr
+class nsCertOverrideEntry MOZ_FINAL : public PLDHashEntryHdr
 {
   public:
     // Hash methods
@@ -107,8 +108,8 @@ class nsCertOverrideEntry : public PLDHashEntryHdr
     static PLDHashNumber HashKey(KeyTypePointer aKey)
     {
       // PL_DHashStringKey doesn't use the table parameter, so we can safely
-      // pass nsnull
-      return PL_DHashStringKey(nsnull, aKey);
+      // pass nullptr
+      return PL_DHashStringKey(nullptr, aKey);
     }
 
     enum { ALLOW_MEMMOVE = false };
@@ -125,9 +126,9 @@ class nsCertOverrideEntry : public PLDHashEntryHdr
     nsCString mHostWithPort;
 };
 
-class nsCertOverrideService : public nsICertOverrideService
-                            , public nsIObserver
-                            , public nsSupportsWeakReference
+class nsCertOverrideService MOZ_FINAL : public nsICertOverrideService
+                                      , public nsIObserver
+                                      , public nsSupportsWeakReference
 {
 public:
   NS_DECL_ISUPPORTS

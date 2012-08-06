@@ -18,6 +18,7 @@
 #include "pldhash.h"
 #include "nsIX509CertDB.h"
 #include "nsCertOverrideService.h"
+#include "mozilla/Attributes.h"
 
 
 typedef struct treeArrayElStr treeArrayEl;
@@ -37,7 +38,7 @@ struct CompareCacheHashEntryPtr : PLDHashEntryHdr {
   CompareCacheHashEntry *entry;
 };
 
-class nsCertAddonInfo : public nsISupports
+class nsCertAddonInfo MOZ_FINAL : public nsISupports
 {
 public:
   NS_DECL_ISUPPORTS
@@ -125,9 +126,9 @@ private:
 
   treeArrayEl *GetThreadDescAtIndex(PRInt32 _index);
   already_AddRefed<nsIX509Cert> 
-    GetCertAtIndex(PRInt32 _index, PRInt32 *outAbsoluteCertOffset = nsnull);
+    GetCertAtIndex(PRInt32 _index, PRInt32 *outAbsoluteCertOffset = nullptr);
   already_AddRefed<nsCertTreeDispInfo> 
-    GetDispInfoAtIndex(PRInt32 index, PRInt32 *outAbsoluteCertOffset = nsnull);
+    GetDispInfoAtIndex(PRInt32 index, PRInt32 *outAbsoluteCertOffset = nullptr);
   void FreeCertArray();
   nsresult UpdateUIContents();
 

@@ -24,6 +24,7 @@
 #include "nsTextFormatter.h"
 #include "nsXPCOMCID.h"
 #include "plstr.h"
+#include "mozilla/Attributes.h"
 
 #ifdef MOZ_WIDGET_COCOA
 #include <CoreFoundation/CoreFoundation.h>
@@ -44,7 +45,7 @@
 #define NS_COMMANDLINE_CID \
   { 0x23bcc750, 0xdc20, 0x460b, { 0xb2, 0xd4, 0x74, 0xd8, 0xf5, 0x8d, 0x36, 0x15 } }
 
-class nsCommandLine : public nsICommandLineRunner
+class nsCommandLine MOZ_FINAL : public nsICommandLineRunner
 {
 public:
   NS_DECL_ISUPPORTS
@@ -393,7 +394,7 @@ nsCommandLine::ResolveURI(const nsAString& aArgument, nsIURI* *aResult)
     resolveShortcutURL(lf, url);
     if (!url.IsEmpty()) {
       return io->NewURI(url,
-                        nsnull,
+                        nullptr,
                         workingDirURI,
                         aResult);
     }
@@ -402,7 +403,7 @@ nsCommandLine::ResolveURI(const nsAString& aArgument, nsIURI* *aResult)
   }
 
   return io->NewURI(NS_ConvertUTF16toUTF8(aArgument),
-                    nsnull,
+                    nullptr,
                     workingDirURI,
                     aResult);
 }
@@ -626,11 +627,11 @@ nsCommandLine::Run()
 {
   nsresult rv;
 
-  rv = EnumerateValidators(EnumValidate, nsnull);
+  rv = EnumerateValidators(EnumValidate, nullptr);
   if (rv == NS_ERROR_ABORT)
     return rv;
 
-  rv = EnumerateHandlers(EnumRun, nsnull);
+  rv = EnumerateHandlers(EnumRun, nullptr);
   if (rv == NS_ERROR_ABORT)
     return rv;
 

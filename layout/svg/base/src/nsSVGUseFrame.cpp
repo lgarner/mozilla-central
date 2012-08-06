@@ -56,7 +56,7 @@ public:
 #endif
 
   // nsISVGChildFrame interface:
-  virtual void UpdateBounds();
+  virtual void ReflowSVG();
   virtual void NotifySVGChanged(PRUint32 aFlags);
 
   // nsIAnonymousContentCreator
@@ -122,8 +122,8 @@ nsSVGUseFrame::AttributeChanged(PRInt32         aNameSpaceID,
     if (aAttribute == nsGkAtoms::x ||
         aAttribute == nsGkAtoms::y) {
       // make sure our cached transform matrix gets (lazily) updated
-      mCanvasTM = nsnull;
-      nsSVGUtils::InvalidateAndScheduleBoundsUpdate(this);
+      mCanvasTM = nullptr;
+      nsSVGUtils::InvalidateAndScheduleReflowSVG(this);
       nsSVGUtils::NotifyChildrenOfSVGChange(this, TRANSFORM_CHANGED);
     } else if (aAttribute == nsGkAtoms::width ||
                aAttribute == nsGkAtoms::height) {
@@ -137,14 +137,14 @@ nsSVGUseFrame::AttributeChanged(PRInt32         aNameSpaceID,
         useElement->SyncWidthOrHeight(aAttribute);
       }
       if (invalidate) {
-        nsSVGUtils::InvalidateAndScheduleBoundsUpdate(this);
+        nsSVGUtils::InvalidateAndScheduleReflowSVG(this);
       }
     }
   } else if (aNameSpaceID == kNameSpaceID_XLink &&
              aAttribute == nsGkAtoms::href) {
     // we're changing our nature, clear out the clone information
-    nsSVGUtils::InvalidateAndScheduleBoundsUpdate(this);
-    useElement->mOriginal = nsnull;
+    nsSVGUtils::InvalidateAndScheduleReflowSVG(this);
+    useElement->mOriginal = nullptr;
     useElement->UnlinkSource();
     useElement->TriggerReclone();
   }
@@ -172,18 +172,18 @@ nsSVGUseFrame::IsLeaf() const
 // nsISVGChildFrame methods
 
 void
-nsSVGUseFrame::UpdateBounds()
+nsSVGUseFrame::ReflowSVG()
 {
   // We only handle x/y offset here, since any width/height that is in force is
   // handled by the nsSVGOuterSVGFrame for the anonymous <svg> that will be
   // created for that purpose.
   float x, y;
   static_cast<nsSVGUseElement*>(mContent)->
-    GetAnimatedLengthValues(&x, &y, nsnull);
+    GetAnimatedLengthValues(&x, &y, nullptr);
   mRect.MoveTo(nsLayoutUtils::RoundGfxRectToAppRect(
                  gfxRect(x, y, 0.0, 0.0),
                  PresContext()->AppUnitsPerCSSPixel()).TopLeft());
-  nsSVGUseFrameBase::UpdateBounds();
+  nsSVGUseFrameBase::ReflowSVG();
 }
 
 void
@@ -203,7 +203,7 @@ nsSVGUseFrame::NotifySVGChanged(PRUint32 aFlags)
       // changed ancestor will have invalidated its entire area, which includes
       // our area.
       // For perf reasons we call this before calling NotifySVGChanged() below.
-      nsSVGUtils::ScheduleBoundsUpdate(this);
+      nsSVGUtils::ScheduleReflowSVG(this);
     }
   }
 

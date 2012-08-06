@@ -279,7 +279,7 @@ static void AllocateTexturesYCbCr(PlanarYCbCrImage *aImage,
     backendData->mCrTexture->UnlockRect(0);
   }
 
-  aImage->SetBackendData(LayerManager::LAYERS_D3D9, backendData.forget());
+  aImage->SetBackendData(mozilla::layers::LAYERS_D3D9, backendData.forget());
 }
 
 Layer*
@@ -291,7 +291,7 @@ ImageLayerD3D9::GetLayer()
 /*
   * Returns a texture which backs aImage
   * Will only work if aImage is a cairo or remote image.
-  * Returns nsnull if unsuccessful.
+  * Returns nullptr if unsuccessful.
   * If successful, aHasAlpha will be set to true if the texture has an
   * alpha component, false otherwise.
   */
@@ -304,11 +304,11 @@ ImageLayerD3D9::GetTexture(Image *aImage, bool& aHasAlpha)
     RemoteBitmapImage *remoteImage =
       static_cast<RemoteBitmapImage*>(aImage);
       
-    if (!aImage->GetBackendData(LayerManager::LAYERS_D3D9)) {
+    if (!aImage->GetBackendData(mozilla::layers::LAYERS_D3D9)) {
       nsAutoPtr<TextureD3D9BackendData> dat(new TextureD3D9BackendData());
       dat->mTexture = DataToTexture(device(), remoteImage->mData, remoteImage->mStride, remoteImage->mSize, D3DFMT_A8R8G8B8);
       if (dat->mTexture) {
-        aImage->SetBackendData(LayerManager::LAYERS_D3D9, dat.forget());
+        aImage->SetBackendData(mozilla::layers::LAYERS_D3D9, dat.forget());
       }
     }
 
@@ -318,34 +318,34 @@ ImageLayerD3D9::GetTexture(Image *aImage, bool& aHasAlpha)
       static_cast<CairoImage*>(aImage);
 
     if (!cairoImage->mSurface) {
-      return nsnull;
+      return nullptr;
     }
 
-    if (!aImage->GetBackendData(LayerManager::LAYERS_D3D9)) {
+    if (!aImage->GetBackendData(mozilla::layers::LAYERS_D3D9)) {
       nsAutoPtr<TextureD3D9BackendData> dat(new TextureD3D9BackendData());
       dat->mTexture = SurfaceToTexture(device(), cairoImage->mSurface, cairoImage->mSize);
       if (dat->mTexture) {
-        aImage->SetBackendData(LayerManager::LAYERS_D3D9, dat.forget());
+        aImage->SetBackendData(mozilla::layers::LAYERS_D3D9, dat.forget());
       }
     }
 
     aHasAlpha = cairoImage->mSurface->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA;
   } else {
     NS_WARNING("Inappropriate image type.");
-    return nsnull;
+    return nullptr;
   }
 
   TextureD3D9BackendData *data =
-    static_cast<TextureD3D9BackendData*>(aImage->GetBackendData(LayerManager::LAYERS_D3D9));
+    static_cast<TextureD3D9BackendData*>(aImage->GetBackendData(mozilla::layers::LAYERS_D3D9));
 
   if (!data) {
-    return nsnull;
+    return nullptr;
   }
 
   nsRefPtr<IDirect3DDevice9> dev;
   data->mTexture->GetDevice(getter_AddRefs(dev));
   if (dev != device()) {
-    return nsnull;
+    return nullptr;
   }
 
   return data->mTexture;
@@ -400,7 +400,7 @@ ImageLayerD3D9::RenderLayer()
     }
     device()->SetTexture(0, texture);
 
-    image = nsnull;
+    image = nullptr;
     autoLock.Unlock();
 
     device()->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
@@ -416,12 +416,12 @@ ImageLayerD3D9::RenderLayer()
       return;
     }
 
-    if (!yuvImage->GetBackendData(LayerManager::LAYERS_D3D9)) {
+    if (!yuvImage->GetBackendData(mozilla::layers::LAYERS_D3D9)) {
       AllocateTexturesYCbCr(yuvImage, device(), mD3DManager);
     }
 
     PlanarYCbCrD3D9BackendData *data =
-      static_cast<PlanarYCbCrD3D9BackendData*>(yuvImage->GetBackendData(LayerManager::LAYERS_D3D9));
+      static_cast<PlanarYCbCrD3D9BackendData*>(yuvImage->GetBackendData(mozilla::layers::LAYERS_D3D9));
 
     if (!data) {
       return;
@@ -494,8 +494,8 @@ ImageLayerD3D9::RenderLayer()
     device()->SetTexture(1, data->mCbTexture);
     device()->SetTexture(2, data->mCrTexture);
 
-    image = nsnull;
-    data = nsnull;
+    image = nullptr;
+    data = nullptr;
     autoLock.Unlock();
 
     device()->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
@@ -511,7 +511,7 @@ already_AddRefed<IDirect3DTexture9>
 ImageLayerD3D9::GetAsTexture(gfxIntSize* aSize)
 {
   if (!GetContainer()) {
-    return nsnull;
+    return nullptr;
   }
 
   AutoLockImage autoLock(GetContainer());
@@ -519,12 +519,12 @@ ImageLayerD3D9::GetAsTexture(gfxIntSize* aSize)
   Image *image = autoLock.GetImage();
 
   if (!image) {
-    return nsnull;
+    return nullptr;
   }
 
   if (image->GetFormat() != Image::CAIRO_SURFACE &&
       image->GetFormat() != Image::REMOTE_IMAGE_BITMAP) {
-    return nsnull;
+    return nullptr;
   }
   
   bool dontCare;
@@ -535,7 +535,7 @@ ImageLayerD3D9::GetAsTexture(gfxIntSize* aSize)
 
 
 ShadowImageLayerD3D9::ShadowImageLayerD3D9(LayerManagerD3D9* aManager)
-  : ShadowImageLayer(aManager, nsnull)
+  : ShadowImageLayer(aManager, nullptr)
   , LayerD3D9(aManager)
 {
   mImplData = static_cast<LayerD3D9*>(this);
@@ -596,8 +596,8 @@ ShadowImageLayerD3D9::Disconnect()
 void
 ShadowImageLayerD3D9::Destroy()
 {
-  mBuffer = nsnull;
-  mYCbCrImage = nsnull;
+  mBuffer = nullptr;
+  mYCbCrImage = nullptr;
 }
 
 Layer*
@@ -616,12 +616,12 @@ ShadowImageLayerD3D9::RenderLayer()
       return;
     }
 
-    if (!mYCbCrImage->GetBackendData(LayerManager::LAYERS_D3D9)) {
+    if (!mYCbCrImage->GetBackendData(mozilla::layers::LAYERS_D3D9)) {
       AllocateTexturesYCbCr(mYCbCrImage, device(), mD3DManager);
     }
 
     PlanarYCbCrD3D9BackendData *data =
-      static_cast<PlanarYCbCrD3D9BackendData*>(mYCbCrImage->GetBackendData(LayerManager::LAYERS_D3D9));
+      static_cast<PlanarYCbCrD3D9BackendData*>(mYCbCrImage->GetBackendData(mozilla::layers::LAYERS_D3D9));
 
     if (!data) {
       return;
@@ -630,7 +630,7 @@ ShadowImageLayerD3D9::RenderLayer()
     if (!mYCbCrImage->mBufferSize) {
       return;
     }
-    
+
     SetShaderTransformAndOpacity();
 
     device()->SetVertexShaderConstantF(CBvLayerQuad,
@@ -667,7 +667,7 @@ already_AddRefed<IDirect3DTexture9>
 ShadowImageLayerD3D9::GetAsTexture(gfxIntSize* aSize)
 {
   if (!mBuffer) {
-    return nsnull;
+    return nullptr;
   }
   
   *aSize = mBuffer->GetSize();

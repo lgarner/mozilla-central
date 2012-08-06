@@ -70,7 +70,7 @@ using namespace mozilla::widget;
 /**************************************************************
  *
  * SECTION: nsWindow statics
- * 
+ *
  **************************************************************/
 
 static nsAutoPtr<PRUint8>  sSharedSurfaceData;
@@ -185,11 +185,11 @@ EnsureSharedSurfaceSize(gfxIntSize size)
 
   if (!sSharedSurfaceData || (WORDSSIZE(size) > WORDSSIZE(sSharedSurfaceSize))) {
     sSharedSurfaceSize = size;
-    sSharedSurfaceData = nsnull;
+    sSharedSurfaceData = nullptr;
     sSharedSurfaceData = (PRUint8 *)malloc(WORDSSIZE(sSharedSurfaceSize) * 4);
   }
 
-  return (sSharedSurfaceData != nsnull);
+  return (sSharedSurfaceData != nullptr);
 }
 
 bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
@@ -304,7 +304,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
 #endif // WIDGET_DEBUG_OUTPUT
 
     switch (GetLayerManager()->GetBackendType()) {
-      case LayerManager::LAYERS_BASIC:
+      case LAYERS_BASIC:
         {
           nsRefPtr<gfxASurface> targetSurface;
 
@@ -313,7 +313,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
           if ((IsRenderMode(gfxWindowsPlatform::RENDER_GDI) ||
                IsRenderMode(gfxWindowsPlatform::RENDER_DIRECT2D)) &&
               eTransparencyTransparent == mTransparencyMode) {
-            if (mTransparentSurface == nsnull)
+            if (mTransparentSurface == nullptr)
               SetupTranslucentWindowMemoryBitmap(mTransparencyMode);
             targetSurface = mTransparentSurface;
           }
@@ -335,7 +335,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
             if (!mD2DWindowSurface->CairoStatus()) {
               targetSurface = mD2DWindowSurface;
             } else {
-              mD2DWindowSurface = nsnull;
+              mD2DWindowSurface = nullptr;
             }
           }
 #endif
@@ -386,7 +386,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
           if (IsRenderMode(gfxWindowsPlatform::RENDER_DIRECT2D)) {
             const nsIntRect* r;
             for (nsIntRegionRectIterator iter(event.region);
-                 (r = iter.Next()) != nsnull;) {
+                 (r = iter.Next()) != nullptr;) {
               thebesContext->Rectangle(gfxRect(r->x, r->y, r->width, r->height), true);
             }
             thebesContext->Clip();
@@ -396,8 +396,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
           }
 
           // don't need to double buffer with anything but GDI
-          BasicLayerManager::BufferMode doubleBuffering =
-            BasicLayerManager::BUFFER_NONE;
+          BufferMode doubleBuffering = mozilla::layers::BUFFER_NONE;
           if (IsRenderMode(gfxWindowsPlatform::RENDER_GDI)) {
 #ifdef MOZ_XUL
             switch (mTransparencyMode) {
@@ -405,7 +404,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
               case eTransparencyBorderlessGlass:
               default:
                 // If we're not doing translucency, then double buffer
-                doubleBuffering = BasicLayerManager::BUFFER_BUFFERED;
+                doubleBuffering = mozilla::layers::BUFFER_BUFFERED;
                 break;
               case eTransparencyTransparent:
                 // If we're rendering with translucency, we're going to be
@@ -416,7 +415,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
                 break;
             }
 #else
-            doubleBuffering = BasicLayerManager::BUFFER_BUFFERED;
+            doubleBuffering = mozilla::layers::BUFFER_BUFFERED;
 #endif
           }
 
@@ -535,13 +534,13 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
           }
         }
         break;
-      case LayerManager::LAYERS_OPENGL:
+      case LAYERS_OPENGL:
         static_cast<mozilla::layers::LayerManagerOGL*>(GetLayerManager())->
           SetClippingRegion(event.region);
         result = DispatchWindowEvent(&event, eventStatus);
         break;
 #ifdef MOZ_ENABLE_D3D9_LAYER
-      case LayerManager::LAYERS_D3D9:
+      case LAYERS_D3D9:
         {
           LayerManagerD3D9 *layerManagerD3D9 =
             static_cast<mozilla::layers::LayerManagerD3D9*>(GetLayerManager());
@@ -549,7 +548,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
           result = DispatchWindowEvent(&event, eventStatus);
           if (layerManagerD3D9->DeviceWasRemoved()) {
             mLayerManager->Destroy();
-            mLayerManager = nsnull;
+            mLayerManager = nullptr;
             // When our device was removed, we should have gfxWindowsPlatform
             // check if its render mode is up to date!
             gfxWindowsPlatform::GetPlatform()->UpdateRenderMode();
@@ -559,7 +558,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
         break;
 #endif
 #ifdef MOZ_ENABLE_D3D10_LAYER
-      case LayerManager::LAYERS_D3D10:
+      case LAYERS_D3D10:
         {
           gfxWindowsPlatform::GetPlatform()->UpdateRenderMode();
           LayerManagerD3D10 *layerManagerD3D10 = static_cast<mozilla::layers::LayerManagerD3D10*>(GetLayerManager());
@@ -581,7 +580,7 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
     ::EndPaint(mWnd, &ps);
   }
 
-  mPaintDC = nsnull;
+  mPaintDC = nullptr;
   mLastPaintEndTime = TimeStamp::Now();
 
 #if defined(WIDGET_DEBUG_OUTPUT)

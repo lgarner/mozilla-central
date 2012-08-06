@@ -5,38 +5,31 @@
 
 package org.mozilla.gecko;
 
-import android.content.res.Resources;
-import android.widget.AdapterView;
-import android.os.AsyncTask;
-import android.content.Context;
-import android.widget.ListView;
-import android.widget.ImageView;
-import android.widget.TextView;
-import android.view.View;
-import android.app.Activity;
-import android.database.Cursor;
-import android.util.Log;
-import android.widget.SimpleCursorAdapter;
-import android.view.LayoutInflater;
-import android.view.ViewGroup;
-import android.content.Intent;
-import android.widget.LinearLayout;
-import android.os.SystemClock;
-import android.util.Pair;
-import android.widget.TabHost.TabContentFactory;
-import android.view.MenuInflater;
-import android.widget.TabHost;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
-
-import org.json.JSONArray;
-
-import java.util.LinkedList;
-
 import org.mozilla.gecko.AwesomeBar.ContextMenuSubject;
 import org.mozilla.gecko.db.BrowserContract.Bookmarks;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.db.BrowserDB.URLColumns;
+
+import android.app.Activity;
+import android.content.Context;
+import android.database.Cursor;
+import android.os.AsyncTask;
+import android.util.Log;
+import android.util.Pair;
+import android.view.ContextMenu;
+import android.view.ContextMenu.ContextMenuInfo;
+import android.view.LayoutInflater;
+import android.view.MenuInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.AdapterView;
+import android.widget.ImageView;
+import android.widget.ListView;
+import android.widget.SimpleCursorAdapter;
+import android.widget.TabHost.TabContentFactory;
+import android.widget.TextView;
+
+import java.util.LinkedList;
 
 public class BookmarksTab extends AwesomeBarTab {
     public static final String LOGTAG = "BOOKMARKS_TAB";
@@ -44,7 +37,6 @@ public class BookmarksTab extends AwesomeBarTab {
     private boolean mInReadingList = false;
     private int mFolderId;
     private String mFolderTitle;
-    private ListView mView = null;
     private BookmarksListAdapter mCursorAdapter = null;
     private BookmarksQueryTask mQueryTask = null;
 
@@ -82,13 +74,14 @@ public class BookmarksTab extends AwesomeBarTab {
             mView.setOnTouchListener(mListListener);
 
             // We need to add the header before we set the adapter, hence make it null
-            mView.setAdapter(null);
-            mView.setAdapter(getCursorAdapter());
+            ListView list = (ListView)mView;
+            list.setAdapter(null);
+            list.setAdapter(getCursorAdapter());
 
             BookmarksQueryTask task = getQueryTask();
             task.execute();
         }
-        return mView;
+        return (ListView)mView;
     }
 
     public void destroy() {
@@ -135,13 +128,14 @@ public class BookmarksTab extends AwesomeBarTab {
 
         // Add/Remove header based on the root folder
         if (mView != null) {
+            ListView list = (ListView)mView;
             if (mFolderId == Bookmarks.FIXED_ROOT_ID) {
-                if (mView.getHeaderViewsCount() == 1) {
-                    mView.removeHeaderView(headerView);
+                if (list.getHeaderViewsCount() == 1) {
+                    list.removeHeaderView(headerView);
                 }
             } else {
-                if (mView.getHeaderViewsCount() == 0) {
-                    mView.addHeaderView(headerView, null, true);
+                if (list.getHeaderViewsCount() == 0) {
+                    list.addHeaderView(headerView, null, true);
                 }
                 headerView.setText(mFolderTitle);
             }
@@ -367,8 +361,9 @@ public class BookmarksTab extends AwesomeBarTab {
                 public void run() {
                     // this will update the cursorAdapter to use the new one if it already exists
                     // We need to add the header before we set the adapter, hence make it null
-                    mView.setAdapter(null);
-                    mView.setAdapter(getCursorAdapter(cursor));
+                    ListView list = (ListView)mView;
+                    list.setAdapter(null);
+                    list.setAdapter(getCursorAdapter(cursor));
                 }
             });
             mQueryTask = null;
@@ -419,7 +414,6 @@ public class BookmarksTab extends AwesomeBarTab {
             if (keywordCol != -1)
                 keyword = cursor.getString(keywordCol);
 
-            // Use the bookmark id for the Bookmarks tab and the history id for the Top Sites tab 
             int id = cursor.getInt(cursor.getColumnIndexOrThrow(Bookmarks._ID));
 
             subject = new ContextMenuSubject(id,

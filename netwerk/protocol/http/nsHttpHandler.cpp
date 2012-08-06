@@ -124,10 +124,10 @@ NewURI(const nsACString &aSpec,
 // nsHttpHandler <public>
 //-----------------------------------------------------------------------------
 
-nsHttpHandler *gHttpHandler = nsnull;
+nsHttpHandler *gHttpHandler = nullptr;
 
 nsHttpHandler::nsHttpHandler()
-    : mConnMgr(nsnull)
+    : mConnMgr(nullptr)
     , mHttpVersion(NS_HTTP_VERSION_1_1)
     , mProxyHttpVersion(NS_HTTP_VERSION_1_1)
     , mCapabilities(NS_HTTP_ALLOW_KEEPALIVE)
@@ -140,7 +140,6 @@ nsHttpHandler::nsHttpHandler()
     , mMaxRequestDelay(10)
     , mIdleSynTimeout(250)
     , mMaxConnections(24)
-    , mMaxConnectionsPerServer(8)
     , mMaxPersistentConnectionsPerServer(2)
     , mMaxPersistentConnectionsPerProxy(4)
     , mMaxPipelinedRequests(32)
@@ -176,6 +175,7 @@ nsHttpHandler::nsHttpHandler()
     , mSpdySendingChunkSize(ASpdySession::kSendingChunkSize)
     , mSpdyPingThreshold(PR_SecondsToInterval(44))
     , mSpdyPingTimeout(PR_SecondsToInterval(8))
+    , mConnectTimeout(90000)
 {
 #if defined(PR_LOGGING)
     gHttpLog = PR_NewLogModule("nsHttp");
@@ -202,7 +202,7 @@ nsHttpHandler::~nsHttpHandler()
 
     nsHttp::DestroyAtomTable();
 
-    gHttpHandler = nsnull;
+    gHttpHandler = nullptr;
 }
 
 nsresult
@@ -240,7 +240,7 @@ nsHttpHandler::Init()
         prefBranch->AddObserver(DONOTTRACK_HEADER_ENABLED, this, true);
         prefBranch->AddObserver(TELEMETRY_ENABLED, this, true);
 
-        PrefsChanged(prefBranch, nsnull);
+        PrefsChanged(prefBranch, nullptr);
     }
 
     mMisc.AssignLiteral("rv:" MOZILLA_UAVERSION);
@@ -322,8 +322,6 @@ nsHttpHandler::InitConnectionMgr()
     }
 
     rv = mConnMgr->Init(mMaxConnections,
-                        mMaxConnectionsPerServer,
-                        mMaxConnectionsPerServer,
                         mMaxPersistentConnectionsPerServer,
                         mMaxPersistentConnectionsPerProxy,
                         mMaxRequestDelay,
@@ -405,7 +403,7 @@ nsHttpHandler::IsAcceptableEncoding(const char *enc)
     if (!PL_strncasecmp(enc, "x-", 2))
         enc += 2;
 
-    return nsHttp::FindToken(mAcceptEncodings.get(), enc, HTTP_LWS ",") != nsnull;
+    return nsHttp::FindToken(mAcceptEncodings.get(), enc, HTTP_LWS ",") != nullptr;
 }
 
 nsresult
@@ -471,7 +469,7 @@ nsHttpHandler::NotifyObservers(nsIHttpChannel *chan, const char *event)
 {
     LOG(("nsHttpHandler::NotifyObservers [chan=%x event=\"%s\"]\n", chan, event));
     if (mObserverService)
-        mObserverService->NotifyObservers(chan, event, nsnull);
+        mObserverService->NotifyObservers(chan, event, nullptr);
 }
 
 nsresult
@@ -518,9 +516,7 @@ nsHttpHandler::BuildUserAgent()
     LOG(("nsHttpHandler::BuildUserAgent\n"));
 
     NS_ASSERTION(!mLegacyAppName.IsEmpty() &&
-                 !mLegacyAppVersion.IsEmpty() &&
-                 !mPlatform.IsEmpty() &&
-                 !mOscpu.IsEmpty(),
+                 !mLegacyAppVersion.IsEmpty(),
                  "HTTP cannot send practical requests without this much");
 
     // preallocate to worst-case size, which should always be better
@@ -549,18 +545,19 @@ nsHttpHandler::BuildUserAgent()
     // Application comment
     mUserAgent += '(';
 #ifndef UA_SPARE_PLATFORM
-    mUserAgent += mPlatform;
-    mUserAgent.AppendLiteral("; ");
+    if (!mPlatform.IsEmpty()) {
+      mUserAgent += mPlatform;
+      mUserAgent.AppendLiteral("; ");
+    }
 #endif
-#if defined(ANDROID) || defined(MOZ_PLATFORM_MAEMO)
     if (!mCompatDevice.IsEmpty()) {
         mUserAgent += mCompatDevice;
         mUserAgent.AppendLiteral("; ");
     }
-#else
-    mUserAgent += mOscpu;
-    mUserAgent.AppendLiteral("; ");
-#endif
+    else if (!mOscpu.IsEmpty()) {
+      mUserAgent += mOscpu;
+      mUserAgent.AppendLiteral("; ");
+    }
     mUserAgent += mMisc;
     mUserAgent += ')';
 
@@ -593,6 +590,7 @@ nsHttpHandler::BuildUserAgent()
 void
 nsHttpHandler::InitUserAgentComponents()
 {
+#ifndef MOZ_UA_OS_AGNOSTIC
     // Gather platform.
     mPlatform.AssignLiteral(
 #if defined(ANDROID)
@@ -607,10 +605,9 @@ nsHttpHandler::InitUserAgentComponents()
     "Maemo"
 #elif defined(MOZ_X11)
     "X11"
-#else
-    "?"
 #endif
     );
+#endif
 
 #if defined(ANDROID) || defined(MOZ_PLATFORM_MAEMO)
     nsCOMPtr<nsIPropertyBag2> infoService = do_GetService("@mozilla.org/system-info;1");
@@ -624,6 +621,7 @@ nsHttpHandler::InitUserAgentComponents()
         mCompatDevice.AssignLiteral("Mobile");
 #endif
 
+#ifndef MOZ_UA_OS_AGNOSTIC
     // Gather OS/CPU.
 #if defined(XP_OS2)
     ULONG os2ver = 0;
@@ -709,6 +707,7 @@ nsHttpHandler::InitUserAgentComponents()
         mOscpu.Assign(buf);
     }
 #endif
+#endif
 
     mUserAgentIsDirty = true;
 }
@@ -739,9 +738,9 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
 
     LOG(("nsHttpHandler::PrefsChanged [pref=%s]\n", pref));
 
-#define PREF_CHANGED(p) ((pref == nsnull) || !PL_strcmp(pref, p))
+#define PREF_CHANGED(p) ((pref == nullptr) || !PL_strcmp(pref, p))
 #define MULTI_PREF_CHANGED(p) \
-  ((pref == nsnull) || !PL_strncmp(pref, p, sizeof(p) - 1))
+  ((pref == nullptr) || !PL_strncmp(pref, p, sizeof(p) - 1))
 
     //
     // UA components
@@ -798,19 +797,6 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
             if (mConnMgr)
                 mConnMgr->UpdateParam(nsHttpConnectionMgr::MAX_CONNECTIONS,
                                       mMaxConnections);
-        }
-    }
-
-    if (PREF_CHANGED(HTTP_PREF("max-connections-per-server"))) {
-        rv = prefs->GetIntPref(HTTP_PREF("max-connections-per-server"), &val);
-        if (NS_SUCCEEDED(rv)) {
-            mMaxConnectionsPerServer = (PRUint8) clamped(val, 1, 0xff);
-            if (mConnMgr) {
-                mConnMgr->UpdateParam(nsHttpConnectionMgr::MAX_CONNECTIONS_PER_HOST,
-                                      mMaxConnectionsPerServer);
-                mConnMgr->UpdateParam(nsHttpConnectionMgr::MAX_CONNECTIONS_PER_PROXY,
-                                      mMaxConnectionsPerServer);
-            }
         }
     }
 
@@ -880,26 +866,6 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
             else
                 mProxyHttpVersion = NS_HTTP_VERSION_1_0;
             // it does not make sense to issue a HTTP/0.9 request to a proxy server
-        }
-    }
-
-    if (PREF_CHANGED(HTTP_PREF("keep-alive"))) {
-        rv = prefs->GetBoolPref(HTTP_PREF("keep-alive"), &cVar);
-        if (NS_SUCCEEDED(rv)) {
-            if (cVar)
-                mCapabilities |= NS_HTTP_ALLOW_KEEPALIVE;
-            else
-                mCapabilities &= ~NS_HTTP_ALLOW_KEEPALIVE;
-        }
-    }
-
-    if (PREF_CHANGED(HTTP_PREF("proxy.keep-alive"))) {
-        rv = prefs->GetBoolPref(HTTP_PREF("proxy.keep-alive"), &cVar);
-        if (NS_SUCCEEDED(rv)) {
-            if (cVar)
-                mProxyCapabilities |= NS_HTTP_ALLOW_KEEPALIVE;
-            else
-                mProxyCapabilities &= ~NS_HTTP_ALLOW_KEEPALIVE;
         }
     }
 
@@ -1143,6 +1109,15 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
                 PR_SecondsToInterval((PRUint16) clamped(val, 0, 0x7fffffff));
     }
 
+    // The maximum amount of time to wait for socket transport to be
+    // established
+    if (PREF_CHANGED(HTTP_PREF("connection-timeout"))) {
+        rv = prefs->GetIntPref(HTTP_PREF("connection-timeout"), &val);
+        if (NS_SUCCEEDED(rv))
+            // the pref is in seconds, but the variable is in milliseconds
+            mConnectTimeout = clamped(val, 1, 0xffff) * PR_MSEC_PER_SEC;
+    }
+
     // on transition of network.http.diagnostics to true print
     // a bunch of information to the console
     if (pref && PREF_CHANGED(HTTP_PREF("diagnostics"))) {
@@ -1184,7 +1159,7 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
             NS_ASSERTION(mIDNConverter, "idnSDK not installed");
         }
         else if (!enableIDN && mIDNConverter)
-            mIDNConverter = nsnull;
+            mIDNConverter = nullptr;
     }
 
     //
@@ -1395,7 +1370,7 @@ nsHttpHandler::NewChannel(nsIURI *uri, nsIChannel **result)
         }
     }
 
-    return NewProxiedChannel(uri, nsnull, result);
+    return NewProxiedChannel(uri, nullptr, result);
 }
 
 NS_IMETHODIMP
@@ -1486,20 +1461,6 @@ NS_IMETHODIMP
 nsHttpHandler::GetAppVersion(nsACString &value)
 {
     value = mLegacyAppVersion;
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpHandler::GetProduct(nsACString &value)
-{
-    value = mProduct;
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsHttpHandler::GetProductSub(nsACString &value)
-{
-    value = mProductSub;
     return NS_OK;
 }
 
@@ -1629,7 +1590,7 @@ nsHttpHandler::SpeculativeConnect(nsIURI *aURI,
         return rv;
 
     nsHttpConnectionInfo *ci =
-        new nsHttpConnectionInfo(host, port, nsnull, usingSSL);
+        new nsHttpConnectionInfo(host, port, nullptr, usingSSL);
 
     return SpeculativeConnect(ci, aCallbacks, aTarget);
 }
@@ -1650,7 +1611,7 @@ nsHttpsHandler::Init()
 {
     nsCOMPtr<nsIProtocolHandler> httpHandler(
             do_GetService(NS_NETWORK_PROTOCOL_CONTRACTID_PREFIX "http"));
-    NS_ASSERTION(httpHandler.get() != nsnull, "no http handler?");
+    NS_ASSERTION(httpHandler.get() != nullptr, "no http handler?");
     return NS_OK;
 }
 

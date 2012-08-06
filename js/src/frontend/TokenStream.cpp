@@ -43,6 +43,7 @@
 #endif
 
 using namespace js;
+using namespace js::frontend;
 using namespace js::unicode;
 
 #define JS_KEYWORD(keyword, type, op, version) \
@@ -58,7 +59,7 @@ static const KeywordInfo keywords[] = {
 };
 
 const KeywordInfo *
-js::FindKeyword(const jschar *s, size_t length)
+frontend::FindKeyword(const jschar *s, size_t length)
 {
     JS_ASSERT(length != 0);
 
@@ -95,7 +96,7 @@ js::FindKeyword(const jschar *s, size_t length)
 }
 
 bool
-js::IsIdentifier(JSLinearString *str)
+frontend::IsIdentifier(JSLinearString *str)
 {
     const jschar *chars = str->chars();
     size_t length = str->length();
@@ -120,14 +121,13 @@ js::IsIdentifier(JSLinearString *str)
 #endif
 
 /* Initialize members that aren't initialized in |init|. */
-TokenStream::TokenStream(JSContext *cx, JSPrincipals *prin, JSPrincipals *originPrin,
-                         const jschar *base, size_t length, const char *fn, unsigned ln,
-                         JSVersion v, StrictModeGetter *smg)
+TokenStream::TokenStream(JSContext *cx, const CompileOptions &options,
+                         const jschar *base, size_t length, StrictModeGetter *smg)
   : tokens(),
     tokensRoot(cx, &tokens),
     cursor(),
     lookahead(),
-    lineno(ln),
+    lineno(options.lineno),
     flags(),
     linebase(base),
     prevLinebase(NULL),
@@ -135,15 +135,16 @@ TokenStream::TokenStream(JSContext *cx, JSPrincipals *prin, JSPrincipals *origin
     prevLinebaseRoot(cx, &prevLinebase),
     userbuf(base, length),
     userbufRoot(cx, &userbuf),
-    filename(fn),
+    filename(options.filename),
     sourceMap(NULL),
     listenerTSData(),
     tokenbuf(cx),
-    version(v),
-    allowXML(VersionHasAllowXML(v)),
-    moarXML(VersionHasMoarXML(v)),
+    version(options.version),
+    allowXML(VersionHasAllowXML(options.version)),
+    moarXML(VersionHasMoarXML(options.version)),
     cx(cx),
-    originPrincipals(JSScript::normalizeOriginPrincipals(prin, originPrin)),
+    originPrincipals(JSScript::normalizeOriginPrincipals(options.principals,
+                                                         options.originPrincipals)),
     strictModeGetter(smg)
 {
     if (originPrincipals)
@@ -153,7 +154,7 @@ TokenStream::TokenStream(JSContext *cx, JSPrincipals *prin, JSPrincipals *origin
     void *listenerData = cx->runtime->debugHooks.sourceHandlerData;
 
     if (listener)
-        listener(fn, ln, base, length, &listenerTSData, listenerData);
+        listener(options.filename, options.lineno, base, length, &listenerTSData, listenerData);
 
     /*
      * This table holds all the token kinds that satisfy these properties:
@@ -208,7 +209,7 @@ TokenStream::TokenStream(JSContext *cx, JSPrincipals *prin, JSPrincipals *origin
      * parser needing it (the so-called "pump-priming" model) might be a better
      * way to address the dependency from statements on the current token.
      */
-    tokens[0].pos.begin.lineno = tokens[0].pos.end.lineno = ln;
+    tokens[0].pos.begin.lineno = tokens[0].pos.end.lineno = options.lineno;
 }
 
 #ifdef _MSC_VER
@@ -377,11 +378,11 @@ TokenStream::peekChars(int n, jschar *cp)
 const jschar *
 TokenStream::TokenBuf::findEOLMax(const jschar *p, size_t max)
 {
-    JS_ASSERT(base <= p && p <= limit);
+    JS_ASSERT(base_ <= p && p <= limit_);
 
     size_t n = 0;
     while (true) {
-        if (p >= limit)
+        if (p >= limit_)
             break;
         if (n >= max)
             break;
@@ -1124,6 +1125,31 @@ TokenStream::matchUnicodeEscapeIdent(int32_t *cp)
     return false;
 }
 
+size_t
+TokenStream::endOffset(const Token &tok)
+{
+    uint32_t lineno = tok.pos.begin.lineno;
+    JS_ASSERT(lineno <= tok.pos.end.lineno);
+    const jschar *end;
+    if (lineno < tok.pos.end.lineno) {
+        TokenBuf buf(tok.ptr, userbuf.addressOfNextRawChar() - userbuf.base());
+        for (; lineno < tok.pos.end.lineno; lineno++) {
+            jschar c;
+            do {
+                JS_ASSERT(buf.hasRawChars());
+                c = buf.getRawChar();
+            } while (!TokenBuf::isRawEOLChar(c));
+            if (c == '\r' && buf.hasRawChars())
+                buf.matchRawChar('\n');
+        }
+        end = buf.addressOfNextRawChar() + tok.pos.end.index;
+    } else {
+        end = tok.ptr + (tok.pos.end.index - tok.pos.begin.index);
+    }
+    JS_ASSERT(end <= userbuf.addressOfNextRawChar());
+    return end - userbuf.base();
+}
+
 /*
  * Helper function which returns true if the first length(q) characters in p are
  * the same as the characters in q.
@@ -1407,6 +1433,8 @@ TokenStream::getTokenInternal()
     bool hasFracOrExp;
     const jschar *identStart;
     bool hadUnicodeEscape;
+
+    SkipRoot skipNum(cx, &numStart), skipIdent(cx, &identStart);
 
 #if JS_HAS_XML_SUPPORT
     /*
@@ -2123,6 +2151,14 @@ TokenStream::getTokenInternal()
     tp->pos.end.index = tp->pos.begin.index + 1;
     tp->type = TOK_ERROR;
     JS_ASSERT(IsTokenSane(tp));
+    onError();
+    return TOK_ERROR;
+}
+
+void
+TokenStream::onError()
+{
+    flags |= TSF_HAD_ERROR;
 #ifdef DEBUG
     /*
      * Poisoning userbuf on error establishes an invariant: once an erroneous
@@ -2135,7 +2171,6 @@ TokenStream::getTokenInternal()
      */
     userbuf.poison();
 #endif
-    return TOK_ERROR;
 }
 
 JS_FRIEND_API(int)

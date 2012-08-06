@@ -19,9 +19,9 @@
 #include "nsIURI.h"
 #include "nsAutoPtr.h"
 #include "nsFrameMessageManager.h"
-#include "Layers.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/Attributes.h"
+#include "FrameMetrics.h"
 
 class nsIURI;
 class nsSubDocumentFrame;
@@ -211,7 +211,7 @@ public:
    */
   nsIFrame* GetPrimaryFrameOfOwningContent() const
   {
-    return mOwnerContent ? mOwnerContent->GetPrimaryFrame() : nsnull;
+    return mOwnerContent ? mOwnerContent->GetPrimaryFrame() : nullptr;
   }
 
   /** 
@@ -219,7 +219,7 @@ public:
    * an owner.
    */
   nsIDocument* GetOwnerDoc() const
-  { return mOwnerContent ? mOwnerContent->OwnerDoc() : nsnull; }
+  { return mOwnerContent ? mOwnerContent->OwnerDoc() : nullptr; }
 
   PBrowserParent* GetRemoteBrowser();
 

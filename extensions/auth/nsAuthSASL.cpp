@@ -57,7 +57,7 @@ nsAuthSASL::Init(const char *serviceName,
     // if we can't create the GSSAPI module, then bail
     NS_ENSURE_SUCCESS(rv, rv);
 
-    mInnerModule->Init(serviceName, serviceFlags, nsnull, nsnull, nsnull);
+    mInnerModule->Init(serviceName, serviceFlags, nullptr, nullptr, nullptr);
 
     return NS_OK;
 }
@@ -148,4 +148,11 @@ nsAuthSASL::Wrap(const void *inToken,
                  PRUint32   *outTokenLen)
 {
     return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+nsAuthSASL::GetModuleProperties(PRUint32 *flags)
+{
+    *flags = 0;
+    return NS_OK;
 }

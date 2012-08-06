@@ -57,6 +57,14 @@ let DebuggerView = {
 
     let variables = document.getElementById("variables");
     Prefs.variablesWidth = variables.getAttribute("width");
+
+    let bkps = document.getElementById("breakpoints");
+    let frames = document.getElementById("stackframes");
+    bkps.parentNode.removeChild(bkps);
+    frames.parentNode.removeChild(frames);
+
+    stackframes.parentNode.removeChild(stackframes);
+    variables.parentNode.removeChild(variables);
   },
 
   /**
@@ -73,6 +81,7 @@ let DebuggerView = {
    */
   _onEditorLoad: function DV__onEditorLoad() {
     DebuggerController.Breakpoints.initialize();
+    this.editor.focus();
   },
 
   /**
@@ -149,6 +158,8 @@ ScriptsView.prototype = {
    */
   empty: function DVS_empty() {
     this._scripts.selectedIndex = -1;
+    this._scripts.setAttribute("label", L10N.getStr("noScriptsText"));
+    this._scripts.removeAttribute("tooltiptext");
 
     while (this._scripts.firstChild) {
       this._scripts.removeChild(this._scripts.firstChild);
@@ -229,6 +240,16 @@ ScriptsView.prototype = {
   },
 
   /**
+   * Selects the script with the specified index from the list.
+   *
+   * @param number aIndex
+   *        The script index.
+   */
+  selectIndex: function DVS_selectIndex(aIndex) {
+    this._scripts.selectedIndex = aIndex;
+  },
+
+  /**
    * Selects the script with the specified URL from the list.
    *
    * @param string aUrl
@@ -265,6 +286,13 @@ ScriptsView.prototype = {
     return this._scripts.selectedItem ?
            this._scripts.selectedItem.value : null;
   },
+
+  /**
+   * Gets the most recently selected script url.
+   * @return string | null
+   */
+  get preferredScriptUrl()
+    this._preferredScriptUrl ? this._preferredScriptUrl : null,
 
   /**
    * Returns the list of labels in the scripts container.
@@ -334,7 +362,7 @@ ScriptsView.prototype = {
       }
     }
     // The script is alphabetically the last one.
-    this._createScriptElement(aLabel, aScript, -1, true);
+    this._createScriptElement(aLabel, aScript, -1);
   },
 
   /**
@@ -354,7 +382,7 @@ ScriptsView.prototype = {
 
     for (let i = 0, l = newScripts.length; i < l; i++) {
       let item = newScripts[i];
-      this._createScriptElement(item.label, item.script, -1, true);
+      this._createScriptElement(item.label, item.script, -1);
     }
   },
 
@@ -369,12 +397,8 @@ ScriptsView.prototype = {
    * @param number aIndex
    *        The index where to insert to new script in the container.
    *        Pass -1 to append the script at the end.
-   * @param boolean aSelectIfEmptyFlag
-   *        True to set the newly created script as the currently selected item
-   *        if there are no other existing scripts in the container.
    */
-  _createScriptElement: function DVS__createScriptElement(
-    aLabel, aScript, aIndex, aSelectIfEmptyFlag)
+  _createScriptElement: function DVS__createScriptElement(aLabel, aScript, aIndex)
   {
     // Make sure we don't duplicate anything.
     if (aLabel == "null" || this.containsLabel(aLabel) || this.contains(aScript.url)) {
@@ -387,10 +411,6 @@ ScriptsView.prototype = {
 
     scriptItem.setAttribute("tooltiptext", aScript.url);
     scriptItem.setUserData("sourceScript", aScript, null);
-
-    if (this._scripts.itemCount == 1 && aSelectIfEmptyFlag) {
-      this._scripts.selectedItem = scriptItem;
-    }
   },
 
   /**
@@ -425,9 +445,10 @@ ScriptsView.prototype = {
       return;
     }
 
-    let script = selectedItem.getUserData("sourceScript");
-    this._preferredScript = script;
-    DebuggerController.SourceScripts.showScript(script);
+    this._preferredScript = selectedItem;
+    this._preferredScriptUrl = selectedItem.value;
+    this._scripts.setAttribute("tooltiptext", selectedItem.value);
+    DebuggerController.SourceScripts.showScript(selectedItem.getUserData("sourceScript"));
   },
 
   /**
@@ -438,8 +459,15 @@ ScriptsView.prototype = {
     let scripts = this._scripts;
     let [file, line, token] = this._getSearchboxInfo();
 
+    // If the webpage has no scripts, searching is redundant.
+    if (!scripts.itemCount) {
+      return;
+    }
+
     // Presume we won't find anything.
     scripts.selectedItem = this._preferredScript;
+    scripts.setAttribute("label", this._preferredScript.label);
+    scripts.setAttribute("tooltiptext", this._preferredScript.value);
 
     // If we're not searching for a file anymore, unhide all the scripts.
     if (!file) {
@@ -447,7 +475,9 @@ ScriptsView.prototype = {
         scripts.getItemAtIndex(i).hidden = false;
       }
     } else {
-      for (let i = 0, l = scripts.itemCount, found = false; i < l; i++) {
+      let found = false;
+
+      for (let i = 0, l = scripts.itemCount; i < l; i++) {
         let item = scripts.getItemAtIndex(i);
         let target = item.label.toLowerCase();
 
@@ -458,12 +488,18 @@ ScriptsView.prototype = {
           if (!found) {
             found = true;
             scripts.selectedItem = item;
+            scripts.setAttribute("label", item.label);
+            scripts.setAttribute("tooltiptext", item.value);
           }
         }
         // Hide what doesn't match our search.
         else {
           item.hidden = true;
         }
+      }
+      if (!found) {
+        scripts.setAttribute("label", L10N.getStr("noMatchingScriptsText"));
+        scripts.removeAttribute("tooltiptext");
       }
     }
     if (line > -1) {
@@ -501,6 +537,22 @@ ScriptsView.prototype = {
   },
 
   /**
+   * Called when the scripts filter key sequence was pressed.
+   */
+  _onSearch: function DVS__onSearch() {
+    this._searchbox.focus();
+    this._searchbox.value = "";
+  },
+
+  /**
+   * Called when the scripts token filter key sequence was pressed.
+   */
+  _onTokenSearch: function DVS__onTokenSearch() {
+    this._searchbox.focus();
+    this._searchbox.value = "#";
+  },
+
+  /**
    * The cached scripts container and search box.
    */
   _scripts: null,
@@ -527,6 +579,8 @@ ScriptsView.prototype = {
     this._searchbox.removeEventListener("select", this._onScriptsSearch, false);
     this._searchbox.removeEventListener("input", this._onScriptsSearch, false);
     this._searchbox.removeEventListener("keyup", this._onScriptsKeyUp, false);
+
+    this.empty();
     this._scripts = null;
     this._searchbox = null;
   }
@@ -539,10 +593,10 @@ function StackFramesView() {
   this._onFramesScroll = this._onFramesScroll.bind(this);
   this._onPauseExceptionsClick = this._onPauseExceptionsClick.bind(this);
   this._onCloseButtonClick = this._onCloseButtonClick.bind(this);
-  this._onResumeButtonClick = this._onResumeButtonClick.bind(this);
-  this._onStepOverClick = this._onStepOverClick.bind(this);
-  this._onStepInClick = this._onStepInClick.bind(this);
-  this._onStepOutClick = this._onStepOutClick.bind(this);
+  this._onResume = this._onResume.bind(this);
+  this._onStepOver = this._onStepOver.bind(this);
+  this._onStepIn = this._onStepIn.bind(this);
+  this._onStepOut = this._onStepOut.bind(this);
 }
 
 StackFramesView.prototype = {
@@ -750,7 +804,7 @@ StackFramesView.prototype = {
   /**
    * Listener handling the pause/resume button click event.
    */
-  _onResumeButtonClick: function DVF__onResumeButtonClick() {
+  _onResume: function DVF__onResume(e) {
     if (DebuggerController.activeThread.paused) {
       DebuggerController.activeThread.resume();
     } else {
@@ -761,22 +815,28 @@ StackFramesView.prototype = {
   /**
    * Listener handling the step over button click event.
    */
-  _onStepOverClick: function DVF__onStepOverClick() {
-    DebuggerController.activeThread.stepOver();
+  _onStepOver: function DVF__onStepOver(e) {
+    if (DebuggerController.activeThread.paused) {
+      DebuggerController.activeThread.stepOver();
+    }
   },
 
   /**
    * Listener handling the step in button click event.
    */
-  _onStepInClick: function DVF__onStepInClick() {
-    DebuggerController.activeThread.stepIn();
+  _onStepIn: function DVF__onStepIn(e) {
+    if (DebuggerController.activeThread.paused) {
+      DebuggerController.activeThread.stepIn();
+    }
   },
 
   /**
    * Listener handling the step out button click event.
    */
-  _onStepOutClick: function DVF__onStepOutClick() {
-    DebuggerController.activeThread.stepOut();
+  _onStepOut: function DVF__onStepOut(e) {
+    if (DebuggerController.activeThread.paused) {
+      DebuggerController.activeThread.stepOut();
+    }
   },
 
   /**
@@ -803,13 +863,11 @@ StackFramesView.prototype = {
 
     close.addEventListener("click", this._onCloseButtonClick, false);
     pauseOnExceptions.checked = DebuggerController.StackFrames.pauseOnExceptions;
-    pauseOnExceptions.addEventListener("click",
-                                        this._onPauseExceptionsClick,
-                                        false);
-    resume.addEventListener("click", this._onResumeButtonClick, false);
-    stepOver.addEventListener("click", this._onStepOverClick, false);
-    stepIn.addEventListener("click", this._onStepInClick, false);
-    stepOut.addEventListener("click", this._onStepOutClick, false);
+    pauseOnExceptions.addEventListener("click", this._onPauseExceptionsClick, false);
+    resume.addEventListener("click", this._onResume, false);
+    stepOver.addEventListener("click", this._onStepOver, false);
+    stepIn.addEventListener("click", this._onStepIn, false);
+    stepOut.addEventListener("click", this._onStepOut, false);
     frames.addEventListener("click", this._onFramesClick, false);
     frames.addEventListener("scroll", this._onFramesScroll, false);
     window.addEventListener("resize", this._onFramesScroll, false);
@@ -831,17 +889,16 @@ StackFramesView.prototype = {
     let frames = this._frames;
 
     close.removeEventListener("click", this._onCloseButtonClick, false);
-    pauseOnExceptions.removeEventListener("click",
-                                          this._onPauseExceptionsClick,
-                                          false);
-    resume.removeEventListener("click", this._onResumeButtonClick, false);
-    stepOver.removeEventListener("click", this._onStepOverClick, false);
-    stepIn.removeEventListener("click", this._onStepInClick, false);
-    stepOut.removeEventListener("click", this._onStepOutClick, false);
+    pauseOnExceptions.removeEventListener("click", this._onPauseExceptionsClick, false);
+    resume.removeEventListener("click", this._onResume, false);
+    stepOver.removeEventListener("click", this._onStepOver, false);
+    stepIn.removeEventListener("click", this._onStepIn, false);
+    stepOut.removeEventListener("click", this._onStepOut, false);
     frames.removeEventListener("click", this._onFramesClick, false);
     frames.removeEventListener("scroll", this._onFramesScroll, false);
     window.removeEventListener("resize", this._onFramesScroll, false);
 
+    this.empty();
     this._frames = null;
   }
 };
@@ -861,6 +918,7 @@ BreakpointsView.prototype = {
    */
   empty: function DVB_empty() {
     let firstChild;
+
     while (firstChild = this._breakpoints.firstChild) {
       this._destroyContextMenu(firstChild);
       this._breakpoints.removeChild(firstChild);
@@ -1270,8 +1328,8 @@ BreakpointsView.prototype = {
     let commandsetId = "breakpointMenuCommands-" + aBreakpoint.id;
     let menupopupId = "breakpointContextMenu-" + aBreakpoint.id;
 
-    let commandsset = document.createElement("commandsset");
-    commandsset.setAttribute("id", commandsetId);
+    let commandset = document.createElement("commandset");
+    commandset.setAttribute("id", commandsetId);
 
     let menupopup = document.createElement("menupopup");
     menupopup.setAttribute("id", menupopupId);
@@ -1304,7 +1362,7 @@ BreakpointsView.prototype = {
       menuitem.setAttribute("command", commandId);
       menuitem.setAttribute("hidden", aHiddenFlag);
 
-      commandsset.appendChild(command);
+      commandset.appendChild(command);
       menupopup.appendChild(menuitem);
 
       aBreakpoint[aName] = {
@@ -1337,7 +1395,10 @@ BreakpointsView.prototype = {
 
     let popupset = document.getElementById("debugger-popups");
     popupset.appendChild(menupopup);
-    document.documentElement.appendChild(commandsset);
+    document.documentElement.appendChild(commandset);
+
+    aBreakpoint.commandsetId = commandsetId;
+    aBreakpoint.menupopupId = menupopupId;
 
     return menupopupId;
   },
@@ -1349,18 +1410,15 @@ BreakpointsView.prototype = {
    *        An element representing a breakpoint.
    */
   _destroyContextMenu: function DVB__destroyContextMenu(aBreakpoint) {
-    let commandsetId = "breakpointMenuCommands-" + aBreakpoint.id;
-    let menupopupId = "breakpointContextMenu-" + aBreakpoint.id;
-
-    let commandset = document.getElementById(commandsetId);
-    let menupopup = document.getElementById(menupopupId);
-
-    if (commandset) {
-      commandset.parentNode.removeChild(commandset);
+    if (!aBreakpoint.commandsetId || !aBreakpoint.menupopupId) {
+      return;
     }
-    if (menupopup) {
-      menupopup.parentNode.removeChild(menupopup);
-    }
+
+    let commandset = document.getElementById(aBreakpoint.commandsetId);
+    let menupopup = document.getElementById(aBreakpoint.menupopupId);
+
+    commandset.parentNode.removeChild(commandset);
+    menupopup.parentNode.removeChild(menupopup);
   },
 
   /**
@@ -1381,6 +1439,7 @@ BreakpointsView.prototype = {
     let breakpoints = this._breakpoints;
     breakpoints.removeEventListener("click", this._onBreakpointClick, false);
 
+    this.empty();
     this._breakpoints = null;
   }
 };
@@ -2482,6 +2541,8 @@ PropertiesView.prototype = {
    * Destruction function, called when the debugger is shut down.
    */
   destroy: function DVP_destroy() {
+    this.empty();
+
     this._currHierarchy = null;
     this._prevHierarchy = null;
     this._vars = null;

@@ -17,11 +17,31 @@
 # include "mozilla/X11Util.h"
 #endif
 
+#ifdef MOZ_WIDGET_ANDROID
+#include "nsSurfaceTexture.h"
+#endif
+
 using namespace mozilla::gfx;
 using namespace mozilla::gl;
 
 namespace mozilla {
 namespace layers {
+
+static void
+MakeTextureIfNeeded(GLContext* gl, GLuint& aTexture)
+{
+  if (aTexture != 0)
+    return;
+
+  gl->fGenTextures(1, &aTexture);
+
+  gl->fBindTexture(LOCAL_GL_TEXTURE_2D, aTexture);
+
+  gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MIN_FILTER, LOCAL_GL_LINEAR);
+  gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_MAG_FILTER, LOCAL_GL_LINEAR);
+  gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_S, LOCAL_GL_CLAMP_TO_EDGE);
+  gl->fTexParameteri(LOCAL_GL_TEXTURE_2D, LOCAL_GL_TEXTURE_WRAP_T, LOCAL_GL_CLAMP_TO_EDGE);
+}
 
 /**
  * This is an event used to unref a GLContext on the main thread and
@@ -41,7 +61,7 @@ public:
     mContext->fDeleteTextures(1, &mTexture);
 
     // Ensure context is released on the main thread
-    mContext = nsnull;
+    mContext = nullptr;
     return NS_OK;
   }
 
@@ -104,7 +124,7 @@ GLTexture::Release()
     mTexture = 0;
   }
 
-  mContext = nsnull;
+  mContext = nullptr;
 }
 
 TextureRecycleBin::TextureRecycleBin()
@@ -172,7 +192,7 @@ AllocateTextureIOSurface(MacIOSurfaceImage *aIOImage, mozilla::gl::GLContext* aG
 
   aGL->fBindTexture(LOCAL_GL_TEXTURE_RECTANGLE_ARB, 0);
 
-  aIOImage->SetBackendData(LayerManager::LAYERS_OPENGL, backendData.forget());
+  aIOImage->SetBackendData(LAYERS_OPENGL, backendData.forget());
 }
 #endif
 
@@ -189,7 +209,7 @@ AllocateTextureIOSurface(GonkIOSurfaceImage *aIOImage, mozilla::gl::GLContext* a
     new GonkIOSurfaceImageOGLBackendData);
 
   backendData->mTexture.Allocate(aGL);
-  aIOImage->SetBackendData(LayerManager::LAYERS_OPENGL, backendData.forget());
+  aIOImage->SetBackendData(LAYERS_OPENGL, backendData.forget());
 }
 #endif
 
@@ -231,18 +251,18 @@ ImageLayerOGL::RenderLayer(int,
     }
 
     PlanarYCbCrOGLBackendData *data =
-      static_cast<PlanarYCbCrOGLBackendData*>(yuvImage->GetBackendData(LayerManager::LAYERS_OPENGL));
+      static_cast<PlanarYCbCrOGLBackendData*>(yuvImage->GetBackendData(LAYERS_OPENGL));
 
     if (data && data->mTextures->GetGLContext() != gl()) {
       // If these textures were allocated by another layer manager,
       // clear them out and re-allocate below.
-      data = nsnull;
-      yuvImage->SetBackendData(LayerManager::LAYERS_OPENGL, nsnull);
+      data = nullptr;
+      yuvImage->SetBackendData(LAYERS_OPENGL, nullptr);
     }
 
     if (!data) {
       AllocateTexturesYCbCr(yuvImage);
-      data = static_cast<PlanarYCbCrOGLBackendData*>(yuvImage->GetBackendData(LayerManager::LAYERS_OPENGL));
+      data = static_cast<PlanarYCbCrOGLBackendData*>(yuvImage->GetBackendData(LAYERS_OPENGL));
     }
 
     if (!data || data->mTextures->GetGLContext() != gl()) {
@@ -294,18 +314,18 @@ ImageLayerOGL::RenderLayer(int,
                  "Image layer has alpha image");
 
     CairoOGLBackendData *data =
-      static_cast<CairoOGLBackendData*>(cairoImage->GetBackendData(LayerManager::LAYERS_OPENGL));
+      static_cast<CairoOGLBackendData*>(cairoImage->GetBackendData(LAYERS_OPENGL));
 
     if (data && data->mTexture.GetGLContext() != gl()) {
       // If this texture was allocated by another layer manager, clear
       // it out and re-allocate below.
-      data = nsnull;
-      cairoImage->SetBackendData(LayerManager::LAYERS_OPENGL, nsnull);
+      data = nullptr;
+      cairoImage->SetBackendData(LAYERS_OPENGL, nullptr);
     }
 
     if (!data) {
       AllocateTexturesCairo(cairoImage);
-      data = static_cast<CairoOGLBackendData*>(cairoImage->GetBackendData(LayerManager::LAYERS_OPENGL));
+      data = static_cast<CairoOGLBackendData*>(cairoImage->GetBackendData(LAYERS_OPENGL));
     }
 
     if (!data || data->mTexture.GetGLContext() != gl()) {
@@ -367,7 +387,7 @@ ImageLayerOGL::RenderLayer(int,
        // the plugin IO Surface and make sure we grab the
        // new image
        ioImage->Update(GetContainer());
-       image = nsnull;
+       image = nullptr;
        autoLock.Refresh();
        image = autoLock.GetImage();
        gl()->MakeCurrent();
@@ -380,19 +400,19 @@ ImageLayerOGL::RenderLayer(int,
 
      gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
 
-     if (!ioImage->GetBackendData(LayerManager::LAYERS_OPENGL)) {
+     if (!ioImage->GetBackendData(LAYERS_OPENGL)) {
        AllocateTextureIOSurface(ioImage, gl());
      }
 
      MacIOSurfaceImageOGLBackendData *data =
-      static_cast<MacIOSurfaceImageOGLBackendData*>(ioImage->GetBackendData(LayerManager::LAYERS_OPENGL));
+      static_cast<MacIOSurfaceImageOGLBackendData*>(ioImage->GetBackendData(LAYERS_OPENGL));
 
      gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
      gl()->fBindTexture(LOCAL_GL_TEXTURE_RECTANGLE_ARB, data->mTexture.GetTextureID());
 
      ShaderProgramOGL *program =
        mOGLManager->GetProgram(gl::RGBARectLayerProgramType, GetMaskLayer());
-     
+
      program->Activate();
      if (program->GetTexCoordMultiplierUniformLocation() != -1) {
        // 2DRect case, get the multiplier right for a sampler2DRect
@@ -400,16 +420,16 @@ ImageLayerOGL::RenderLayer(int,
      } else {
        NS_ASSERTION(0, "no rects?");
      }
-     
-     program->SetLayerQuadRect(nsIntRect(0, 0, 
-                                         ioImage->GetSize().width, 
+
+     program->SetLayerQuadRect(nsIntRect(0, 0,
+                                         ioImage->GetSize().width,
                                          ioImage->GetSize().height));
      program->SetLayerTransform(GetEffectiveTransform());
      program->SetLayerOpacity(GetEffectiveOpacity());
      program->SetRenderOffset(aOffset);
      program->SetTextureUnit(0);
      program->LoadMask(GetMaskLayer());
-    
+
      mOGLManager->BindAndDrawQuad(program);
      gl()->fBindTexture(LOCAL_GL_TEXTURE_RECTANGLE_ARB, 0);
 #endif
@@ -424,11 +444,11 @@ ImageLayerOGL::RenderLayer(int,
     gl()->MakeCurrent();
     gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
 
-    if (!ioImage->GetBackendData(LayerManager::LAYERS_OPENGL)) {
+    if (!ioImage->GetBackendData(LAYERS_OPENGL)) {
       AllocateTextureIOSurface(ioImage, gl());
     }
     GonkIOSurfaceImageOGLBackendData *data =
-      static_cast<GonkIOSurfaceImageOGLBackendData*>(ioImage->GetBackendData(LayerManager::LAYERS_OPENGL));
+      static_cast<GonkIOSurfaceImageOGLBackendData*>(ioImage->GetBackendData(LAYERS_OPENGL));
 
     gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
     gl()->BindExternalBuffer(data->mTexture.GetTextureID(), ioImage->GetNativeBuffer());
@@ -514,7 +534,7 @@ ImageLayerOGL::AllocateTexturesYCbCr(PlanarYCbCrImage *aImage)
   PlanarYCbCrImage::Data &data = aImage->mData;
 
   gl()->MakeCurrent();
- 
+
   mTextureRecycleBin->GetTexture(TextureRecycleBin::TEXTURE_Y, data.mYSize, gl(), &backendData->mTextures[0]);
   SetClamping(gl(), backendData->mTextures[0].GetTextureID());
 
@@ -533,7 +553,7 @@ ImageLayerOGL::AllocateTexturesYCbCr(PlanarYCbCrImage *aImage)
   backendData->mCbCrSize = aImage->mData.mCbCrSize;
   backendData->mTextureRecycleBin = mTextureRecycleBin;
 
-  aImage->SetBackendData(LayerManager::LAYERS_OPENGL, backendData.forget());
+  aImage->SetBackendData(LAYERS_OPENGL, backendData.forget());
 }
 
 void
@@ -566,7 +586,7 @@ ImageLayerOGL::AllocateTexturesCairo(CairoImage *aImage)
       backendData->mLayerProgram = gl::RGBXLayerProgramType;
     }
 
-    aImage->SetBackendData(LayerManager::LAYERS_OPENGL, backendData.forget());
+    aImage->SetBackendData(LAYERS_OPENGL, backendData.forget());
     return;
   }
 #endif
@@ -575,7 +595,7 @@ ImageLayerOGL::AllocateTexturesCairo(CairoImage *aImage)
                                nsIntRect(0,0, aImage->mSize.width, aImage->mSize.height),
                                tex, true);
 
-  aImage->SetBackendData(LayerManager::LAYERS_OPENGL, backendData.forget());
+  aImage->SetBackendData(LAYERS_OPENGL, backendData.forget());
 }
 
 /*
@@ -620,7 +640,7 @@ ImageLayerOGL::LoadAsTexture(GLuint aTextureUnit, gfxIntSize* aSize)
   }
 
   CairoOGLBackendData *data = static_cast<CairoOGLBackendData*>(
-    cairoImage->GetBackendData(LayerManager::LAYERS_OPENGL));
+    cairoImage->GetBackendData(LAYERS_OPENGL));
 
   if (!data) {
     NS_ASSERTION(cairoImage->mSurface->GetContentType() == gfxASurface::CONTENT_ALPHA,
@@ -650,7 +670,7 @@ ImageLayerOGL::LoadAsTexture(GLuint aTextureUnit, gfxIntSize* aSize)
                                     texID, true, nsIntPoint(0,0), false,
                                     aTextureUnit);
 
-    cairoImage->SetBackendData(LayerManager::LAYERS_OPENGL, data);
+    cairoImage->SetBackendData(LAYERS_OPENGL, data);
 
     gl()->MakeCurrent();
     gl()->fActiveTexture(aTextureUnit);
@@ -673,8 +693,11 @@ ImageLayerOGL::LoadAsTexture(GLuint aTextureUnit, gfxIntSize* aSize)
 }
 
 ShadowImageLayerOGL::ShadowImageLayerOGL(LayerManagerOGL* aManager)
-  : ShadowImageLayer(aManager, nsnull)
+  : ShadowImageLayer(aManager, nullptr)
   , LayerOGL(aManager)
+  , mSharedHandle(0)
+  , mInverted(false)
+  , mTexture(0)
 {
   mImplData = static_cast<LayerOGL*>(this);
 }
@@ -686,15 +709,23 @@ bool
 ShadowImageLayerOGL::Init(const SharedImage& aFront)
 {
   if (aFront.type() == SharedImage::TSurfaceDescriptor) {
-    AutoOpenSurface autoSurf(OPEN_READ_ONLY, aFront.get_SurfaceDescriptor());
-    mSize = autoSurf.Size();
-    mTexImage = gl()->CreateTextureImage(nsIntSize(mSize.width, mSize.height),
-                                         autoSurf.ContentType(),
-                                         LOCAL_GL_CLAMP_TO_EDGE,
-                                         mForceSingleTile
-                                          ? TextureImage::ForceSingleTile
-                                          : TextureImage::NoFlags);
-    return true;
+    SurfaceDescriptor surface = aFront.get_SurfaceDescriptor();
+    if (surface.type() == SurfaceDescriptor::TSharedTextureDescriptor) {
+      SharedTextureDescriptor texture = surface.get_SharedTextureDescriptor();
+      mSize = texture.size();
+      mSharedHandle = texture.handle();
+      mShareType = texture.shareType();
+      mInverted = texture.inverted();
+    } else {
+      AutoOpenSurface autoSurf(OPEN_READ_ONLY, surface);
+      mSize = autoSurf.Size();
+      mTexImage = gl()->CreateTextureImage(nsIntSize(mSize.width, mSize.height),
+                                           autoSurf.ContentType(),
+                                           LOCAL_GL_CLAMP_TO_EDGE,
+                                           mForceSingleTile
+                                            ? TextureImage::ForceSingleTile
+                                            : TextureImage::NoFlags);
+    }
   } else {
     YUVImage yuv = aFront.get_YUVImage();
 
@@ -738,15 +769,31 @@ ShadowImageLayerOGL::Swap(const SharedImage& aNewFront,
         mImageVersion = 0;
       }
     } else if (aNewFront.type() == SharedImage::TSurfaceDescriptor) {
-      AutoOpenSurface surf(OPEN_READ_ONLY, aNewFront.get_SurfaceDescriptor());
-      gfxIntSize size = surf.Size();
-      if (mSize != size || !mTexImage ||
-          mTexImage->GetContentType() != surf.ContentType()) {
-        Init(aNewFront);
+      SurfaceDescriptor surface = aNewFront.get_SurfaceDescriptor();
+
+      if (surface.type() == SurfaceDescriptor::TSharedTextureDescriptor) {
+        SharedTextureDescriptor texture = surface.get_SharedTextureDescriptor();
+
+        SharedTextureHandle newHandle = texture.handle();
+        mSize = texture.size();
+        mInverted = texture.inverted();
+
+        if (mSharedHandle && newHandle != mSharedHandle)
+          gl()->ReleaseSharedHandle(mShareType, mSharedHandle);
+
+        mSharedHandle = newHandle;
+        mShareType = texture.shareType();
+      } else {
+        AutoOpenSurface surf(OPEN_READ_ONLY, surface);
+        gfxIntSize size = surf.Size();
+        if (mSize != size || !mTexImage ||
+            mTexImage->GetContentType() != surf.ContentType()) {
+          Init(aNewFront);
+        }
+        // XXX this is always just ridiculously slow
+        nsIntRegion updateRegion(nsIntRect(0, 0, size.width, size.height));
+        mTexImage->DirectUpdate(surf.Get(), updateRegion);
       }
-      // XXX this is always just ridiculously slow
-      nsIntRegion updateRegion(nsIntRect(0, 0, size.width, size.height));
-      mTexImage->DirectUpdate(surf.Get(), updateRegion);
     } else {
       const YUVImage& yuv = aNewFront.get_YUVImage();
       UploadSharedYUVToTexture(yuv);
@@ -879,7 +926,39 @@ ShadowImageLayerOGL::RenderLayer(int aPreviousFrameBuffer,
                                                     mTexImage->GetTileRect().Size());
       } while (mTexImage->NextTile());
     }
+  } else if (mSharedHandle) {
+    GLContext::SharedHandleDetails handleDetails;
+    if (!gl()->GetSharedHandleDetails(mShareType, mSharedHandle, handleDetails)) {
+      NS_ERROR("Failed to get shared handle details");
+      return;
+    }
 
+    ShaderProgramOGL* program = mOGLManager->GetProgram(handleDetails.mProgramType, GetMaskLayer());
+   
+    program->Activate();
+    program->SetLayerTransform(GetEffectiveTransform());
+    program->SetLayerOpacity(GetEffectiveOpacity());
+    program->SetRenderOffset(aOffset);
+    program->SetTextureUnit(0);
+    program->SetTextureTransform(handleDetails.mTextureTransform);
+    program->LoadMask(GetMaskLayer());
+
+    MakeTextureIfNeeded(gl(), mTexture);
+    gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
+    gl()->fBindTexture(handleDetails.mTarget, mTexture);
+    
+    if (!gl()->AttachSharedHandle(mShareType, mSharedHandle)) {
+      NS_ERROR("Failed to bind shared texture handle");
+      return;
+    }
+
+    gl()->fBlendFuncSeparate(LOCAL_GL_ONE, LOCAL_GL_ONE_MINUS_SRC_ALPHA,
+                             LOCAL_GL_ONE, LOCAL_GL_ONE);
+    gl()->ApplyFilterToBoundTexture(mFilter);
+    program->SetLayerQuadRect(nsIntRect(nsIntPoint(0, 0), mSize));
+    mOGLManager->BindAndDrawQuad(program, mInverted);
+    gl()->fBindTexture(handleDetails.mTarget, 0);
+    gl()->DetachSharedHandle(mShareType, mSharedHandle);
   } else {
     gl()->fActiveTexture(LOCAL_GL_TEXTURE0);
     gl()->fBindTexture(LOCAL_GL_TEXTURE_2D, mYUVTexture[0].GetTextureID());
@@ -931,10 +1010,15 @@ ShadowImageLayerOGL::LoadAsTexture(GLuint aTextureUnit, gfxIntSize* aSize)
 void
 ShadowImageLayerOGL::CleanupResources()
 {
+  if (mSharedHandle) {
+    gl()->ReleaseSharedHandle(mShareType, mSharedHandle);
+    mSharedHandle = NULL;
+  }
+
   mYUVTexture[0].Release();
   mYUVTexture[1].Release();
   mYUVTexture[2].Release();
-  mTexImage = nsnull;
+  mTexImage = nullptr;
 }
 
 } /* layers */

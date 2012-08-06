@@ -9,8 +9,9 @@
 #define IPC_ShadowLayerUtils_h
 
 #include "IPC/IPCMessageUtils.h"
-#include "Layers.h"
+#include "FrameMetrics.h"
 #include "GLContext.h"
+#include "mozilla/WidgetUtils.h"
 
 #if defined(MOZ_ENABLE_D3D10_LAYER)
 # include "mozilla/layers/ShadowLayerUtilsD3D10.h"
@@ -107,6 +108,13 @@ struct ParamTraits<mozilla::layers::MagicGrallocBufferHandle> {
 };
 #endif  // !defined(MOZ_HAVE_XSURFACEDESCRIPTORGRALLOC)
 
-}
+template <>
+struct ParamTraits<mozilla::ScreenRotation>
+  : public EnumSerializer<mozilla::ScreenRotation,
+                          mozilla::ROTATION_0,
+                          mozilla::ROTATION_COUNT>
+{};
+
+} // namespace IPC
 
 #endif // IPC_ShadowLayerUtils_h

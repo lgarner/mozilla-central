@@ -71,7 +71,7 @@ public:
     typedef ListType LT;
     typedef Base B;
     typedef IndexOps IO;
-    typedef NameOps NO;
+    typedef NameOps NOp;
 };
 
 class NoBase {
@@ -110,13 +110,13 @@ protected:
     typedef typename LC::B Base;
     typedef typename LC::IO::G::T IndexGetterType;
     typedef typename LC::IO::S::T IndexSetterType;
-    typedef typename LC::NO::G::T NameGetterType;
-    typedef typename LC::NO::S::T NameSetterType;
+    typedef typename LC::NOp::G::T NameGetterType;
+    typedef typename LC::NOp::S::T NameSetterType;
     enum {
         hasIndexGetter = LC::IO::G::hasOp,
         hasIndexSetter = LC::IO::S::hasOp,
-        hasNameGetter = LC::NO::G::hasOp,
-        hasNameSetter = LC::NO::S::hasOp
+        hasNameGetter = LC::NOp::G::hasOp,
+        hasNameSetter = LC::NOp::S::hasOp
     };
 
 private:
@@ -147,7 +147,7 @@ private:
     static js::Shape *getProtoShape(JSObject *obj);
     static void setProtoShape(JSObject *obj, js::Shape *shape);
 
-    static JSBool length_getter(JSContext *cx, JSHandleObject obj, JSHandleId id, jsval *vp);
+    static JSBool length_getter(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp);
 
     static inline bool getItemAt(ListType *list, uint32_t i, IndexGetterType &item);
     static inline bool setItemAt(JSContext *cx, ListType *list, uint32_t i, IndexSetterType item);

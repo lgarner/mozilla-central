@@ -8,6 +8,7 @@
 #include "Compatibility.h"
 #include "DocAccessibleWrap.h"
 #include "ISimpleDOMDocument_i.c"
+#include "nsCoreUtils.h"
 #include "nsIAccessibilityService.h"
 #include "nsWinUtils.h"
 #include "Role.h"
@@ -16,7 +17,6 @@
 
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeNode.h"
-#include "nsIFrame.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsISelectionController.h"
 #include "nsIServiceManager.h"
@@ -227,7 +227,7 @@ DocAccessibleWrap::Shutdown()
       ::DestroyWindow(static_cast<HWND>(mHWND));
     }
 
-    mHWND = nsnull;
+    mHWND = nullptr;
   }
 
   DocAccessible::Shutdown();
@@ -258,7 +258,7 @@ DocAccessibleWrap::DoInitialUpdate()
 
       a11y::RootAccessible* rootDocument = RootAccessible();
 
-      mozilla::WindowsHandle nativeData = nsnull;
+      mozilla::WindowsHandle nativeData = NULL;
       if (tabChild)
         tabChild->SendGetWidgetNativeData(&nativeData);
       else

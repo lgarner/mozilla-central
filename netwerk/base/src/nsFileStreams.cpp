@@ -35,7 +35,7 @@
 // nsFileStreamBase
 
 nsFileStreamBase::nsFileStreamBase()
-    : mFD(nsnull)
+    : mFD(nullptr)
     , mBehaviorFlags(0)
     , mDeferredOpen(false)
 {
@@ -54,7 +54,7 @@ nsFileStreamBase::Seek(PRInt32 whence, PRInt64 offset)
     nsresult rv = DoPendingOpen();
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (mFD == nsnull)
+    if (mFD == nullptr)
         return NS_BASE_STREAM_CLOSED;
 
     PRInt64 cnt = PR_Seek64(mFD, offset, (PRSeekWhence)whence);
@@ -70,7 +70,7 @@ nsFileStreamBase::Tell(PRInt64 *result)
     nsresult rv = DoPendingOpen();
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (mFD == nsnull)
+    if (mFD == nullptr)
         return NS_BASE_STREAM_CLOSED;
 
     PRInt64 cnt = PR_Seek64(mFD, 0, PR_SEEK_CUR);
@@ -87,7 +87,7 @@ nsFileStreamBase::SetEOF()
     nsresult rv = DoPendingOpen();
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (mFD == nsnull)
+    if (mFD == nullptr)
         return NS_BASE_STREAM_CLOSED;
 
 #if defined(XP_UNIX) || defined(XP_OS2) || defined(XP_BEOS)
@@ -128,7 +128,7 @@ nsFileStreamBase::Close()
     if (mFD) {
         if (PR_Close(mFD) == PR_FAILURE)
             rv = NS_BASE_STREAM_OSERROR;
-        mFD = nsnull;
+        mFD = nullptr;
     }
     return rv;
 }
@@ -203,7 +203,7 @@ nsFileStreamBase::Flush(void)
     nsresult rv = DoPendingOpen();
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (mFD == nsnull)
+    if (mFD == nullptr)
         return NS_BASE_STREAM_CLOSED;
 
     PRInt32 cnt = PR_Sync(mFD);
@@ -219,7 +219,7 @@ nsFileStreamBase::Write(const char *buf, PRUint32 count, PRUint32 *result)
     nsresult rv = DoPendingOpen();
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (mFD == nsnull)
+    if (mFD == nullptr)
         return NS_BASE_STREAM_CLOSED;
 
     PRInt32 cnt = PR_Write(mFD, buf, count);
@@ -279,7 +279,7 @@ nsFileStreamBase::MaybeOpen(nsIFile* aFile, PRInt32 aIoFlags,
 void
 nsFileStreamBase::CleanUpOpen()
 {
-    mOpenParams.localFile = nsnull;
+    mOpenParams.localFile = nullptr;
     mDeferredOpen = false;
 }
 
@@ -337,7 +337,7 @@ nsFileInputStream::Create(nsISupports *aOuter, REFNSIID aIID, void **aResult)
     NS_ENSURE_NO_AGGREGATION(aOuter);
 
     nsFileInputStream* stream = new nsFileInputStream();
-    if (stream == nsnull)
+    if (stream == nullptr)
         return NS_ERROR_OUT_OF_MEMORY;
     NS_ADDREF(stream);
     nsresult rv = stream->QueryInterface(aIID, aResult);
@@ -410,7 +410,7 @@ nsFileInputStream::Close()
         NS_ASSERTION(NS_SUCCEEDED(rv), "failed to delete file");
         // If we don't need to save the file for reopening, free it up
         if (!(mBehaviorFlags & REOPEN_ON_REWIND)) {
-          mFile = nsnull;
+          mFile = nullptr;
         }
     }
     return rv;
@@ -508,13 +508,28 @@ nsFileInputStream::Write(IPC::Message *aMsg)
 ////////////////////////////////////////////////////////////////////////////////
 // nsPartialFileInputStream
 
+NS_IMPL_ADDREF_INHERITED(nsPartialFileInputStream, nsFileStreamBase)
+NS_IMPL_RELEASE_INHERITED(nsPartialFileInputStream, nsFileStreamBase)
+
+NS_IMPL_CLASSINFO(nsPartialFileInputStream, NULL, nsIClassInfo::THREADSAFE,
+                  NS_PARTIALLOCALFILEINPUTSTREAM_CID)
+
 // Don't forward to nsFileInputStream as we don't want to QI to
 // nsIFileInputStream
-NS_IMPL_ISUPPORTS_INHERITED3(nsPartialFileInputStream,
-                             nsFileStreamBase,
+NS_INTERFACE_MAP_BEGIN(nsPartialFileInputStream)
+    NS_INTERFACE_MAP_ENTRY(nsIInputStream)
+    NS_INTERFACE_MAP_ENTRY(nsIPartialFileInputStream)
+    NS_INTERFACE_MAP_ENTRY(nsILineInputStream)
+    NS_INTERFACE_MAP_ENTRY(nsIIPCSerializable)
+    NS_IMPL_QUERY_CLASSINFO(nsPartialFileInputStream)
+NS_INTERFACE_MAP_END_INHERITING(nsFileStreamBase)
+
+NS_IMPL_CI_INTERFACE_GETTER5(nsPartialFileInputStream,
                              nsIInputStream,
                              nsIPartialFileInputStream,
-                             nsILineInputStream)
+                             nsISeekableStream,
+                             nsILineInputStream,
+                             nsIIPCSerializable)
 
 nsresult
 nsPartialFileInputStream::Create(nsISupports *aOuter, REFNSIID aIID,
@@ -614,6 +629,57 @@ nsPartialFileInputStream::Seek(PRInt32 aWhence, PRInt64 aOffset)
     return rv;
 }
 
+bool
+nsPartialFileInputStream::Read(const IPC::Message *aMsg, void **aIter)
+{
+    using IPC::ReadParam;
+
+    // Grab our members first.
+    PRUint64 start;
+    PRUint64 length;
+    if (!ReadParam(aMsg, aIter, &start) ||
+        !ReadParam(aMsg, aIter, &length))
+        return false;
+
+    // Then run base class deserialization.
+    if (!nsFileInputStream::Read(aMsg, aIter))
+        return false;
+
+    // Set members.
+    mStart = start;
+    mLength = length;
+
+    // XXX This isn't really correct, we should probably set this to whatever
+    //     the sender had. However, it doesn't look like nsFileInputStream deals
+    //     with sending a partially-consumed stream either, so...
+    mPosition = 0;
+
+    // Mirror nsPartialFileInputStream::Init here. We can't call it directly
+    // because nsFileInputStream::Read() already calls the base class Init
+    // method.
+    return NS_SUCCEEDED(nsFileInputStream::Seek(NS_SEEK_SET, start));
+}
+
+void
+nsPartialFileInputStream::Write(IPC::Message *aMsg)
+{
+    using IPC::WriteParam;
+
+    // Write our members first.
+    WriteParam(aMsg, mStart);
+    WriteParam(aMsg, mLength);
+
+    // XXX This isn't really correct, we should probably send this too. However,
+    //     it doesn't look like nsFileInputStream deals with sending a
+    //     partially-consumed stream either, so...
+    if (mPosition) {
+      NS_WARNING("No support for sending a partially-consumed input stream!");
+    }
+
+    // Now run base class serialization.
+    nsFileInputStream::Write(aMsg);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // nsFileOutputStream
 
@@ -628,7 +694,7 @@ nsFileOutputStream::Create(nsISupports *aOuter, REFNSIID aIID, void **aResult)
     NS_ENSURE_NO_AGGREGATION(aOuter);
 
     nsFileOutputStream* stream = new nsFileOutputStream();
-    if (stream == nsnull)
+    if (stream == nullptr)
         return NS_ERROR_OUT_OF_MEMORY;
     NS_ADDREF(stream);
     nsresult rv = stream->QueryInterface(aIID, aResult);
@@ -640,7 +706,7 @@ NS_IMETHODIMP
 nsFileOutputStream::Init(nsIFile* file, PRInt32 ioFlags, PRInt32 perm,
                          PRInt32 behaviorFlags)
 {
-    NS_ENSURE_TRUE(mFD == nsnull, NS_ERROR_ALREADY_INITIALIZED);
+    NS_ENSURE_TRUE(mFD == nullptr, NS_ERROR_ALREADY_INITIALIZED);
     NS_ENSURE_TRUE(!mDeferredOpen, NS_ERROR_ALREADY_INITIALIZED);
 
     mBehaviorFlags = behaviorFlags;
@@ -727,7 +793,7 @@ nsSafeFileOutputStream::Close()
     // so clean up by removing the temp file.
     if (mTempFile) {
         mTempFile->Remove(false);
-        mTempFile = nsnull;
+        mTempFile = nullptr;
     }
 
     return rv;
@@ -764,7 +830,7 @@ nsSafeFileOutputStream::Finish()
             rv = mTargetFile->GetLeafName(targetFilename);
             if (NS_SUCCEEDED(rv)) {
                 // This will replace target.
-                rv = mTempFile->MoveTo(nsnull, targetFilename);
+                rv = mTempFile->MoveTo(nullptr, targetFilename);
                 if (NS_FAILED(rv))
                     mTempFile->Remove(false);
             }
@@ -777,7 +843,7 @@ nsSafeFileOutputStream::Finish()
         if (NS_FAILED(mWriteResult))
             rv = mWriteResult;
     }
-    mTempFile = nsnull;
+    mTempFile = nullptr;
     return rv;
 }
 
@@ -811,7 +877,7 @@ NS_IMETHODIMP
 nsFileStream::Init(nsIFile* file, PRInt32 ioFlags, PRInt32 perm,
                    PRInt32 behaviorFlags)
 {
-    NS_ENSURE_TRUE(mFD == nsnull, NS_ERROR_ALREADY_INITIALIZED);
+    NS_ENSURE_TRUE(mFD == nullptr, NS_ERROR_ALREADY_INITIALIZED);
     NS_ENSURE_TRUE(!mDeferredOpen, NS_ERROR_ALREADY_INITIALIZED);
 
     mBehaviorFlags = behaviorFlags;

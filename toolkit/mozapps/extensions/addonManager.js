@@ -1,8 +1,6 @@
-/*
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-*/
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /**
  * This component serves as integration between the platform and AddonManager.
@@ -206,7 +204,8 @@ amManager.prototype = {
   _xpcom_factory: {
     createInstance: function(aOuter, aIid) {
       if (aOuter != null)
-        throw Cr.NS_ERROR_NO_AGGREGATION;
+        throw Components.Exception("Component does not support aggregation",
+                                   Cr.NS_ERROR_NO_AGGREGATION);
   
       if (!gSingleton)
         gSingleton = new amManager();

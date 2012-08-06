@@ -20,7 +20,6 @@
 #include "nsISelection.h"
 #include "nsCaret.h"
 #include "plarena.h"
-#include "Layers.h"
 #include "nsRegion.h"
 #include "FrameLayerBuilder.h"
 #include "nsThemeConstants.h"
@@ -109,10 +108,10 @@ public:
    * display lists that we make.
    */
   enum Mode {
-	PAINTING,
-	EVENT_DELIVERY,
-	PLUGIN_GEOMETRY,
-	OTHER
+    PAINTING,
+    EVENT_DELIVERY,
+    PLUGIN_GEOMETRY,
+    OTHER
   };
   nsDisplayListBuilder(nsIFrame* aReferenceFrame, Mode aMode, bool aBuildCaret);
   ~nsDisplayListBuilder();
@@ -150,7 +149,7 @@ public:
   bool IsAtRootOfPseudoStackingContext() { return mIsAtRootOfPseudoStackingContext; }
 
   /**
-   * @return the selection that painting should be restricted to (or nsnull
+   * @return the selection that painting should be restricted to (or nullptr
    * in the normal unrestricted case)
    */
   nsISelection* GetBoundingSelection() { return mBoundingSelection; }
@@ -222,6 +221,19 @@ public:
    */
   void SetPaintingToWindow(bool aToWindow) { mIsPaintingToWindow = aToWindow; }
   bool IsPaintingToWindow() const { return mIsPaintingToWindow; }
+
+  /**
+   * @return Returns if the builder is currently building an
+   * nsDisplayFixedPosition sub-tree.
+   */
+  bool IsInFixedPosition() const { return mIsInFixedPosition; }
+
+  bool SetIsCompositingCheap(bool aCompositingCheap) { 
+    bool temp = mIsCompositingCheap; 
+    mIsCompositingCheap = aCompositingCheap;
+    return temp;
+  }
+  bool IsCompositingCheap() const { return mIsCompositingCheap; }
   /**
    * Display the caret if needed.
    */
@@ -257,10 +269,9 @@ public:
 
   /**
    * Returns true if we're currently building a display list that's
-   * directly or indirectly under an nsDisplayTransform or SVG
-   * foreignObject.
+   * directly or indirectly under an nsDisplayTransform.
    */
-  bool IsInTransform() { return mInTransform; }
+  bool IsInTransform() const { return mInTransform; }
   /**
    * Indicate whether or not we're directly or indirectly under and
    * nsDisplayTransform or SVG foreignObject.
@@ -271,7 +282,7 @@ public:
    * Call this if using display port for scrolling.
    */
   void SetDisplayPort(const nsRect& aDisplayPort);
-  const nsRect* GetDisplayPort() { return mHasDisplayPort ? &mDisplayPort : nsnull; }
+  const nsRect* GetDisplayPort() { return mHasDisplayPort ? &mDisplayPort : nullptr; }
 
   /**
    * Call this if ReferenceFrame() is a viewport frame with fixed-position
@@ -330,11 +341,6 @@ public:
   void MarkPreserve3DFramesForDisplayList(nsIFrame* aDirtyFrame, const nsRect& aDirtyRect);
 
   /**
-   * Return the FrameLayerBuilder.
-   */
-  FrameLayerBuilder* LayerBuilder() { return &mLayerBuilder; }
-
-  /**
    * Get the area of the final transparent region.
    */
   const nsRegion* GetFinalTransparentRegion() { return mFinalTransparentRegion; }
@@ -391,8 +397,8 @@ public:
   
   /**
    * A helper class to temporarily set the value of
-   * mIsAtRootOfPseudoStackingContext and temporarily update
-   * mCachedOffsetFrame/mCachedOffset from a frame to its child.
+   * mIsAtRootOfPseudoStackingContext and mIsInFixedPosition, and temporarily
+   * update mCachedOffsetFrame/mCachedOffset from a frame to its child.
    */
   class AutoBuildingDisplayList;
   friend class AutoBuildingDisplayList;
@@ -406,11 +412,13 @@ public:
       aBuilder->mIsAtRootOfPseudoStackingContext = aIsRoot;
     }
     AutoBuildingDisplayList(nsDisplayListBuilder* aBuilder,
-                            nsIFrame* aForChild, bool aIsRoot)
+                            nsIFrame* aForChild, bool aIsRoot,
+                            bool aIsInFixedPosition)
       : mBuilder(aBuilder),
         mPrevCachedOffsetFrame(aBuilder->mCachedOffsetFrame),
         mPrevCachedOffset(aBuilder->mCachedOffset),
-        mPrevIsAtRootOfPseudoStackingContext(aBuilder->mIsAtRootOfPseudoStackingContext) {
+        mPrevIsAtRootOfPseudoStackingContext(aBuilder->mIsAtRootOfPseudoStackingContext),
+        mPrevIsInFixedPosition(aBuilder->mIsInFixedPosition) {
       if (mPrevCachedOffsetFrame == aForChild->GetParent()) {
         aBuilder->mCachedOffset += aForChild->GetPosition();
       } else {
@@ -418,17 +426,22 @@ public:
       }
       aBuilder->mCachedOffsetFrame = aForChild;
       aBuilder->mIsAtRootOfPseudoStackingContext = aIsRoot;
+      if (aIsInFixedPosition) {
+        aBuilder->mIsInFixedPosition = aIsInFixedPosition;
+      }
     }
     ~AutoBuildingDisplayList() {
       mBuilder->mCachedOffsetFrame = mPrevCachedOffsetFrame;
       mBuilder->mCachedOffset = mPrevCachedOffset;
       mBuilder->mIsAtRootOfPseudoStackingContext = mPrevIsAtRootOfPseudoStackingContext;
+      mBuilder->mIsInFixedPosition = mPrevIsInFixedPosition;
     }
   private:
     nsDisplayListBuilder* mBuilder;
     const nsIFrame*       mPrevCachedOffsetFrame;
     nsPoint               mPrevCachedOffset;
     bool                  mPrevIsAtRootOfPseudoStackingContext;
+    bool                  mPrevIsInFixedPosition;
   };
 
   /**
@@ -503,7 +516,6 @@ private:
     return &mPresShellStates[mPresShellStates.Length() - 1];
   }
 
-  FrameLayerBuilder              mLayerBuilder;
   nsIFrame*                      mReferenceFrame;
   nsIFrame*                      mIgnoreScrollFrame;
   PLArenaPool                    mPool;
@@ -536,6 +548,8 @@ private:
   bool                           mIsPaintingToWindow;
   bool                           mHasDisplayPort;
   bool                           mHasFixedItems;
+  bool                           mIsInFixedPosition;
+  bool                           mIsCompositingCheap;
 };
 
 class nsDisplayItem;
@@ -549,7 +563,7 @@ class nsDisplayItemLink {
   // This is never instantiated directly, so no need to count constructors and
   // destructors.
 protected:
-  nsDisplayItemLink() : mAbove(nsnull) {}
+  nsDisplayItemLink() : mAbove(nullptr) {}
   nsDisplayItem* mAbove;  
   
   friend class nsDisplayList;
@@ -663,8 +677,8 @@ public:
   /**
    * @return the frame that this display item is based on. This is used to sort
    * items by z-index and content order and for some other uses. For some items
-   * that wrap item lists, this could return nsnull because there is no single
-   * underlying frame; for leaf items it will never return nsnull.
+   * that wrap item lists, this could return nullptr because there is no single
+   * underlying frame; for leaf items it will never return nullptr.
    */
   inline nsIFrame* GetUnderlyingFrame() const { return mFrame; }
   /**
@@ -781,7 +795,7 @@ public:
   virtual already_AddRefed<Layer> BuildLayer(nsDisplayListBuilder* aBuilder,
                                              LayerManager* aManager,
                                              const ContainerParameters& aContainerParameters)
-  { return nsnull; }
+  { return nullptr; }
 
   /**
    * On entry, aVisibleRegion contains the region (relative to ReferenceFrame())
@@ -841,7 +855,7 @@ public:
    * If this is a leaf item we return null, otherwise we return the wrapped
    * list.
    */
-  virtual nsDisplayList* GetList() { return nsnull; }
+  virtual nsDisplayList* GetList() { return nullptr; }
 
   /**
    * Returns the visible rect. Should only be called after ComputeVisibility
@@ -893,7 +907,7 @@ protected:
   friend class nsDisplayList;
   
   nsDisplayItem() {
-    mAbove = nsnull;
+    mAbove = nullptr;
   }
   
   nsIFrame* mFrame;
@@ -939,7 +953,7 @@ public:
     mIsOpaque(false)
   {
     mTop = &mSentinel;
-    mSentinel.mAbove = nsnull;
+    mSentinel.mAbove = nullptr;
 #ifdef DEBUG
     mDidComputeVisibility = false;
 #endif
@@ -1006,7 +1020,7 @@ public:
       mTop->mAbove = aList->mSentinel.mAbove;
       mTop = aList->mTop;
       aList->mTop = &aList->mSentinel;
-      aList->mSentinel.mAbove = nsnull;
+      aList->mSentinel.mAbove = nullptr;
     }
   }
   
@@ -1016,11 +1030,13 @@ public:
   void AppendToBottom(nsDisplayList* aList) {
     if (aList->mSentinel.mAbove) {
       aList->mTop->mAbove = mSentinel.mAbove;
-      mTop = aList->mTop;
       mSentinel.mAbove = aList->mSentinel.mAbove;
+      if (mTop == &mSentinel) {
+        mTop = aList->mTop;
+      }
            
       aList->mTop = &aList->mSentinel;
-      aList->mSentinel.mAbove = nsnull;
+      aList->mSentinel.mAbove = nullptr;
     }
   }
   
@@ -1038,7 +1054,7 @@ public:
    * @return the item at the top of the list, or null if the list is empty
    */
   nsDisplayItem* GetTop() const {
-    return mTop != &mSentinel ? static_cast<nsDisplayItem*>(mTop) : nsnull;
+    return mTop != &mSentinel ? static_cast<nsDisplayItem*>(mTop) : nullptr;
   }
   /**
    * @return the item at the bottom of the list, or null if the list is empty
@@ -1057,7 +1073,7 @@ public:
    * secondary order.
    * @param aCommonAncestor a common ancestor of all the content elements
    * associated with the display items, for speeding up tree order
-   * checks, or nsnull if not known; it's only a hint, if it is not an
+   * checks, or nullptr if not known; it's only a hint, if it is not an
    * ancestor of some elements, then we lose performance but not correctness
    */
   void SortByZOrder(nsDisplayListBuilder* aBuilder, nsIContent* aCommonAncestor);
@@ -1066,7 +1082,7 @@ public:
    * GetUnderlyingFrame() on each item. z-index is ignored.
    * @param aCommonAncestor a common ancestor of all the content elements
    * associated with the display items, for speeding up tree order
-   * checks, or nsnull if not known; it's only a hint, if it is not an
+   * checks, or nullptr if not known; it's only a hint, if it is not an
    * ancestor of some elements, then we lose performance but not correctness
    */
   void SortByContentOrder(nsDisplayListBuilder* aBuilder, nsIContent* aCommonAncestor);
@@ -1613,6 +1629,7 @@ protected:
                                const nsRect& aRect, bool* aSnap);
 
   bool TryOptimizeToImageLayer(nsDisplayListBuilder* aBuilder);
+  bool IsSingleFixedPositionImage(nsDisplayListBuilder* aBuilder, const nsRect& aClipRect);
   void ConfigureLayer(ImageLayer* aLayer);
 
   /* Used to cache mFrame->IsThemed() since it isn't a cheap call */
@@ -1729,7 +1746,7 @@ public:
  * 
  * In some cases (e.g., clipping) we want to wrap a list but we don't have a
  * particular underlying frame that is a stacking context root. In that case
- * we allow the frame to be nsnull. Callers to GetUnderlyingFrame must
+ * we allow the frame to be nullptr. Callers to GetUnderlyingFrame must
  * detect and handle this case.
  */
 class nsDisplayWrapList : public nsDisplayItem {
@@ -1784,14 +1801,14 @@ public:
   
   /**
    * This creates a copy of this item, but wrapping aItem instead of
-   * our existing list. Only gets called if this item returned nsnull
+   * our existing list. Only gets called if this item returned nullptr
    * for GetUnderlyingFrame(). aItem is guaranteed to return non-null from
    * GetUnderlyingFrame().
    */
   virtual nsDisplayWrapList* WrapWithClone(nsDisplayListBuilder* aBuilder,
                                            nsDisplayItem* aItem) {
-    NS_NOTREACHED("We never returned nsnull for GetUnderlyingFrame!");
-    return nsnull;
+    NS_NOTREACHED("We never returned nullptr for GetUnderlyingFrame!");
+    return nullptr;
   }
 
   /**
@@ -1899,7 +1916,7 @@ public:
                                    LayerManager* aManager,
                                    const ContainerParameters& aParameters)
   {
-    return mozilla::LAYER_ACTIVE;
+    return mozilla::LAYER_ACTIVE_FORCE;
   }
   virtual bool TryMerge(nsDisplayListBuilder* aBuilder, nsDisplayItem* aItem)
   {
@@ -1917,7 +1934,7 @@ public:
 class nsDisplayFixedPosition : public nsDisplayOwnLayer {
 public:
   nsDisplayFixedPosition(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
-                         nsDisplayList* aList);
+                         nsIFrame* aFixedPosFrame, nsDisplayList* aList);
 #ifdef NS_BUILD_REFCNT_LOGGING
   virtual ~nsDisplayFixedPosition();
 #endif
@@ -1925,7 +1942,16 @@ public:
   virtual already_AddRefed<Layer> BuildLayer(nsDisplayListBuilder* aBuilder,
                                              LayerManager* aManager,
                                              const ContainerParameters& aContainerParameters);
+  virtual LayerState GetLayerState(nsDisplayListBuilder* aBuilder,
+                                   LayerManager* aManager,
+                                   const ContainerParameters& aParameters)
+  {
+    return mozilla::LAYER_ACTIVE;
+  }
   NS_DISPLAY_DECL_NAME("FixedPosition", TYPE_FIXED_POSITION)
+
+protected:
+  nsIFrame* mFixedPosFrame;
 };
 
 /**
@@ -2142,6 +2168,12 @@ public:
   virtual bool ComputeVisibility(nsDisplayListBuilder* aBuilder,
                                    nsRegion* aVisibleRegion,
                                    const nsRect& aAllowVisibleRegionExpansion);
+  virtual LayerState GetLayerState(nsDisplayListBuilder* aBuilder,
+                                   LayerManager* aManager,
+                                   const ContainerParameters& aParameters)
+  {
+    return mozilla::LAYER_ACTIVE;
+  }
   NS_DISPLAY_DECL_NAME("Zoom", TYPE_ZOOM)
 
   // Get the app units per dev pixel ratio of the child document.
@@ -2173,12 +2205,23 @@ public:
     *aSnap = false;
     return mEffectsBounds + ToReferenceFrame();
   }
-  virtual void Paint(nsDisplayListBuilder* aBuilder, nsRenderingContext* aCtx);
   virtual bool ComputeVisibility(nsDisplayListBuilder* aBuilder,
                                    nsRegion* aVisibleRegion,
                                    const nsRect& aAllowVisibleRegionExpansion);  
   virtual bool TryMerge(nsDisplayListBuilder* aBuilder, nsDisplayItem* aItem);
   NS_DISPLAY_DECL_NAME("SVGEffects", TYPE_SVG_EFFECTS)
+
+  virtual LayerState GetLayerState(nsDisplayListBuilder* aBuilder,
+                                   LayerManager* aManager,
+                                   const ContainerParameters& aParameters);
+ 
+  virtual already_AddRefed<Layer> BuildLayer(nsDisplayListBuilder* aBuilder,
+                                             LayerManager* aManager,
+                                             const ContainerParameters& aContainerParameters);
+
+  void PaintAsLayer(nsDisplayListBuilder* aBuilder,
+                    nsRenderingContext* aCtx,
+                    LayerManager* aManager);
 
 #ifdef MOZ_DUMP_PAINTING
   void PrintEffects(FILE* aOutput);
@@ -2285,17 +2328,17 @@ public:
    *        coordinate space.
    * @param aBoundsOverride (optional) Rather than using the frame's computed
    *        bounding rect as frame bounds, use this rectangle instead.  Pass
-   *        nsnull (or nothing at all) to use the default.
+   *        nullptr (or nothing at all) to use the default.
    */
   static nsRect TransformRect(const nsRect &aUntransformedBounds, 
                               const nsIFrame* aFrame,
                               const nsPoint &aOrigin,
-                              const nsRect* aBoundsOverride = nsnull);
+                              const nsRect* aBoundsOverride = nullptr);
 
   static nsRect TransformRectOut(const nsRect &aUntransformedBounds, 
                                  const nsIFrame* aFrame,
                                  const nsPoint &aOrigin,
-                                 const nsRect* aBoundsOverride = nsnull);
+                                 const nsRect* aBoundsOverride = nullptr);
 
   /* UntransformRect is like TransformRect, except that it inverts the
    * transform.
@@ -2309,6 +2352,13 @@ public:
                                     const gfx3DMatrix& aMatrix,
                                     float aAppUnitsPerPixel,
                                     nsRect* aOutRect);
+
+  static gfxPoint3D GetDeltaToMozTransformOrigin(const nsIFrame* aFrame,
+                                                 float aAppUnitsPerPixel,
+                                                 const nsRect* aBoundsOverride);
+
+  static gfxPoint3D GetDeltaToMozPerspectiveOrigin(const nsIFrame* aFrame,
+                                                   float aAppUnitsPerPixel);
 
   /**
    * Returns the bounds of a frame as defined for resolving percentage
@@ -2333,7 +2383,7 @@ public:
    * @param aFrame The frame to get the matrix from.
    * @param aOrigin Relative to which point this transform should be applied.
    * @param aAppUnitsPerPixel The number of app units per graphics unit.
-   * @param aBoundsOverride [optional] If this is nsnull (the default), the
+   * @param aBoundsOverride [optional] If this is nullptr (the default), the
    *        computation will use the value of GetFrameBoundsForTransform(aFrame)
    *        for the frame's bounding rectangle. Otherwise, it will use the
    *        value of aBoundsOverride.  This is mostly for internal use and in
@@ -2342,8 +2392,12 @@ public:
   static gfx3DMatrix GetResultingTransformMatrix(const nsIFrame* aFrame,
                                                  const nsPoint& aOrigin,
                                                  float aAppUnitsPerPixel,
-                                                 const nsRect* aBoundsOverride = nsnull,
-                                                 nsIFrame** aOutAncestor = nsnull);
+                                                 const nsRect* aBoundsOverride = nullptr,
+                                                 const nsCSSValueList* aTransformOverride = nullptr,
+                                                 gfxPoint3D* aToMozOrigin = nullptr,
+                                                 gfxPoint3D* aToPerspectiveOrigin = nullptr,
+                                                 nscoord* aChildPerspective = nullptr,
+                                                 nsIFrame** aOutAncestor = nullptr);
   /**
    * Return true when we should try to prerender the entire contents of the
    * transformed frame even when it's not completely visible (yet).
@@ -2398,7 +2452,7 @@ public:
     return (t == nsDisplayItem::TYPE_TEXT ||
             t == nsDisplayItem::TYPE_TEXT_DECORATION ||
             t == nsDisplayItem::TYPE_TEXT_SHADOW)
-      ? static_cast<nsCharClipDisplayItem*>(aItem) : nsnull;
+      ? static_cast<nsCharClipDisplayItem*>(aItem) : nullptr;
   }
 
   nscoord mLeftEdge;  // length from the left side

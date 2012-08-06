@@ -5,43 +5,41 @@
 
 package org.mozilla.gecko;
 
-import android.app.Activity;
-import android.content.res.Resources;
-import android.os.AsyncTask;
-import android.text.TextUtils;
-import android.database.ContentObserver;
-import android.content.ContentResolver;
-import android.content.Context;
-import android.widget.ImageView;
-import android.widget.TextView;
-import android.view.View;
-import android.widget.ListView;
-import android.database.Cursor;
-import android.view.MenuInflater;
-import android.util.Log;
-import android.view.LayoutInflater;
-import android.view.ViewGroup;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.widget.TabHost.TabContentFactory;
-import android.util.Pair;
-import android.widget.ExpandableListView;
-import android.widget.SimpleExpandableListAdapter;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
-
-import java.util.LinkedList;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
-import java.util.Date;
-
-import org.json.JSONArray;
-
 import org.mozilla.gecko.AwesomeBar.ContextMenuSubject;
 import org.mozilla.gecko.db.BrowserContract.Combined;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.db.BrowserDB.URLColumns;
+
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.Context;
+import android.content.res.Resources;
+import android.database.ContentObserver;
+import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.os.AsyncTask;
+import android.text.TextUtils;
+import android.util.Log;
+import android.util.Pair;
+import android.view.ContextMenu;
+import android.view.ContextMenu.ContextMenuInfo;
+import android.view.LayoutInflater;
+import android.view.MenuInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ExpandableListView;
+import android.widget.ImageView;
+import android.widget.ListView;
+import android.widget.SimpleExpandableListAdapter;
+import android.widget.TabHost.TabContentFactory;
+import android.widget.TextView;
+
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 
 public class HistoryTab extends AwesomeBarTab {
     public static final String LOGTAG = "HISTORY_TAB";
@@ -50,7 +48,6 @@ public class HistoryTab extends AwesomeBarTab {
     private ContentObserver mContentObserver;
     private ContentResolver mContentResolver;
     private HistoryQueryTask mQueryTask = null;
-    private ExpandableListView mView = null;
     private HistoryListAdapter mCursorAdapter = null;
 
     public HistoryTab(Context context) {
@@ -98,11 +95,11 @@ public class HistoryTab extends AwesomeBarTab {
             mView.setOnTouchListener(mListListener);
 
             // We need to add the header before we set the adapter, hence make it null
-            mView.setAdapter(getCursorAdapter());
+            ((ExpandableListView)mView).setAdapter(getCursorAdapter());
             HistoryQueryTask task = new HistoryQueryTask();
             task.execute();
         }
-        return mView;
+        return (ListView)mView;
     }
 
     public void destroy() {
@@ -185,11 +182,9 @@ public class HistoryTab extends AwesomeBarTab {
             // The bookmark id will be 0 (null in database) when the url
             // is not a bookmark. Reading list items are irrelevant in history
             // tab. We should never show any sign or them.
-            Log.i(LOGTAG, "xxx vis: " + bookmarkId + " " + display + " " + Combined.DISPLAY_READER);
             int visibility = (bookmarkId != 0 && display != Combined.DISPLAY_READER ?
                               View.VISIBLE : View.GONE);
 
-            Log.i(LOGTAG, "xxx vh: " + viewHolder.bookmarkIconView);
             viewHolder.bookmarkIconView.setVisibility(visibility);
             viewHolder.bookmarkIconView.setImageResource(R.drawable.ic_awesomebar_star);
 

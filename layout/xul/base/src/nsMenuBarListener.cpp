@@ -6,7 +6,7 @@
 #include "nsMenuBarListener.h"
 #include "nsMenuBarFrame.h"
 #include "nsMenuPopupFrame.h"
-#include "nsIDOMNSEvent.h"
+#include "nsIDOMEvent.h"
 #include "nsGUIEvent.h"
 
 // Drag & Drop, Clipboard
@@ -33,6 +33,7 @@ NS_IMPL_ISUPPORTS1(nsMenuBarListener, nsIDOMEventListener)
 #define MODIFIER_CONTROL  2
 #define MODIFIER_ALT      4
 #define MODIFIER_META     8
+#define MODIFIER_OS       16
 
 ////////////////////////////////////////////////////////////////////////
 
@@ -86,6 +87,8 @@ void nsMenuBarListener::InitAccessKey()
     mAccessKeyMask = MODIFIER_ALT;
   else if (mAccessKey == nsIDOMKeyEvent::DOM_VK_META)
     mAccessKeyMask = MODIFIER_META;
+  else if (mAccessKey == nsIDOMKeyEvent::DOM_VK_WIN)
+    mAccessKeyMask = MODIFIER_OS;
 
   mAccessKeyFocuses = Preferences::GetBool("ui.key.menuAccessKeyFocuses");
 }
@@ -114,15 +117,12 @@ nsMenuBarListener::KeyUp(nsIDOMEvent* aKeyEvent)
   InitAccessKey();
 
   //handlers shouldn't be triggered by non-trusted events.
-  nsCOMPtr<nsIDOMNSEvent> domNSEvent = do_QueryInterface(aKeyEvent);
   bool trustedEvent = false;
+  aKeyEvent->GetIsTrusted(&trustedEvent);
 
-  if (domNSEvent) {
-    domNSEvent->GetIsTrusted(&trustedEvent);
-  }
-
-  if (!trustedEvent)
+  if (!trustedEvent) {
     return NS_OK;
+  }
 
   if (mAccessKey && mAccessKeyFocuses)
   {
@@ -164,10 +164,9 @@ nsresult
 nsMenuBarListener::KeyPress(nsIDOMEvent* aKeyEvent)
 {
   // if event has already been handled, bail
-  nsCOMPtr<nsIDOMNSEvent> domNSEvent = do_QueryInterface(aKeyEvent);
-  if (domNSEvent) {
+  if (aKeyEvent) {
     bool eventHandled = false;
-    domNSEvent->GetPreventDefault(&eventHandled);
+    aKeyEvent->GetPreventDefault(&eventHandled);
     if (eventHandled) {
       return NS_OK;       // don't consume event
     }
@@ -175,8 +174,8 @@ nsMenuBarListener::KeyPress(nsIDOMEvent* aKeyEvent)
 
   //handlers shouldn't be triggered by non-trusted events.
   bool trustedEvent = false;
-  if (domNSEvent) {
-    domNSEvent->GetIsTrusted(&trustedEvent);
+  if (aKeyEvent) {
+    aKeyEvent->GetIsTrusted(&trustedEvent);
   }
 
   if (!trustedEvent)
@@ -189,7 +188,7 @@ nsMenuBarListener::KeyPress(nsIDOMEvent* aKeyEvent)
   if (mAccessKey)
   {
     bool preventDefault;
-    domNSEvent->GetPreventDefault(&preventDefault);
+    aKeyEvent->GetPreventDefault(&preventDefault);
     if (!preventDefault) {
       nsCOMPtr<nsIDOMKeyEvent> keyEvent = do_QueryInterface(aKeyEvent);
       PRUint32 keyCode, charCode;
@@ -270,23 +269,29 @@ PRUint32
 nsMenuBarListener::GetModifiers(nsIDOMKeyEvent* aKeyEvent)
 {
   PRUint32 modifiers = 0;
-  bool modifier;
+  nsInputEvent* inputEvent =
+    static_cast<nsInputEvent*>(aKeyEvent->GetInternalNSEvent());
+  MOZ_ASSERT(inputEvent);
 
-  aKeyEvent->GetShiftKey(&modifier);
-  if (modifier)
+  if (inputEvent->IsShift()) {
     modifiers |= MODIFIER_SHIFT;
+  }
 
-  aKeyEvent->GetCtrlKey(&modifier);
-  if (modifier)
+  if (inputEvent->IsControl()) {
     modifiers |= MODIFIER_CONTROL;
+  }
 
-  aKeyEvent->GetAltKey(&modifier);
-  if (modifier)
+  if (inputEvent->IsAlt()) {
     modifiers |= MODIFIER_ALT;
+  }
 
-  aKeyEvent->GetMetaKey(&modifier);
-  if (modifier)
+  if (inputEvent->IsMeta()) {
     modifiers |= MODIFIER_META;
+  }
+
+  if (inputEvent->IsOS()) {
+    modifiers |= MODIFIER_OS;
+  }
 
   return modifiers;
 }
@@ -298,11 +303,9 @@ nsMenuBarListener::KeyDown(nsIDOMEvent* aKeyEvent)
   InitAccessKey();
 
   //handlers shouldn't be triggered by non-trusted events.
-  nsCOMPtr<nsIDOMNSEvent> domNSEvent = do_QueryInterface(aKeyEvent);
   bool trustedEvent = false;
-
-  if (domNSEvent) {
-    domNSEvent->GetIsTrusted(&trustedEvent);
+  if (aKeyEvent) {
+    aKeyEvent->GetIsTrusted(&trustedEvent);
   }
 
   if (!trustedEvent)

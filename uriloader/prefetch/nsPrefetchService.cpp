@@ -104,7 +104,7 @@ nsPrefetchQueueEnumerator::~nsPrefetchQueueEnumerator()
 NS_IMETHODIMP
 nsPrefetchQueueEnumerator::HasMoreElements(bool *aHasMore)
 {
-    *aHasMore = (mCurrent != nsnull);
+    *aHasMore = (mCurrent != nullptr);
     return NS_OK;
 }
 
@@ -165,11 +165,11 @@ nsPrefetchNode::nsPrefetchNode(nsPrefetchService *aService,
                                nsIURI *aURI,
                                nsIURI *aReferrerURI,
                                nsIDOMNode *aSource)
-    : mNext(nsnull)
+    : mNext(nullptr)
     , mURI(aURI)
     , mReferrerURI(aReferrerURI)
     , mService(aService)
-    , mChannel(nsnull)
+    , mChannel(nullptr)
     , mState(nsIDOMLoadStatus::UNINITIALIZED)
     , mBytesRead(0)
 {
@@ -181,7 +181,7 @@ nsPrefetchNode::OpenChannel()
 {
     nsresult rv = NS_NewChannel(getter_AddRefs(mChannel),
                                 mURI,
-                                nsnull, nsnull, this,
+                                nullptr, nullptr, this,
                                 nsIRequest::LOAD_BACKGROUND |
                                 nsICachingChannel::LOAD_ONLY_IF_MODIFIED);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -197,7 +197,7 @@ nsPrefetchNode::OpenChannel()
             false);
     }
 
-    rv = mChannel->AsyncOpen(this, nsnull);
+    rv = mChannel->AsyncOpen(this, nullptr);
     NS_ENSURE_SUCCESS(rv, rv);
 
     mState = nsIDOMLoadStatus::REQUESTED;
@@ -209,7 +209,7 @@ nsresult
 nsPrefetchNode::CancelChannel(nsresult error)
 {
     mChannel->Cancel(error);
-    mChannel = nsnull;
+    mChannel = nullptr;
 
     mState = nsIDOMLoadStatus::UNINITIALIZED;
 
@@ -220,12 +220,13 @@ nsPrefetchNode::CancelChannel(nsresult error)
 // nsPrefetchNode::nsISupports
 //-----------------------------------------------------------------------------
 
-NS_IMPL_ISUPPORTS5(nsPrefetchNode,
+NS_IMPL_ISUPPORTS6(nsPrefetchNode,
                    nsIDOMLoadStatus,
                    nsIRequestObserver,
                    nsIStreamListener,
                    nsIInterfaceRequestor,
-                   nsIChannelEventSink)
+                   nsIChannelEventSink,
+                   nsIRedirectResultListener)
 
 //-----------------------------------------------------------------------------
 // nsPrefetchNode::nsIStreamListener
@@ -284,7 +285,7 @@ nsPrefetchNode::OnDataAvailable(nsIRequest *aRequest,
                                 PRUint32 aCount)
 {
     PRUint32 bytesRead = 0;
-    aStream->ReadSegments(NS_DiscardSegment, nsnull, aCount, &bytesRead);
+    aStream->ReadSegments(NS_DiscardSegment, nullptr, aCount, &bytesRead);
     mBytesRead += bytesRead;
     LOG(("prefetched %u bytes [offset=%u]\n", bytesRead, aOffset));
     return NS_OK;
@@ -325,6 +326,12 @@ nsPrefetchNode::GetInterface(const nsIID &aIID, void **aResult)
         return NS_OK;
     }
 
+    if (aIID.Equals(NS_GET_IID(nsIRedirectResultListener))) {
+        NS_ADDREF_THIS();
+        *aResult = static_cast<nsIRedirectResultListener *>(this);
+        return NS_OK;
+    }
+
     return NS_ERROR_NO_INTERFACE;
 }
 
@@ -361,20 +368,36 @@ nsPrefetchNode::AsyncOnChannelRedirect(nsIChannel *aOldChannel,
                                   NS_LITERAL_CSTRING("prefetch"),
                                   false);
 
-    mChannel = aNewChannel;
+    // Assign to mChannel after we get notification about success of the
+    // redirect in OnRedirectResult.
+    mRedirectChannel = aNewChannel;
 
     callback->OnRedirectVerifyCallback(NS_OK);
     return NS_OK;
 }
 
+//-----------------------------------------------------------------------------
+// nsPrefetchNode::nsIRedirectResultListener
+//-----------------------------------------------------------------------------
+
+NS_IMETHODIMP
+nsPrefetchNode::OnRedirectResult(bool proceeding)
+{
+    if (proceeding && mRedirectChannel)
+        mChannel = mRedirectChannel;
+
+    mRedirectChannel = nsnull;
+
+    return NS_OK;
+}
 
 //-----------------------------------------------------------------------------
 // nsPrefetchService <public>
 //-----------------------------------------------------------------------------
 
 nsPrefetchService::nsPrefetchService()
-    : mQueueHead(nsnull)
-    , mQueueTail(nsnull)
+    : mQueueHead(nullptr)
+    , mQueueTail(nullptr)
     , mStopCount(0)
     , mHaveProcessed(false)
     , mDisabled(true)
@@ -424,7 +447,7 @@ nsPrefetchService::ProcessNextURI()
     nsresult rv;
     nsCOMPtr<nsIURI> uri, referrer;
 
-    mCurrentNode = nsnull;
+    mCurrentNode = nullptr;
 
     do {
         rv = DequeueNode(getter_AddRefs(mCurrentNode));
@@ -456,7 +479,7 @@ nsPrefetchService::NotifyLoadRequested(nsPrefetchNode *node)
       return;
 
     observerService->NotifyObservers(static_cast<nsIDOMLoadStatus*>(node),
-                                     "prefetch-load-requested", nsnull);
+                                     "prefetch-load-requested", nullptr);
 }
 
 void
@@ -468,7 +491,7 @@ nsPrefetchService::NotifyLoadCompleted(nsPrefetchNode *node)
       return;
 
     observerService->NotifyObservers(static_cast<nsIDOMLoadStatus*>(node),
-                                     "prefetch-load-completed", nsnull);
+                                     "prefetch-load-completed", nullptr);
 }
 
 //-----------------------------------------------------------------------------
@@ -537,10 +560,10 @@ nsPrefetchService::DequeueNode(nsPrefetchNode **node)
     // give the ref to the caller
     *node = mQueueHead;
     mQueueHead = mQueueHead->mNext;
-    (*node)->mNext = nsnull;
+    (*node)->mNext = nullptr;
 
     if (!mQueueHead)
-        mQueueTail = nsnull;
+        mQueueTail = nullptr;
 
     return NS_OK;
 }
@@ -588,7 +611,7 @@ nsPrefetchService::StopPrefetching()
         return;
 
     mCurrentNode->CancelChannel(NS_BINDING_ABORTED);
-    mCurrentNode = nsnull;
+    mCurrentNode = nullptr;
     EmptyQueue();
 }
 
@@ -753,7 +776,7 @@ nsPrefetchService::EnumerateQueue(bool aIncludeNormalItems,
 NS_IMETHODIMP
 nsPrefetchNode::GetSource(nsIDOMNode **aSource)
 {
-    *aSource = nsnull;
+    *aSource = nullptr;
     nsCOMPtr<nsIDOMNode> source = do_QueryReferent(mSource);
     if (source)
         source.swap(*aSource);

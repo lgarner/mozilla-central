@@ -495,7 +495,7 @@ NS_METHOD nsWindow::Destroy()
     if (gRollupListener) {
       gRollupListener->Rollup(PR_UINT32_MAX);
     }
-    CaptureRollupEvents(nsnull, false, true);
+    CaptureRollupEvents(nullptr, false, true);
   }
 
   HWND hMain = GetMainWindow();
@@ -565,12 +565,10 @@ NS_METHOD nsWindow::Enable(bool aState)
 
 //-----------------------------------------------------------------------------
 
-NS_METHOD nsWindow::IsEnabled(bool* aState)
+bool nsWindow::IsEnabled() const
 {
-  NS_ENSURE_ARG_POINTER(aState);
   HWND hMain = GetMainWindow();
-  *aState = !hMain || WinIsWindowEnabled(hMain);
-  return NS_OK;
+  return !hMain || WinIsWindowEnabled(hMain);
 }
 
 //-----------------------------------------------------------------------------
@@ -585,9 +583,7 @@ NS_METHOD nsWindow::Show(bool aState)
       // don't try to show new windows (e.g. the Bookmark menu)
       // during a native dragover because they'll remain invisible;
       if (CheckDragStatus(ACTION_SHOW, 0)) {
-        bool isVisible;
-        IsVisible(isVisible);
-        if (!isVisible) {
+        if (!IsVisible()) {
           PlaceBehind(eZPlacementTop, 0, false);
         }
         WinShowWindow(mWnd, true);
@@ -602,10 +598,9 @@ NS_METHOD nsWindow::Show(bool aState)
 
 //-----------------------------------------------------------------------------
 
-NS_METHOD nsWindow::IsVisible(bool& aState)
+bool nsWindow::IsVisible() const
 {
-  aState = WinIsWindowVisible(GetMainWindow()) ? true : false;
-  return NS_OK;
+  return WinIsWindowVisible(GetMainWindow());
 }
 
 //-----------------------------------------------------------------------------
@@ -1545,7 +1540,7 @@ NS_IMETHODIMP nsWindow::CaptureRollupEvents(nsIRollupListener* aListener,
     gRollupWidget = this;
     NS_ADDREF(this);
  } else {
-    gRollupListener = nsnull;
+    gRollupListener = nullptr;
     NS_IF_RELEASE(gRollupWidget);
   }
 
@@ -2649,7 +2644,7 @@ bool nsWindow::OnImeRequest(MPARAM mp1, MPARAM mp2)
 
 bool nsWindow::DispatchKeyEvent(MPARAM mp1, MPARAM mp2)
 {
-  nsKeyEvent pressEvent(true, 0, nsnull);
+  nsKeyEvent pressEvent(true, 0, nullptr);
   USHORT fsFlags = SHORT1FROMMP(mp1);
   USHORT usVKey = SHORT2FROMMP(mp2);
   USHORT usChar = SHORT1FROMMP(mp2);
@@ -3098,7 +3093,7 @@ bool nsWindow::DispatchMouseEvent(PRUint32 aEventType, MPARAM mp1, MPARAM mp2,
       }
     }
 
-    InitEvent(event, nsnull);
+    InitEvent(event, nullptr);
     event.InitBasicModifiers(isKeyDown(VK_CTRL),
                              isKeyDown(VK_ALT) || isKeyDown(VK_ALTGRAF),
                              isKeyDown(VK_SHIFT), false);

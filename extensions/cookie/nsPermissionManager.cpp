@@ -22,8 +22,9 @@
 #include "mozilla/Attributes.h"
 #include "nsXULAppAPI.h"
 #include "nsIPrincipal.h"
+#include "nsContentUtils.h"
 
-static nsPermissionManager *gPermissionManager = nsnull;
+static nsPermissionManager *gPermissionManager = nullptr;
 
 using mozilla::dom::ContentParent;
 using mozilla::dom::ContentChild;
@@ -37,7 +38,7 @@ IsChildProcess()
 
 /**
  * @returns The child process object, or if we are not in the child
- *          process, nsnull.
+ *          process, nullptr.
  */
 static ContentChild*
 ChildProcess()
@@ -49,7 +50,7 @@ ChildProcess()
     return cpc;
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 
@@ -72,7 +73,7 @@ ChildProcess()
 #define PL_ARENA_CONST_ALIGN_MASK 3
 #include "plarena.h"
 
-static PLArenaPool *gHostArena = nsnull;
+static PLArenaPool *gHostArena = nullptr;
 
 // making sHostArena 512b for nice allocation
 // growing is quite cheap
@@ -233,7 +234,7 @@ nsPermissionManager::nsPermissionManager()
 nsPermissionManager::~nsPermissionManager()
 {
   RemoveAllFromMemory();
-  gPermissionManager = nsnull;
+  gPermissionManager = nullptr;
 }
 
 // static
@@ -302,11 +303,13 @@ nsresult
 nsPermissionManager::InitDB(bool aRemoveFile)
 {
   nsCOMPtr<nsIFile> permissionsFile;
-  NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR, getter_AddRefs(permissionsFile));
-  if (!permissionsFile)
-    return NS_ERROR_UNEXPECTED;
+  nsresult rv = NS_GetSpecialDirectory(NS_APP_PERMISSION_PARENT_DIR, getter_AddRefs(permissionsFile));
+  if (NS_FAILED(rv)) {
+    rv = NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR, getter_AddRefs(permissionsFile));
+  }
+  NS_ENSURE_SUCCESS(rv, NS_ERROR_UNEXPECTED);
 
-  nsresult rv = permissionsFile->AppendNative(NS_LITERAL_CSTRING(kPermissionsFileName));
+  rv = permissionsFile->AppendNative(NS_LITERAL_CSTRING(kPermissionsFileName));
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (aRemoveFile) {
@@ -511,6 +514,12 @@ nsPermissionManager::AddFromPrincipal(nsIPrincipal* aPrincipal,
 {
   NS_ENSURE_ARG_POINTER(aPrincipal);
 
+  // We don't add the system principal because it actually has no URI and we
+  // always allow action for them.
+  if (nsContentUtils::IsSystemPrincipal(aPrincipal)) {
+    return NS_OK;
+  }
+
   nsCOMPtr<nsIURI> uri;
   aPrincipal->GetURI(getter_AddRefs(uri));
 
@@ -701,6 +710,11 @@ nsPermissionManager::RemoveFromPrincipal(nsIPrincipal* aPrincipal,
 {
   NS_ENSURE_ARG_POINTER(aPrincipal);
 
+  // System principals are never added to the database, no need to remove them.
+  if (nsContentUtils::IsSystemPrincipal(aPrincipal)) {
+    return NS_OK;
+  }
+
   nsCOMPtr<nsIURI> uri;
   aPrincipal->GetURI(getter_AddRefs(uri));
   NS_ENSURE_TRUE(uri, NS_ERROR_FAILURE);
@@ -722,15 +736,15 @@ void
 nsPermissionManager::CloseDB(bool aRebuildOnSuccess)
 {
   // Null the statements, this will finalize them.
-  mStmtInsert = nsnull;
-  mStmtDelete = nsnull;
-  mStmtUpdate = nsnull;
+  mStmtInsert = nullptr;
+  mStmtDelete = nullptr;
+  mStmtUpdate = nullptr;
   if (mDBConn) {
     mozIStorageCompletionCallback* cb = new CloseDatabaseListener(this,
            aRebuildOnSuccess);
     mozilla::DebugOnly<nsresult> rv = mDBConn->AsyncClose(cb);
     MOZ_ASSERT(NS_SUCCEEDED(rv));
-    mDBConn = nsnull; // Avoid race conditions
+    mDBConn = nullptr; // Avoid race conditions
   }
 }
 
@@ -742,7 +756,7 @@ nsPermissionManager::RemoveAllInternal(bool aNotifyObservers)
   // on-disk database to notify observers.
   RemoveAllFromMemory();
   if (aNotifyObservers) {
-    NotifyObservers(nsnull, NS_LITERAL_STRING("cleared").get());
+    NotifyObservers(nullptr, NS_LITERAL_STRING("cleared").get());
   }
 
   // clear the db
@@ -790,6 +804,13 @@ nsPermissionManager::TestPermissionFromPrincipal(nsIPrincipal* aPrincipal,
 {
   NS_ENSURE_ARG_POINTER(aPrincipal);
 
+  // System principals do not have URI so we can't try to get
+  // retro-compatibility here.
+  if (nsContentUtils::IsSystemPrincipal(aPrincipal)) {
+    *aPermission = nsIPermissionManager::ALLOW_ACTION;
+    return NS_OK;
+  }
+
   nsCOMPtr<nsIURI> uri;
   aPrincipal->GetURI(getter_AddRefs(uri));
 
@@ -802,6 +823,13 @@ nsPermissionManager::TestExactPermissionFromPrincipal(nsIPrincipal* aPrincipal,
                                                       PRUint32* aPermission)
 {
   NS_ENSURE_ARG_POINTER(aPrincipal);
+
+  // System principals do not have URI so we can't try to get
+  // retro-compatibility here.
+  if (nsContentUtils::IsSystemPrincipal(aPrincipal)) {
+    *aPermission = nsIPermissionManager::ALLOW_ACTION;
+    return NS_OK;
+  }
 
   nsCOMPtr<nsIURI> uri;
   aPrincipal->GetURI(getter_AddRefs(uri));
@@ -876,7 +904,7 @@ nsPermissionManager::GetHostEntry(const nsAFlatCString &aHost,
         break;
 
       // reset entry, to be able to return null on failure
-      entry = nsnull;
+      entry = nullptr;
     }
     if (aExactHostMatch)
       break; // do not try super domains
@@ -969,7 +997,7 @@ nsPermissionManager::RemoveAllFromMemory()
     PL_FinishArenaPool(gHostArena);
     delete gHostArena;
   }
-  gHostArena = nsnull;
+  gHostArena = nullptr;
   return NS_OK;
 }
 
@@ -1145,7 +1173,7 @@ nsPermissionManager::Import()
     if (lineArray[0].EqualsLiteral(kMatchTypeHost) &&
         lineArray.Length() == 4) {
       
-      PRInt32 error;
+      nsresult error;
       PRUint32 permission = lineArray[2].ToInteger(&error);
       if (error)
         continue;

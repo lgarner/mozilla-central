@@ -43,6 +43,7 @@ nsresult AppendAppNotesToCrashReport(const nsACString& data);
 nsresult SetRestartArgs(int argc, char** argv);
 nsresult SetupExtraData(nsIFile* aAppDataDirectory,
                         const nsACString& aBuildID);
+bool GetLastRunCrashID(nsAString& id);
 
 // Registers an additional memory region to be included in the minidump
 nsresult RegisterAppMemory(void* ptr, size_t length);
@@ -78,7 +79,7 @@ void OOPInit();
 // is non-NULL. The sequence parameter will be filled with an ordinal
 // indicating which remote process crashed first.
 bool TakeMinidumpForChild(PRUint32 childPid,
-                          nsIFile** dump NS_OUTPARAM,
+                          nsIFile** dump,
                           PRUint32* aSequence = NULL);
 
 #if defined(XP_WIN)
@@ -109,9 +110,9 @@ ThreadId CurrentThreadId();
 // returned non-null on failure.
 bool CreatePairedMinidumps(ProcessHandle childPid,
                            ThreadId childBlamedThread,
-                           nsAString* pairGUID NS_OUTPARAM,
-                           nsIFile** childDump NS_OUTPARAM,
-                           nsIFile** parentDump NS_OUTPARAM);
+                           nsAString* pairGUID,
+                           nsIFile** childDump,
+                           nsIFile** parentDump);
 
 #  if defined(XP_WIN32) || defined(XP_MACOSX)
 // Parent-side API for children
@@ -164,7 +165,7 @@ bool SetRemoteExceptionHandler();
 
 bool UnsetRemoteExceptionHandler();
 
-#if defined(__ANDROID__)
+#if defined(MOZ_WIDGET_ANDROID)
 // Android builds use a custom library loader, so /proc/<pid>/maps
 // will just show anonymous mappings for all the non-system
 // shared libraries. This API is to work around that by providing

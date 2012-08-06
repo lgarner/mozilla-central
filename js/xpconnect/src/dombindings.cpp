@@ -37,6 +37,8 @@ static jsid s_prototype_id = JSID_VOID;
 
 static jsid s_length_id = JSID_VOID;
 
+static jsid s_iterator_id = JSID_VOID;
+
 static jsid s_VOID_id = JSID_VOID;
 
 bool
@@ -59,6 +61,7 @@ DefineStaticJSVals(JSContext *cx)
 
     return SET_JSID_TO_STRING(cx, prototype) &&
            SET_JSID_TO_STRING(cx, length) &&
+           SET_JSID_TO_STRING(cx, iterator) &&
            DefinePropertyStaticJSVals(cx);
 }
 
@@ -248,14 +251,14 @@ ListBase<LC>::instanceIsListObject(JSContext *cx, JSObject *obj, JSObject *calle
 
 template<class LC>
 JSBool
-ListBase<LC>::length_getter(JSContext *cx, JSHandleObject obj, JSHandleId id, jsval *vp)
+ListBase<LC>::length_getter(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp)
 {
     if (!instanceIsListObject(cx, obj, NULL))
         return false;
     PRUint32 length;
     getListObject(obj)->GetLength(&length);
     JS_ASSERT(int32_t(length) >= 0);
-    *vp = UINT_TO_JSVAL(length);
+    vp.set(UINT_TO_JSVAL(length));
     return true;
 }
 
@@ -350,9 +353,9 @@ enum {
 };
 
 static JSBool
-InvalidateProtoShape_add(JSContext *cx, JSHandleObject obj, JSHandleId id, jsval *vp);
+InvalidateProtoShape_add(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp);
 static JSBool
-InvalidateProtoShape_set(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, jsval *vp);
+InvalidateProtoShape_set(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, JSMutableHandleValue vp);
 
 js::Class sInterfacePrototypeClass = {
     "Object",
@@ -367,7 +370,7 @@ js::Class sInterfacePrototypeClass = {
 };
 
 static JSBool
-InvalidateProtoShape_add(JSContext *cx, JSHandleObject obj, JSHandleId id, jsval *vp)
+InvalidateProtoShape_add(JSContext *cx, JSHandleObject obj, JSHandleId id, JSMutableHandleValue vp)
 {
     if (JSID_IS_STRING(id) && JS_InstanceOf(cx, obj, Jsvalify(&sInterfacePrototypeClass), NULL))
         js::SetReservedSlot(obj, 0, PrivateUint32Value(CHECK_CACHE));
@@ -375,7 +378,7 @@ InvalidateProtoShape_add(JSContext *cx, JSHandleObject obj, JSHandleId id, jsval
 }
 
 static JSBool
-InvalidateProtoShape_set(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, jsval *vp)
+InvalidateProtoShape_set(JSContext *cx, JSHandleObject obj, JSHandleId id, JSBool strict, JSMutableHandleValue vp)
 {
     return InvalidateProtoShape_add(cx, obj, id, vp);
 }
@@ -662,7 +665,7 @@ ListBase<LC>::ensureExpandoObject(JSContext *cx, JSObject *obj)
     NS_ASSERTION(instanceIsProxy(obj), "expected a DOM proxy object");
     JSObject *expando = getExpandoObject(obj);
     if (!expando) {
-        expando = JS_NewObjectWithGivenProto(cx, &ExpandoClass, nsnull,
+        expando = JS_NewObjectWithGivenProto(cx, &ExpandoClass, nullptr,
                                              js::GetObjectParent(obj));
         if (!expando)
             return NULL;
@@ -909,8 +912,8 @@ ListBase<LC>::resolveNativeName(JSContext *cx, JSObject *proxy, jsid id, JSPrope
             desc->value.setObject(*funobj);
             desc->attrs = JSPROP_ENUMERATE;
             desc->obj = proxy;
-            desc->setter = nsnull;
-            desc->getter = nsnull;
+            desc->setter = nullptr;
+            desc->getter = nullptr;
             return true;
         }
     }
@@ -952,7 +955,7 @@ ListBase<LC>::nativeGet(JSContext *cx, JSObject *proxy_, JSObject *proto, jsid i
             if (!vp)
                 return true;
 
-            return sProtoProperties[n].getter(cx, proxy, id, vp);
+            return sProtoProperties[n].getter(cx, proxy, id, JSMutableHandleValue::fromMarkedLocation(vp));
         }
     }
     for (size_t n = 0; n < sProtoMethodsCount; ++n) {
@@ -1163,13 +1166,6 @@ template<class LC>
 bool
 ListBase<LC>::iterate(JSContext *cx, JSObject *proxy, unsigned flags, Value *vp)
 {
-    if (flags == JSITER_FOR_OF) {
-        JSObject *iterobj = JS_NewElementIterator(cx, proxy);
-        if (!iterobj)
-            return false;
-        vp->setObject(*iterobj);
-        return true;
-    }
     return ProxyHandler::iterate(cx, proxy, flags, vp);
 }
 

@@ -14,6 +14,7 @@
 #include "Role.h"
 #include "States.h"
 
+#include "nsIMutableArray.h"
 #include "nsITreeSelection.h"
 #include "nsComponentManagerUtils.h"
 
@@ -137,16 +138,16 @@ XULTreeGridAccessible::CellAt(PRUint32 aRowIndex, PRUint32 aColumnIndex)
 { 
   Accessible* row = GetTreeItemAccessible(aRowIndex);
   if (!row)
-    return nsnull;
+    return nullptr;
 
   nsCOMPtr<nsITreeColumn> column =
     nsCoreUtils::GetSensibleColumnAt(mTree, aColumnIndex);
   if (!column)
-    return nsnull;
+    return nullptr;
 
   nsRefPtr<XULTreeItemAccessibleBase> rowAcc = do_QueryObject(row);
   if (!rowAcc)
-    return nsnull;
+    return nullptr;
 
   return rowAcc->GetCellAccessible(column);
 }
@@ -232,7 +233,7 @@ XULTreeGridAccessible::UnselectRow(PRUint32 aRowIdx)
 void
 XULTreeGridAccessible::Shutdown()
 {
-  mTable = nsnull;
+  mTable = nullptr;
   XULTreeAccessible::Shutdown();
 }
 
@@ -351,13 +352,13 @@ XULTreeGridRowAccessible::ChildAtPoint(PRInt32 aX, PRInt32 aY,
 {
   nsIFrame *frame = GetFrame();
   if (!frame)
-    return nsnull;
+    return nullptr;
 
   nsPresContext *presContext = frame->PresContext();
   nsIPresShell* presShell = presContext->PresShell();
 
   nsIFrame *rootFrame = presShell->GetRootFrame();
-  NS_ENSURE_TRUE(rootFrame, nsnull);
+  NS_ENSURE_TRUE(rootFrame, nullptr);
 
   nsIntRect rootRect = rootFrame->GetScreenRect();
 
@@ -372,7 +373,7 @@ XULTreeGridRowAccessible::ChildAtPoint(PRInt32 aX, PRInt32 aY,
 
   // Return if we failed to find tree cell in the row for the given point.
   if (row != mRow || !column)
-    return nsnull;
+    return nullptr;
 
   return GetCellAccessible(column);
 }
@@ -381,12 +382,12 @@ Accessible*
 XULTreeGridRowAccessible::GetChildAt(PRUint32 aIndex)
 {
   if (IsDefunct())
-    return nsnull;
+    return nullptr;
 
   nsCOMPtr<nsITreeColumn> column =
     nsCoreUtils::GetSensibleColumnAt(mTree, aIndex);
   if (!column)
-    return nsnull;
+    return nullptr;
 
   return GetCellAccessible(column);
 }
@@ -415,13 +416,13 @@ XULTreeGridRowAccessible::GetCellAccessible(nsITreeColumn* aColumn)
                                       mTreeView, mRow, aColumn);
   if (cell) {
     mAccessibleCache.Put(key, cell);
-    if (Document()->BindToDocument(cell, nsnull))
+    if (Document()->BindToDocument(cell, nullptr))
       return cell;
 
     mAccessibleCache.Remove(key);
   }
 
-  return nsnull;
+  return nullptr;
 }
 
 void
@@ -464,7 +465,7 @@ XULTreeGridCellAccessible::
                             XULTreeGridRowAccessible* aRowAcc,
                             nsITreeBoxObject* aTree, nsITreeView* aTreeView,
                             PRInt32 aRow, nsITreeColumn* aColumn) :
-  LeafAccessible(aContent, aDoc), mTree(aTree),
+  LeafAccessible(aContent, aDoc), xpcAccessibleTableCell(this), mTree(aTree),
   mTreeView(aTreeView), mRow(aRow), mColumn(aColumn)
 {
   mParent = aRowAcc;
@@ -498,10 +499,17 @@ NS_IMPL_RELEASE_INHERITED(XULTreeGridCellAccessible, LeafAccessible)
 ////////////////////////////////////////////////////////////////////////////////
 // XULTreeGridCellAccessible: nsIAccessible implementation
 
+  void
+  XULTreeGridCellAccessible::Shutdown()
+{
+  mTableCell = nullptr;
+  LeafAccessible::Shutdown();
+}
+
 Accessible*
 XULTreeGridCellAccessible::FocusedChild()
 {
-  return nsnull;
+  return nullptr;
 }
 
 ENameValueFlag
@@ -650,7 +658,7 @@ NS_IMETHODIMP
 XULTreeGridCellAccessible::GetTable(nsIAccessibleTable** aTable)
 {
   NS_ENSURE_ARG_POINTER(aTable);
-  *aTable = nsnull;
+  *aTable = nullptr;
 
   if (IsDefunct())
     return NS_OK;
@@ -710,7 +718,7 @@ NS_IMETHODIMP
 XULTreeGridCellAccessible::GetColumnHeaderCells(nsIArray** aHeaderCells)
 {
   NS_ENSURE_ARG_POINTER(aHeaderCells);
-  *aHeaderCells = nsnull;
+  *aHeaderCells = nullptr;
 
   if (IsDefunct() || !mDoc)
     return NS_ERROR_FAILURE;
@@ -738,7 +746,7 @@ NS_IMETHODIMP
 XULTreeGridCellAccessible::GetRowHeaderCells(nsIArray** aHeaderCells)
 {
   NS_ENSURE_ARG_POINTER(aHeaderCells);
-  *aHeaderCells = nsnull;
+  *aHeaderCells = nullptr;
 
   if (IsDefunct())
     return NS_ERROR_FAILURE;
@@ -771,11 +779,12 @@ XULTreeGridCellAccessible::IsSelected(bool* aIsSelected)
 ////////////////////////////////////////////////////////////////////////////////
 // XULTreeGridCellAccessible: nsAccessNode implementation
 
-bool
+void
 XULTreeGridCellAccessible::Init()
 {
-  if (!LeafAccessible::Init() || !mTreeView)
-    return false;
+  LeafAccessible::Init();
+
+  NS_ASSERTION(mTreeView, "mTreeView is null");
 
   PRInt16 type;
   mColumn->GetType(&type);
@@ -783,8 +792,6 @@ XULTreeGridCellAccessible::Init()
     mTreeView->GetCellValue(mRow, mColumn, mCachedTextEquiv);
   else
     mTreeView->GetCellText(mRow, mColumn, mCachedTextEquiv);
-
-  return true;
 }
 
 bool
@@ -964,7 +971,7 @@ XULTreeGridCellAccessible::GetSiblingAtOffset(PRInt32 aOffset,
   }
 
   if (!columnAtOffset)
-    return nsnull;
+    return nullptr;
 
   nsRefPtr<XULTreeItemAccessibleBase> rowAcc = do_QueryObject(Parent());
   return rowAcc->GetCellAccessible(columnAtOffset);

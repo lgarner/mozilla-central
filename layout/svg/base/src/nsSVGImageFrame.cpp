@@ -62,7 +62,7 @@ public:
   // nsISVGChildFrame interface:
   NS_IMETHOD PaintSVG(nsRenderingContext *aContext, const nsIntRect *aDirtyRect);
   NS_IMETHOD_(nsIFrame*) GetFrameForPoint(const nsPoint &aPoint);
-  virtual void UpdateBounds();
+  virtual void ReflowSVG();
 
   // nsSVGPathGeometryFrame methods:
   virtual PRUint16 GetHitTestFlags();
@@ -129,9 +129,9 @@ nsSVGImageFrame::~nsSVGImageFrame()
 
       imageLoader->RemoveObserver(mListener);
     }
-    reinterpret_cast<nsSVGImageListener*>(mListener.get())->SetFrame(nsnull);
+    reinterpret_cast<nsSVGImageListener*>(mListener.get())->SetFrame(nullptr);
   }
-  mListener = nsnull;
+  mListener = nullptr;
 }
 
 NS_IMETHODIMP
@@ -193,7 +193,7 @@ nsSVGImageFrame::AttributeChanged(PRInt32         aNameSpaceID,
         aAttribute == nsGkAtoms::y ||
         aAttribute == nsGkAtoms::width ||
         aAttribute == nsGkAtoms::height) {
-      nsSVGUtils::InvalidateAndScheduleBoundsUpdate(this);
+      nsSVGUtils::InvalidateAndScheduleReflowSVG(this);
       return NS_OK;
     }
     else if (aAttribute == nsGkAtoms::preserveAspectRatio) {
@@ -228,7 +228,7 @@ nsSVGImageFrame::GetRasterImageTransform(PRInt32 aNativeWidth,
 {
   float x, y, width, height;
   nsSVGImageElement *element = static_cast<nsSVGImageElement*>(mContent);
-  element->GetAnimatedLengthValues(&x, &y, &width, &height, nsnull);
+  element->GetAnimatedLengthValues(&x, &y, &width, &height, nullptr);
 
   gfxMatrix viewBoxTM =
     nsSVGUtils::GetViewBoxTransform(element,
@@ -244,7 +244,7 @@ nsSVGImageFrame::GetVectorImageTransform(PRUint32 aFor)
 {
   float x, y, width, height;
   nsSVGImageElement *element = static_cast<nsSVGImageElement*>(mContent);
-  element->GetAnimatedLengthValues(&x, &y, &width, &height, nsnull);
+  element->GetAnimatedLengthValues(&x, &y, &width, &height, nullptr);
 
   // No viewBoxTM needed here -- our height/width overrides any concept of
   // "native size" that the SVG image has, and it will handle viewBox and
@@ -297,7 +297,7 @@ nsSVGImageFrame::PaintSVG(nsRenderingContext *aContext,
 
   float x, y, width, height;
   nsSVGImageElement *imgElem = static_cast<nsSVGImageElement*>(mContent);
-  imgElem->GetAnimatedLengthValues(&x, &y, &width, &height, nsnull);
+  imgElem->GetAnimatedLengthValues(&x, &y, &width, &height, nullptr);
   NS_ASSERTION(width > 0 && height > 0,
                "Should only be painting things with valid width/height");
 
@@ -341,6 +341,9 @@ nsSVGImageFrame::PaintSVG(nsRenderingContext *aContext,
     nscoord appUnitsPerDevPx = PresContext()->AppUnitsPerDevPixel();
     nsRect dirtyRect; // only used if aDirtyRect is non-null
     if (aDirtyRect) {
+      NS_ASSERTION(!NS_SVGDisplayListPaintingEnabled() ||
+                   (mState & NS_STATE_SVG_NONDISPLAY_CHILD),
+                   "Display lists handle dirty rect intersection test");
       dirtyRect = aDirtyRect->ToAppUnits(appUnitsPerDevPx);
       // Adjust dirtyRect to match our local coordinate system.
       nsRect rootRect =
@@ -367,7 +370,7 @@ nsSVGImageFrame::PaintSVG(nsRenderingContext *aContext,
         static_cast<nsSVGSVGElement*>(imgRootFrame->GetContent());
       if (!rootSVGElem || !rootSVGElem->IsSVG(nsGkAtoms::svg)) {
         NS_ABORT_IF_FALSE(false, "missing or non-<svg> root node!!");
-        return false;
+        return NS_OK;
       }
 
       // Override preserveAspectRatio in our helper document
@@ -397,7 +400,7 @@ nsSVGImageFrame::PaintSVG(nsRenderingContext *aContext,
         mImageContainer,
         nsLayoutUtils::GetGraphicsFilterForFrame(this),
         nsPoint(0, 0),
-        aDirtyRect ? &dirtyRect : nsnull,
+        aDirtyRect ? &dirtyRect : nullptr,
         drawFlags);
     }
 
@@ -426,7 +429,7 @@ nsSVGImageFrame::GetFrameForPoint(const nsPoint &aPoint)
       if (NS_FAILED(mImageContainer->GetWidth(&nativeWidth)) ||
           NS_FAILED(mImageContainer->GetHeight(&nativeHeight)) ||
           nativeWidth == 0 || nativeHeight == 0) {
-        return nsnull;
+        return nullptr;
       }
 
       if (!nsSVGUtils::HitTestRect(
@@ -435,7 +438,7 @@ nsSVGImageFrame::GetFrameForPoint(const nsPoint &aPoint)
                0, 0, nativeWidth, nativeHeight,
                PresContext()->AppUnitsToDevPixels(aPoint.x),
                PresContext()->AppUnitsToDevPixels(aPoint.y))) {
-        return nsnull;
+        return nullptr;
       }
     }
     // The special case above doesn't apply to vector images, because they
@@ -459,15 +462,15 @@ nsSVGImageFrame::GetType() const
 // Lie about our fill/stroke so that covered region and hit detection work properly
 
 void
-nsSVGImageFrame::UpdateBounds()
+nsSVGImageFrame::ReflowSVG()
 {
-  NS_ASSERTION(nsSVGUtils::OuterSVGIsCallingUpdateBounds(this),
-               "This call is probaby a wasteful mistake");
+  NS_ASSERTION(nsSVGUtils::OuterSVGIsCallingReflowSVG(this),
+               "This call is probably a wasteful mistake");
 
   NS_ABORT_IF_FALSE(!(GetStateBits() & NS_STATE_SVG_NONDISPLAY_CHILD),
-                    "UpdateBounds mechanism not designed for this");
+                    "ReflowSVG mechanism not designed for this");
 
-  if (!nsSVGUtils::NeedsUpdatedBounds(this)) {
+  if (!nsSVGUtils::NeedsReflowSVG(this)) {
     return;
   }
 
@@ -484,10 +487,6 @@ nsSVGImageFrame::UpdateBounds()
   } else {
     mRect.SetEmpty();
   }
-
-  // See bug 614732 comment 32.
-  mCoveredRegion = nsSVGUtils::TransformFrameRectToOuterSVG(
-    mRect, GetCanvasTM(FOR_OUTERSVG_TM), PresContext());
 
   if (mState & NS_FRAME_FIRST_REFLOW) {
     // Make sure we have our filter property (if any) before calling
@@ -575,7 +574,7 @@ NS_IMETHODIMP nsSVGImageListener::OnStopDecode(imgIRequest *aRequest,
   if (!mFrame)
     return NS_ERROR_FAILURE;
 
-  nsSVGUtils::InvalidateAndScheduleBoundsUpdate(mFrame);
+  nsSVGUtils::InvalidateAndScheduleReflowSVG(mFrame);
   return NS_OK;
 }
 
@@ -602,7 +601,7 @@ NS_IMETHODIMP nsSVGImageListener::OnStartContainer(imgIRequest *aRequest,
     return NS_ERROR_FAILURE;
 
   mFrame->mImageContainer = aContainer;
-  nsSVGUtils::InvalidateAndScheduleBoundsUpdate(mFrame);
+  nsSVGUtils::InvalidateAndScheduleReflowSVG(mFrame);
 
   return NS_OK;
 }

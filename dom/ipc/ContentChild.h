@@ -9,25 +9,36 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/PContentChild.h"
+#include "mozilla/dom/ipc/Blob.h"
 
 #include "nsTArray.h"
 #include "nsIConsoleListener.h"
 
 struct ChromePackage;
+class nsIDOMBlob;
 class nsIObserver;
 struct ResourceMapping;
 struct OverrideMapping;
 
 namespace mozilla {
+
+namespace layers {
+class PCompositorChild;
+}
+
 namespace dom {
 
 class AlertObserver;
 class PrefObserver;
 class ConsoleListener;
 class PStorageChild;
+class ClonedMessageData;
 
 class ContentChild : public PContentChild
 {
+    typedef layers::PCompositorChild PCompositorChild;
+    typedef mozilla::dom::ClonedMessageData ClonedMessageData;
+
 public:
     ContentChild();
     virtual ~ContentChild();
@@ -52,15 +63,19 @@ public:
         return mAppInfo;
     }
 
-    /* if you remove this, please talk to cjones or dougt */
-    virtual bool RecvDummy(Shmem& foo) { return true; }
+    PCompositorChild* AllocPCompositor(mozilla::ipc::Transport* aTransport,
+                                       base::ProcessId aOtherProcess) MOZ_OVERRIDE;
 
     virtual PBrowserChild* AllocPBrowser(const PRUint32& aChromeFlags,
-                                         const bool& aIsBrowserFrame);
+                                         const bool& aIsBrowserElement,
+                                         const PRUint32& aAppId);
     virtual bool DeallocPBrowser(PBrowserChild*);
 
     virtual PDeviceStorageRequestChild* AllocPDeviceStorageRequest(const DeviceStorageParams&);
     virtual bool DeallocPDeviceStorageRequest(PDeviceStorageRequestChild*);
+
+    virtual PBlobChild* AllocPBlob(const BlobConstructorParams& aParams);
+    virtual bool DeallocPBlob(PBlobChild*);
 
     virtual PCrashReporterChild*
     AllocPCrashReporter(const mozilla::dom::NativeThreadId& id,
@@ -68,8 +83,8 @@ public:
     virtual bool
     DeallocPCrashReporter(PCrashReporterChild*);
 
-    NS_OVERRIDE virtual PHalChild* AllocPHal();
-    NS_OVERRIDE virtual bool DeallocPHal(PHalChild*);
+    virtual PHalChild* AllocPHal() MOZ_OVERRIDE;
+    virtual bool DeallocPHal(PHalChild*) MOZ_OVERRIDE;
 
     virtual PIndexedDBChild* AllocPIndexedDB();
     virtual bool DeallocPIndexedDB(PIndexedDBChild* aActor);
@@ -126,7 +141,8 @@ public:
 
     virtual bool RecvNotifyAlertsObserver(const nsCString& aType, const nsString& aData);
 
-    virtual bool RecvAsyncMessage(const nsString& aMsg, const nsString& aJSON);
+    virtual bool RecvAsyncMessage(const nsString& aMsg,
+                                  const ClonedMessageData& aData);
 
     virtual bool RecvGeolocationUpdate(const GeoPosition& somewhere);
 
@@ -146,6 +162,8 @@ public:
 
     virtual bool RecvLastPrivateDocShellDestroyed();
 
+    virtual bool RecvFilePathUpdate(const nsString& path, const nsCString& reason);
+
 #ifdef ANDROID
     gfxIntSize GetScreenSize() { return mScreenSize; }
 #endif
@@ -156,12 +174,12 @@ public:
 
     PRUint64 GetID() { return mID; }
 
-private:
-    NS_OVERRIDE
-    virtual void ActorDestroy(ActorDestroyReason why);
+    BlobChild* GetOrCreateActorForBlob(nsIDOMBlob* aBlob);
 
-    NS_OVERRIDE
-    virtual void ProcessingError(Result what);
+private:
+    virtual void ActorDestroy(ActorDestroyReason why) MOZ_OVERRIDE;
+
+    virtual void ProcessingError(Result what) MOZ_OVERRIDE;
 
     /**
      * Exit *now*.  Do not shut down XPCOM, do not pass Go, do not run

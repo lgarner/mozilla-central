@@ -19,6 +19,9 @@ class nsCocoaWindow;
 class nsChildView;
 class nsMenuBarX;
 
+// Value copied from BITMAP_MAX_AREA, used in nsNativeThemeCocoa.mm
+#define CUIDRAW_MAX_AREA 500000
+
 // If we are using an SDK older than 10.7, define bits we need that are missing
 // from it.
 #if !defined(MAC_OS_X_VERSION_10_7) || \
@@ -205,16 +208,16 @@ public:
                                    const nsIntRect &aRect,
                                    EVENT_CALLBACK aHandleEventFunction,
                                    nsDeviceContext *aContext,
-                                   nsWidgetInitData *aInitData = nsnull);
+                                   nsWidgetInitData *aInitData = nullptr);
 
     NS_IMETHOD              Destroy();
 
     NS_IMETHOD              Show(bool aState);
     virtual nsIWidget*      GetSheetWindowParent(void);
     NS_IMETHOD              Enable(bool aState);
-    NS_IMETHOD              IsEnabled(bool *aState);
+    virtual bool            IsEnabled() const;
     NS_IMETHOD              SetModal(bool aState);
-    NS_IMETHOD              IsVisible(bool & aState);
+    virtual bool            IsVisible() const;
     NS_IMETHOD              SetFocus(bool aState=false);
     virtual nsIntPoint WidgetToScreenOffset();
     virtual nsIntPoint GetClientOffset();
@@ -224,6 +227,7 @@ public:
 
     NS_IMETHOD              ConstrainPosition(bool aAllowSlop,
                                               PRInt32 *aX, PRInt32 *aY);
+    virtual void            SetSizeConstraints(const SizeConstraints& aConstraints);
     NS_IMETHOD              Move(PRInt32 aX, PRInt32 aY);
     NS_IMETHOD              PlaceBehind(nsTopLevelWidgetZPlacement aPlacement,
                                         nsIWidget *aWidget, bool aActivate);
@@ -244,10 +248,10 @@ public:
 
     NS_IMETHOD Invalidate(const nsIntRect &aRect);
     virtual nsresult ConfigureChildren(const nsTArray<Configuration>& aConfigurations);
-    virtual LayerManager* GetLayerManager(PLayersChild* aShadowManager = nsnull,
-                                          LayersBackend aBackendHint = LayerManager::LAYERS_NONE,
+    virtual LayerManager* GetLayerManager(PLayersChild* aShadowManager = nullptr,
+                                          LayersBackend aBackendHint = mozilla::layers::LAYERS_NONE,
                                           LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
-                                          bool* aAllowRetaining = nsnull);
+                                          bool* aAllowRetaining = nullptr);
     NS_IMETHOD DispatchEvent(nsGUIEvent* event, nsEventStatus & aStatus) ;
     NS_IMETHOD CaptureRollupEvents(nsIRollupListener * aListener, bool aDoCapture, bool aConsumeRollupEvent);
     NS_IMETHOD GetAttention(PRInt32 aCycleCount);

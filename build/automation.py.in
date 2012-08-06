@@ -18,6 +18,7 @@ import sys
 import threading
 import tempfile
 import sqlite3
+from string import Template
 
 SCRIPT_DIR = os.path.abspath(os.path.realpath(os.path.dirname(sys.argv[0])))
 sys.path.insert(0, SCRIPT_DIR)
@@ -284,6 +285,63 @@ class Automation(object):
     permDB.commit()
     cursor.close()
 
+  def setupTestApps(self, profileDir, apps):
+    webappJSONTemplate = Template(""""$name": {
+"origin": "$origin",
+"installOrigin": "$origin",
+"receipt": null,
+"installTime": 132333986000,
+"manifestURL": "$manifestURL",
+"localId": $localId
+}""")
+
+    manifestTemplate = Template("""{
+  "name": "$name",
+  "description": "$description",
+  "launch_path": "/",
+  "developer": {
+    "name": "Mozilla",
+    "url": "https://mozilla.org/"
+  },
+  "permissions": [
+  ],
+  "locales": {
+    "en-US": {
+      "name": "$name",
+      "description": "$description"
+    }
+  },
+  "default_locale": "en-US",
+  "icons": {
+  }
+}
+""")
+
+    # Create webapps/webapps.json
+    webappsDir = os.path.join(profileDir, "webapps")
+    os.mkdir(webappsDir);
+
+    webappsJSON = []
+    for localId, app in enumerate(apps):
+      app['localId'] = localId + 1 # Has to be 1..n
+      webappsJSON.append(webappJSONTemplate.substitute(app))
+    webappsJSON = '{\n' + ',\n'.join(webappsJSON) + '\n}\n'
+
+    webappsJSONFile = open(os.path.join(webappsDir, "webapps.json"), "a")
+    webappsJSONFile.write(webappsJSON)
+    webappsJSONFile.close()
+
+    # Create manifest file for each app.
+    for app in apps:
+      manifest = manifestTemplate.substitute(app)
+
+      manifestDir = os.path.join(webappsDir, app['name'])
+      os.mkdir(manifestDir)
+
+      manifestFile = open(os.path.join(manifestDir, "manifest.webapp"), "a")
+      manifestFile.write(manifest)
+      manifestFile.close()
+
   def initializeProfile(self, profileDir, extraPrefs = [], useServerLocations = False):
     " Sets up the standard testing profile."
 
@@ -359,9 +417,9 @@ user_pref("camino.warn_when_closing", false); // Camino-only, harmless to others
 // Make url-classifier updates so rare that they won't affect tests
 user_pref("urlclassifier.updateinterval", 172800);
 // Point the url-classifier to the local testing server for fast failures
-user_pref("browser.safebrowsing.provider.0.gethashURL", "http://%(server)s/safebrowsing-dummy/gethash");
-user_pref("browser.safebrowsing.provider.0.keyURL", "http://%(server)s/safebrowsing-dummy/newkey");
-user_pref("browser.safebrowsing.provider.0.updateURL", "http://%(server)s/safebrowsing-dummy/update");
+user_pref("browser.safebrowsing.gethashURL", "http://%(server)s/safebrowsing-dummy/gethash");
+user_pref("browser.safebrowsing.keyURL", "http://%(server)s/safebrowsing-dummy/newkey");
+user_pref("browser.safebrowsing.updateURL", "http://%(server)s/safebrowsing-dummy/update");
 // Point update checks to the local testing server for fast failures
 user_pref("extensions.update.url", "http://%(server)s/extensions-dummy/updateURL");
 user_pref("extensions.update.background.url", "http://%(server)s/extensions-dummy/updateBackgroundURL");
@@ -462,6 +520,40 @@ user_pref("camino.use_system_proxy_settings", false); // Camino-only, harmless t
     prefsFile = open(profileDir + "/" + "user.js", "a")
     prefsFile.write("".join(prefs))
     prefsFile.close()
+
+    apps = [
+      {
+        'name': 'http_example_org',
+        'origin': 'http://example.org',
+        'manifestURL': 'http://example.org/manifest.webapp',
+        'description': 'http://example.org App'
+      },
+      {
+        'name': 'https_example_com',
+        'origin': 'https://example.com',
+        'manifestURL': 'https://example.com/manifest.webapp',
+        'description': 'https://example.com App'
+      },
+      {
+        'name': 'http_test1_example_org',
+        'origin': 'http://test1.example.org',
+        'manifestURL': 'http://test1.example.org/manifest.webapp',
+        'description': 'http://test1.example.org App'
+      },
+      {
+        'name': 'http_test1_example_org_8000',
+        'origin': 'http://test1.example.org:8000',
+        'manifestURL': 'http://test1.example.org:8000/manifest.webapp',
+        'description': 'http://test1.example.org:8000 App'
+      },
+      {
+        'name': 'http_sub1_test1_example_org',
+        'origin': 'http://sub1.test1.example.org',
+        'manifestURL': 'http://sub1.test1.example.org/manifest.webapp',
+        'description': 'http://sub1.test1.example.org App'
+      },
+    ];
+    self.setupTestApps(profileDir, apps)
 
   def addCommonOptions(self, parser):
     "Adds command-line options which are common to mochitest and reftest."
@@ -727,7 +819,7 @@ user_pref("camino.use_system_proxy_settings", false); // Camino-only, harmless t
     self.log.info("Can't trigger Breakpad, just killing process")
     proc.kill()
 
-  def waitForFinish(self, proc, utilityPath, timeout, maxTime, startTime, debuggerInfo, symbolsPath, logger):
+  def waitForFinish(self, proc, utilityPath, timeout, maxTime, startTime, debuggerInfo, symbolsPath):
     """ Look for timeout or crashes and return the status after the process terminates """
     stackFixerProcess = None
     stackFixerFunction = None
@@ -764,8 +856,6 @@ user_pref("camino.use_system_proxy_settings", false); // Camino-only, harmless t
         if stackFixerFunction:
           line = stackFixerFunction(line)
         self.log.info(line.rstrip().decode("UTF-8", "ignore"))
-        if logger:
-          logger.log(line)
         if "TEST-START" in line and "|" in line:
           self.lastTestSeen = line.split("|")[1].strip()
         if not debuggerInfo and "TEST-UNEXPECTED-FAIL" in line and "Test timed out" in line:
@@ -855,7 +945,7 @@ user_pref("camino.use_system_proxy_settings", false); // Camino-only, harmless t
 
   def runApp(self, testURL, env, app, profileDir, extraArgs,
              runSSLTunnel = False, utilityPath = None,
-             xrePath = None, certPath = None, logger = None,
+             xrePath = None, certPath = None,
              debuggerInfo = None, symbolsPath = None,
              timeout = -1, maxTime = None):
     """
@@ -914,7 +1004,7 @@ user_pref("camino.use_system_proxy_settings", false); // Camino-only, harmless t
                  stderr = subprocess.STDOUT)
     self.log.info("INFO | automation.py | Application pid: %d", proc.pid)
 
-    status = self.waitForFinish(proc, utilityPath, timeout, maxTime, startTime, debuggerInfo, symbolsPath, logger)
+    status = self.waitForFinish(proc, utilityPath, timeout, maxTime, startTime, debuggerInfo, symbolsPath)
     self.log.info("INFO | automation.py | Application ran for: %s", str(datetime.now() - startTime))
 
     # Do a final check for zombie child processes.

@@ -86,6 +86,161 @@ GetCommonUnit(nsCSSProperty aProperty,
   return aFirstUnit;
 }
 
+static nsCSSKeyword
+ToPrimitive(nsCSSKeyword aKeyword)
+{
+  switch (aKeyword) {
+    case eCSSKeyword_translatex:
+    case eCSSKeyword_translatey:
+    case eCSSKeyword_translatez:
+    case eCSSKeyword_translate:
+      return eCSSKeyword_translate3d;
+    case eCSSKeyword_scalex:
+    case eCSSKeyword_scaley:
+    case eCSSKeyword_scalez:
+    case eCSSKeyword_scale:
+      return eCSSKeyword_scale3d;
+    default:
+      return aKeyword;
+  }
+}
+
+static already_AddRefed<nsCSSValue::Array>
+AppendFunction(nsCSSKeyword aTransformFunction)
+{
+  PRUint32 nargs;
+  switch (aTransformFunction) {
+    case eCSSKeyword_matrix3d:
+      nargs = 16;
+      break;
+    case eCSSKeyword_matrix:
+      nargs = 6;
+      break;
+    case eCSSKeyword_rotate3d:
+      nargs = 4;
+      break;
+    case eCSSKeyword_interpolatematrix:
+    case eCSSKeyword_translate3d:
+    case eCSSKeyword_scale3d:
+      nargs = 3;
+      break;
+    case eCSSKeyword_translate:
+    case eCSSKeyword_skew:
+    case eCSSKeyword_scale:
+      nargs = 2;
+      break;
+    default:
+      NS_ERROR("must be a transform function");
+    case eCSSKeyword_translatex:
+    case eCSSKeyword_translatey:
+    case eCSSKeyword_translatez:
+    case eCSSKeyword_scalex:
+    case eCSSKeyword_scaley:
+    case eCSSKeyword_scalez:
+    case eCSSKeyword_skewx:
+    case eCSSKeyword_skewy:
+    case eCSSKeyword_rotate:
+    case eCSSKeyword_rotatex:
+    case eCSSKeyword_rotatey:
+    case eCSSKeyword_rotatez:
+    case eCSSKeyword_perspective:
+      nargs = 1;
+      break;
+  }
+
+  nsRefPtr<nsCSSValue::Array> arr = nsCSSValue::Array::Create(nargs + 1);
+  arr->Item(0).SetStringValue(
+    NS_ConvertUTF8toUTF16(nsCSSKeywords::GetStringValue(aTransformFunction)),
+    eCSSUnit_Ident);
+
+  return arr.forget();
+}
+
+static already_AddRefed<nsCSSValue::Array>
+ToPrimitive(nsCSSValue::Array* aArray)
+{
+  nsCSSKeyword tfunc = nsStyleTransformMatrix::TransformFunctionOf(aArray);
+  nsCSSKeyword primitive = ToPrimitive(tfunc);
+  nsRefPtr<nsCSSValue::Array> arr = AppendFunction(primitive);
+
+  // FIXME: This would produce fewer calc() expressions if the
+  // zero were of compatible type (length vs. percent) when
+  // needed.
+
+  nsCSSValue zero(0.0f, eCSSUnit_Pixel);
+  nsCSSValue one(1.0f, eCSSUnit_Number);
+  switch(tfunc) {
+    case eCSSKeyword_translate:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2 || aArray->Count() == 3,
+                        "unexpected count");
+      arr->Item(1) = aArray->Item(1);
+      arr->Item(2) = aArray->Count() == 3 ? aArray->Item(2) : zero;
+      arr->Item(3) = zero;
+      break;
+    }
+    case eCSSKeyword_translatex:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2, "unexpected count");
+      arr->Item(1) = aArray->Item(1);
+      arr->Item(2) = zero;
+      arr->Item(3) = zero;
+      break;
+    }
+    case eCSSKeyword_translatey:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2, "unexpected count");
+      arr->Item(1) = zero;
+      arr->Item(2) = aArray->Item(1);
+      arr->Item(3) = zero;
+      break;
+    }
+    case eCSSKeyword_translatez:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2, "unexpected count");
+      arr->Item(1) = zero;
+      arr->Item(2) = zero;
+      arr->Item(3) = aArray->Item(1);
+      break;
+    }
+    case eCSSKeyword_scale:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2 || aArray->Count() == 3,
+                        "unexpected count");
+      arr->Item(1) = aArray->Item(1);
+      arr->Item(2) = aArray->Count() == 3 ? aArray->Item(2) : aArray->Item(1);
+      arr->Item(3) = one;
+      break;
+    }
+    case eCSSKeyword_scalex:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2, "unexpected count");
+      arr->Item(1) = aArray->Item(1);
+      arr->Item(2) = one;
+      arr->Item(3) = one;
+      break;
+    }
+    case eCSSKeyword_scaley:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2, "unexpected count");
+      arr->Item(1) = one;
+      arr->Item(2) = aArray->Item(1);
+      arr->Item(3) = one;
+      break;
+    }
+    case eCSSKeyword_scalez:
+    {
+      NS_ABORT_IF_FALSE(aArray->Count() == 2, "unexpected count");
+      arr->Item(1) = one;
+      arr->Item(2) = one;
+      arr->Item(3) = aArray->Item(1);
+      break;
+    }
+    default:
+      arr = aArray;
+  }
+  return arr.forget();
+}
 
 // Greatest Common Divisor
 static PRUint32
@@ -221,7 +376,7 @@ GetURIAsUtf16StringBuffer(nsIURI* aUri)
 {
   nsCAutoString utf8String;
   nsresult rv = aUri->GetSpec(utf8String);
-  NS_ENSURE_SUCCESS(rv, nsnull);
+  NS_ENSURE_SUCCESS(rv, nullptr);
 
   return nsCSSValue::BufferFromString(NS_ConvertUTF8toUTF16(utf8String));
 }
@@ -409,7 +564,7 @@ nsStyleAnimation::ComputeDistance(nsCSSProperty aProperty,
       unit[2] = GetCommonUnit(aProperty, triplet1->mZValue.GetUnit(),
                               triplet2->mZValue.GetUnit());
       if (unit[0] == eCSSUnit_Null || unit[1] == eCSSUnit_Null ||
-          unit[0] == eCSSUnit_URL) {
+          unit[2] == eCSSUnit_Null) {
         return false;
       }
 
@@ -968,54 +1123,11 @@ AddTransformScale(const nsCSSValue &aValue1, double aCoeff1,
   aResult.SetFloatValue(result + 1.0f, eCSSUnit_Number);
 }
 
-static already_AddRefed<nsCSSValue::Array>
-AppendTransformFunction(nsCSSKeyword aTransformFunction,
-                        nsCSSValueList**& aListTail)
+/* static */ already_AddRefed<nsCSSValue::Array>
+nsStyleAnimation::AppendTransformFunction(nsCSSKeyword aTransformFunction,
+                                          nsCSSValueList**& aListTail)
 {
-  PRUint32 nargs;
-  switch (aTransformFunction) {
-    case eCSSKeyword_matrix3d:
-      nargs = 16;
-      break;
-    case eCSSKeyword_matrix:
-      nargs = 6;
-      break;
-    case eCSSKeyword_rotate3d:
-      nargs = 4;
-      break;
-    case eCSSKeyword_interpolatematrix:
-    case eCSSKeyword_translate3d:
-    case eCSSKeyword_scale3d:
-      nargs = 3;
-      break;
-    case eCSSKeyword_translate:
-    case eCSSKeyword_scale:
-      nargs = 2;
-      break;
-    default:
-      NS_ERROR("must be a transform function");
-    case eCSSKeyword_translatex:
-    case eCSSKeyword_translatey:
-    case eCSSKeyword_translatez:
-    case eCSSKeyword_scalex:
-    case eCSSKeyword_scaley:
-    case eCSSKeyword_scalez:
-    case eCSSKeyword_skewx:
-    case eCSSKeyword_skewy:
-    case eCSSKeyword_rotate:
-    case eCSSKeyword_rotatex:
-    case eCSSKeyword_rotatey:
-    case eCSSKeyword_rotatez:
-    case eCSSKeyword_perspective:
-      nargs = 1;
-      break;
-  }
-
-  nsRefPtr<nsCSSValue::Array> arr = nsCSSValue::Array::Create(nargs + 1);
-  arr->Item(0).SetStringValue(
-    NS_ConvertUTF8toUTF16(nsCSSKeywords::GetStringValue(aTransformFunction)),
-    eCSSUnit_Ident);
-
+  nsRefPtr<nsCSSValue::Array> arr = AppendFunction(aTransformFunction);
   nsCSSValueList *item = new nsCSSValueList;
   item->mValue.SetArrayValue(arr, eCSSUnit_Function);
 
@@ -1091,6 +1203,59 @@ AppendTransformFunction(nsCSSKeyword aTransformFunction,
  *     Thus, after step 5, C = -sin(φ), D = cos(φ), and the XY shear is tan(φ).
  *     Thus, in step 6, A * D - B * C = cos²(φ) + sin²(φ) = 1.
  *     In step 7, the rotation is thus φ.
+ *
+ *   skew(θ, φ), which is matrix(1, tan(φ), tan(θ), 1, 0, 0), which decomposes
+ *   to 'rotate(φ) skewX(θ + φ) scale(sec(φ), cos(φ))' since (ignoring
+ *   the alternate sign possibilities that would get fixed in step 6):
+ *     In step 3, the X scale factor is sqrt(1+tan²(φ)) = sqrt(sec²(φ)) = sec(φ).
+ *     Thus, after step 3, A = 1/sec(φ) = cos(φ) and B = tan(φ) / sec(φ) = sin(φ).
+ *     In step 4, the XY shear is cos(φ)tan(θ) + sin(φ).
+ *     Thus, after step 4,
+ *     C = tan(θ) - cos(φ)(cos(φ)tan(θ) + sin(φ)) = tan(θ)sin²(φ) - cos(φ)sin(φ)
+ *     D = 1 - sin(φ)(cos(φ)tan(θ) + sin(φ)) = cos²(φ) - sin(φ)cos(φ)tan(θ)
+ *     Thus, in step 5, the Y scale is sqrt(C² + D²) =
+ *     sqrt(tan²(θ)(sin⁴(φ) + sin²(φ)cos²(φ)) -
+ *          2 tan(θ)(sin³(φ)cos(φ) + sin(φ)cos³(φ)) +
+ *          (sin²(φ)cos²(φ) + cos⁴(φ))) =
+ *     sqrt(tan²(θ)sin²(φ) - 2 tan(θ)sin(φ)cos(φ) + cos²(φ)) =
+ *     cos(φ) - tan(θ)sin(φ) (taking the negative of the obvious solution so
+ *     we avoid flipping in step 6).
+ *     After step 5, C = -sin(φ) and D = cos(φ), and the XY shear is
+ *     (cos(φ)tan(θ) + sin(φ)) / (cos(φ) - tan(θ)sin(φ)) =
+ *     (dividing both numerator and denominator by cos(φ))
+ *     (tan(θ) + tan(φ)) / (1 - tan(θ)tan(φ)) = tan(θ + φ).
+ *     (See http://en.wikipedia.org/wiki/List_of_trigonometric_identities .)
+ *     Thus, in step 6, A * D - B * C = cos²(φ) + sin²(φ) = 1.
+ *     In step 7, the rotation is thus φ.
+ *
+ *     To check this result, we can multiply things back together:
+ *
+ *     [ cos(φ) -sin(φ) ] [ 1 tan(θ + φ) ] [ sec(φ)    0   ]
+ *     [ sin(φ)  cos(φ) ] [ 0      1     ] [   0    cos(φ) ]
+ *
+ *     [ cos(φ)      cos(φ)tan(θ + φ) - sin(φ) ] [ sec(φ)    0   ]
+ *     [ sin(φ)      sin(φ)tan(θ + φ) + cos(φ) ] [   0    cos(φ) ]
+ *
+ *     but since tan(θ + φ) = (tan(θ) + tan(φ)) / (1 - tan(θ)tan(φ)),
+ *     cos(φ)tan(θ + φ) - sin(φ)
+ *      = cos(φ)(tan(θ) + tan(φ)) - sin(φ) + sin(φ)tan(θ)tan(φ)
+ *      = cos(φ)tan(θ) + sin(φ) - sin(φ) + sin(φ)tan(θ)tan(φ)
+ *      = cos(φ)tan(θ) + sin(φ)tan(θ)tan(φ)
+ *      = tan(θ) (cos(φ) + sin(φ)tan(φ))
+ *      = tan(θ) sec(φ) (cos²(φ) + sin²(φ))
+ *      = tan(θ) sec(φ)
+ *     and
+ *     sin(φ)tan(θ + φ) + cos(φ)
+ *      = sin(φ)(tan(θ) + tan(φ)) + cos(φ) - cos(φ)tan(θ)tan(φ)
+ *      = tan(θ) (sin(φ) - sin(φ)) + sin(φ)tan(φ) + cos(φ)
+ *      = sec(φ) (sin²(φ) + cos²(φ))
+ *      = sec(φ)
+ *     so the above is:
+ *     [ cos(φ)  tan(θ) sec(φ) ] [ sec(φ)    0   ]
+ *     [ sin(φ)     sec(φ)     ] [   0    cos(φ) ]
+ *
+ *     [    1   tan(θ) ]
+ *     [ tan(φ)    1   ]
  */
 
 /*
@@ -1173,7 +1338,7 @@ Decompose3DMatrix(const gfx3DMatrix &aMatrix, gfxPoint3D &aScale,
   /* Normalize the matrix */
   local.Normalize();
 
-  /** 
+  /**
    * perspective is used to solve for perspective, but it also provides
    * an easy way to test for singularity of the upper 3x3 component.
    */
@@ -1191,13 +1356,13 @@ Decompose3DMatrix(const gfx3DMatrix &aMatrix, gfxPoint3D &aScale,
     /* aPerspective is the right hand side of the equation. */
     aPerspective = local.TransposedVector(3);
 
-    /** 
+    /**
      * Solve the equation by inverting perspective and multiplying
      * aPerspective by the inverse.
      */
     perspective.Invert();
     aPerspective = perspective.TransposeTransform4D(aPerspective);
-    
+
     /* Clear the perspective partition */
     local.SetTransposedVector(3, empty);
   } else {
@@ -1215,11 +1380,11 @@ Decompose3DMatrix(const gfx3DMatrix &aMatrix, gfxPoint3D &aScale,
   /* Compute X scale factor and normalize first row. */
   aScale.x = local[0].Length();
   local[0] /= aScale.x;
-    
+
   /* Compute XY shear factor and make 2nd local orthogonal to 1st. */
   aShear[XYSHEAR] = local[0].DotProduct(local[1]);
   local[1] -= local[0] * aShear[XYSHEAR];
-  
+
   /* Now, compute Y scale and normalize 2nd local. */
   aScale.y = local[1].Length();
   local[1] /= aScale.y;
@@ -1296,11 +1461,11 @@ nsStyleAnimation::InterpolateTransformMatrix(const gfx3DMatrix &aMatrix1,
   // Interpolate each of the pieces
   gfx3DMatrix result;
 
-  gfxPointH3D perspective = 
+  gfxPointH3D perspective =
     InterpolateNumerically(perspective1, perspective2, aProgress);
   result.SetTransposedVector(3, perspective);
- 
-  gfxPoint3D translate = 
+
+  gfxPoint3D translate =
     InterpolateNumerically(translate1, translate2, aProgress);
   result.Translate(translate);
 
@@ -1329,7 +1494,7 @@ nsStyleAnimation::InterpolateTransformMatrix(const gfx3DMatrix &aMatrix1,
     result.SkewXY(xyshear);
   }
 
-  gfxPoint3D scale = 
+  gfxPoint3D scale =
     InterpolateNumerically(scale1, scale2, aProgress);
   if (scale != gfxPoint3D(1.0, 1.0, 1.0)) {
     result.Scale(scale.x, scale.y, scale.z);
@@ -1346,8 +1511,8 @@ AddDifferentTransformLists(const nsCSSValueList* aList1, double aCoeff1,
   nsCSSValueList **resultTail = getter_Transfers(result);
 
   nsRefPtr<nsCSSValue::Array> arr;
-  arr = AppendTransformFunction(eCSSKeyword_interpolatematrix, resultTail);
-  
+  arr = nsStyleAnimation::AppendTransformFunction(eCSSKeyword_interpolatematrix, resultTail);
+
   // FIXME: We should change the other transform code to also only
   // take a single progress value, as having values that don't
   // sum to 1 doesn't make sense for these.
@@ -1366,15 +1531,7 @@ AddDifferentTransformLists(const nsCSSValueList* aList1, double aCoeff1,
 static bool
 TransformFunctionsMatch(nsCSSKeyword func1, nsCSSKeyword func2)
 {
-  if (func1 == func2) {
-    return true;
-  }
-
-  if ((func1 == eCSSKeyword_rotatez && func2 == eCSSKeyword_rotate) ||
-      (func1 == eCSSKeyword_rotate && func2 == eCSSKeyword_rotatez)) {
-    return true;
-  }
-  return false;
+  return ToPrimitive(func1) == ToPrimitive(func2);
 }
 
 static nsCSSValueList*
@@ -1385,8 +1542,8 @@ AddTransformLists(const nsCSSValueList* aList1, double aCoeff1,
   nsCSSValueList **resultTail = getter_Transfers(result);
 
   do {
-    const nsCSSValue::Array *a1 = aList1->mValue.GetArrayValue(),
-                            *a2 = aList2->mValue.GetArrayValue();
+    nsRefPtr<nsCSSValue::Array> a1 = ToPrimitive(aList1->mValue.GetArrayValue()),
+                                a2 = ToPrimitive(aList2->mValue.GetArrayValue());
     NS_ABORT_IF_FALSE(TransformFunctionsMatch(nsStyleTransformMatrix::TransformFunctionOf(a1),
                                               nsStyleTransformMatrix::TransformFunctionOf(a2)),
                       "transform function mismatch");
@@ -1400,42 +1557,10 @@ AddTransformLists(const nsCSSValueList* aList1, double aCoeff1,
         tfunc != eCSSKeyword_interpolatematrix &&
         tfunc != eCSSKeyword_rotate3d &&
         tfunc != eCSSKeyword_perspective) {
-      arr = AppendTransformFunction(tfunc, resultTail);
+      arr = nsStyleAnimation::AppendTransformFunction(tfunc, resultTail);
     }
 
     switch (tfunc) {
-      case eCSSKeyword_translate: {
-        NS_ABORT_IF_FALSE(a1->Count() == 2 || a1->Count() == 3,
-                          "unexpected count");
-        NS_ABORT_IF_FALSE(a2->Count() == 2 || a2->Count() == 3,
-                          "unexpected count");
-
-        // FIXME: This would produce fewer calc() expressions if the
-        // zero were of compatible type (length vs. percent) when
-        // needed.
-        nsCSSValue zero(0.0f, eCSSUnit_Pixel);
-        // Add Y component of translation.
-        AddTransformTranslate(a1->Count() == 3 ? a1->Item(2) : zero,
-                              aCoeff1,
-                              a2->Count() == 3 ? a2->Item(2) : zero,
-                              aCoeff2,
-                              arr->Item(2));
-
-        // Add X component of translation (which can be merged with case
-        // below in non-DEBUG).
-        AddTransformTranslate(a1->Item(1), aCoeff1, a2->Item(1), aCoeff2,
-                              arr->Item(1));
-        break;
-      }
-      case eCSSKeyword_translatex:
-      case eCSSKeyword_translatey:
-      case eCSSKeyword_translatez: {
-        NS_ABORT_IF_FALSE(a1->Count() == 2, "unexpected count");
-        NS_ABORT_IF_FALSE(a2->Count() == 2, "unexpected count");
-        AddTransformTranslate(a1->Item(1), aCoeff1, a2->Item(1), aCoeff2,
-                              arr->Item(1));
-        break;
-      }
       case eCSSKeyword_translate3d: {
           NS_ABORT_IF_FALSE(a1->Count() == 4, "unexpected count");
           NS_ABORT_IF_FALSE(a2->Count() == 4, "unexpected count");
@@ -1446,39 +1571,6 @@ AddTransformLists(const nsCSSValueList* aList1, double aCoeff1,
           AddTransformTranslate(a1->Item(3), aCoeff1, a2->Item(3), aCoeff2,
                                 arr->Item(3));
           break;
-      }
-      case eCSSKeyword_scale: {
-        NS_ABORT_IF_FALSE(a1->Count() == 2 || a1->Count() == 3,
-                          "unexpected count");
-        NS_ABORT_IF_FALSE(a2->Count() == 2 || a2->Count() == 3,
-                          "unexpected count");
-
-        // This is different from translate(), since an omitted second
-        // parameter repeats the first rather than being zero.
-        // Add Y component of scale.
-        AddTransformScale(a1->Count() == 3 ? a1->Item(2) : a1->Item(1),
-                          aCoeff1,
-                          a2->Count() == 3 ? a2->Item(2) : a2->Item(1),
-                          aCoeff2,
-                          arr->Item(2));
-
-        // Add X component of scale (which can be merged with case below
-        // in non-DEBUG).
-        AddTransformScale(a1->Item(1), aCoeff1, a2->Item(1), aCoeff2,
-                          arr->Item(1));
-
-        break;
-      }
-      case eCSSKeyword_scalex:
-      case eCSSKeyword_scaley: 
-      case eCSSKeyword_scalez: {
-        NS_ABORT_IF_FALSE(a1->Count() == 2, "unexpected count");
-        NS_ABORT_IF_FALSE(a2->Count() == 2, "unexpected count");
-
-        AddTransformScale(a1->Item(1), aCoeff1, a2->Item(1), aCoeff2,
-                          arr->Item(1));
-
-        break;
       }
       case eCSSKeyword_scale3d: {
           NS_ABORT_IF_FALSE(a1->Count() == 4, "unexpected count");
@@ -1498,6 +1590,27 @@ AddTransformLists(const nsCSSValueList* aList1, double aCoeff1,
       // skews with infinite tangents, and behavior changes pretty
       // drastically when crossing such skews (since the direction of
       // animation flips), so interop is probably more important here.
+      case eCSSKeyword_skew: {
+        NS_ABORT_IF_FALSE(a1->Count() == 2 || a1->Count() == 3,
+                          "unexpected count");
+        NS_ABORT_IF_FALSE(a2->Count() == 2 || a2->Count() == 3,
+                          "unexpected count");
+
+        nsCSSValue zero(0.0f, eCSSUnit_Radian);
+        // Add Y component of skew.
+        AddCSSValueAngle(a1->Count() == 3 ? a1->Item(2) : zero,
+                         aCoeff1,
+                         a2->Count() == 3 ? a2->Item(2) : zero,
+                         aCoeff2,
+                         arr->Item(2));
+
+        // Add X component of skew (which can be merged with case below
+        // in non-DEBUG).
+        AddCSSValueAngle(a1->Item(1), aCoeff1, a2->Item(1), aCoeff2,
+                         arr->Item(1));
+
+        break;
+      }
       case eCSSKeyword_skewx:
       case eCSSKeyword_skewy:
       case eCSSKeyword_rotate:
@@ -1743,13 +1856,6 @@ nsStyleAnimation::AddWeighted(nsCSSProperty aProperty,
       nsCSSValueTriplet triplet1(*aValue1.GetCSSValueTripletValue());
       nsCSSValueTriplet triplet2(*aValue2.GetCSSValueTripletValue());
 
-      if (triplet1.mZValue.GetUnit() == eCSSUnit_Null) {
-        triplet1.mZValue.SetFloatValue(0.0, eCSSUnit_Pixel);
-      }
-      if (triplet2.mZValue.GetUnit() == eCSSUnit_Null) {
-          triplet2.mZValue.SetFloatValue(0.0, eCSSUnit_Pixel);
-      }
-
       nsCSSUnit unit[3];
       unit[0] = GetCommonUnit(aProperty, triplet1.mXValue.GetUnit(),
                               triplet2.mXValue.GetUnit());
@@ -1758,7 +1864,7 @@ nsStyleAnimation::AddWeighted(nsCSSProperty aProperty,
       unit[2] = GetCommonUnit(aProperty, triplet1.mZValue.GetUnit(),
                               triplet2.mZValue.GetUnit());
       if (unit[0] == eCSSUnit_Null || unit[1] == eCSSUnit_Null ||
-          unit[0] == eCSSUnit_Null || unit[0] == eCSSUnit_URL) {
+          unit[2] == eCSSUnit_Null) {
         return false;
       }
 
@@ -1776,11 +1882,6 @@ nsStyleAnimation::AddWeighted(nsCSSProperty aProperty,
           NS_ABORT_IF_FALSE(false, "unexpected unit");
           return false;
         }
-      }
-
-      if (result->mZValue.GetUnit() == eCSSUnit_Pixel &&
-          result->mZValue.GetFloatValue() == 0.0f) {
-        result->mZValue.Reset();
       }
 
       aResultValue.SetAndAdoptCSSValueTripletValue(result.forget(),
@@ -1944,8 +2045,8 @@ nsStyleAnimation::AddWeighted(nsCSSProperty aProperty,
 
       // We want to avoid the matrix decomposition when we can, since
       // avoiding it can produce better results both for compound
-      // transforms and for skewY (see below).  We can do this in two
-      // cases:
+      // transforms and for skew and skewY (see below).  We can do this
+      // in two cases:
       //   (1) if one of the transforms is 'none'
       //   (2) if the lists have the same length and the transform
       //       functions match
@@ -2133,10 +2234,10 @@ BuildStyleRule(nsCSSProperty aProperty,
       // check whether property parsed without CSS parsing errors
       !declaration->HasNonImportantValueFor(propertyToCheck)) {
     NS_WARNING("failure in BuildStyleRule");
-    return nsnull;
+    return nullptr;
   }
 
-  nsRefPtr<css::StyleRule> rule = new css::StyleRule(nsnull, declaration.forget());
+  nsRefPtr<css::StyleRule> rule = new css::StyleRule(nullptr, declaration.forget());
   return rule.forget();
 }
 
@@ -2147,9 +2248,9 @@ LookupStyleContext(dom::Element* aElement)
   nsIDocument* doc = aElement->GetCurrentDoc();
   nsIPresShell* shell = doc->GetShell();
   if (!shell) {
-    return nsnull;
+    return nullptr;
   }
-  return nsComputedDOMStyle::GetStyleContextForElement(aElement, nsnull, shell);
+  return nsComputedDOMStyle::GetStyleContextForElement(aElement, nullptr, shell);
 }
 
 bool
@@ -2635,10 +2736,6 @@ nsStyleAnimation::ExtractComputedValue(nsCSSProperty aProperty,
                                     triplet->mZValue)) {
             return false;
           }
-          if (triplet->mZValue.GetUnit() == eCSSUnit_Pixel &&
-              triplet->mZValue.GetFloatValue() == 0.0f) {
-            triplet->mZValue.Reset();
-          }
           aComputedValue.SetAndAdoptCSSValueTripletValue(triplet.forget(),
                                                          eUnit_CSSValueTriplet);
           break;
@@ -2662,7 +2759,7 @@ nsStyleAnimation::ExtractComputedValue(nsCSSProperty aProperty,
 
         case eCSSProperty_stroke_dasharray: {
           const nsStyleSVG *svg = static_cast<const nsStyleSVG*>(styleStruct);
-          NS_ABORT_IF_FALSE((svg->mStrokeDasharray != nsnull) ==
+          NS_ABORT_IF_FALSE((svg->mStrokeDasharray != nullptr) ==
                             (svg->mStrokeDasharrayLength != 0),
                             "pointer/length mismatch");
           nsAutoPtr<nsCSSValueList> result;
@@ -3048,7 +3145,7 @@ nsStyleAnimation::ExtractComputedValue(nsCSSProperty aProperty,
         *static_cast<const nsRefPtr<nsCSSShadowArray>*>(
           StyleDataAtOffset(styleStruct, ssOffset));
       if (!shadowArray) {
-        aComputedValue.SetAndAdoptCSSValueListValue(nsnull, eUnit_Shadow);
+        aComputedValue.SetAndAdoptCSSValueListValue(nullptr, eUnit_Shadow);
         return true;
       }
       nsAutoPtr<nsCSSValueList> result;
@@ -3190,7 +3287,7 @@ nsStyleAnimation::Value::operator=(const Value& aOther)
           mUnit = eUnit_Null;
         }
       } else {
-        mValue.mCSSValueList = nsnull;
+        mValue.mCSSValueList = nullptr;
       }
       break;
     case eUnit_CSSValuePairList:
@@ -3292,7 +3389,7 @@ nsStyleAnimation::Value::SetAndAdoptCSSValueValue(nsCSSValue *aValue,
 {
   FreeValue();
   NS_ABORT_IF_FALSE(IsCSSValueUnit(aUnit), "bad unit");
-  NS_ABORT_IF_FALSE(aValue != nsnull, "values may not be null");
+  NS_ABORT_IF_FALSE(aValue != nullptr, "values may not be null");
   mUnit = aUnit;
   mValue.mCSSValue = aValue; // take ownership
 }
@@ -3303,7 +3400,7 @@ nsStyleAnimation::Value::SetAndAdoptCSSValuePairValue(
 {
   FreeValue();
   NS_ABORT_IF_FALSE(IsCSSValuePairUnit(aUnit), "bad unit");
-  NS_ABORT_IF_FALSE(aValuePair != nsnull, "value pairs may not be null");
+  NS_ABORT_IF_FALSE(aValuePair != nullptr, "value pairs may not be null");
   mUnit = aUnit;
   mValue.mCSSValuePair = aValuePair; // take ownership
 }
@@ -3314,7 +3411,7 @@ nsStyleAnimation::Value::SetAndAdoptCSSValueTripletValue(
 {
     FreeValue();
     NS_ABORT_IF_FALSE(IsCSSValueTripletUnit(aUnit), "bad unit");
-    NS_ABORT_IF_FALSE(aValueTriplet != nsnull, "value pairs may not be null");
+    NS_ABORT_IF_FALSE(aValueTriplet != nullptr, "value pairs may not be null");
     mUnit = aUnit;
     mValue.mCSSValueTriplet = aValueTriplet; // take ownership
 }
@@ -3324,7 +3421,7 @@ nsStyleAnimation::Value::SetAndAdoptCSSRectValue(nsCSSRect *aRect, Unit aUnit)
 {
   FreeValue();
   NS_ABORT_IF_FALSE(IsCSSRectUnit(aUnit), "bad unit");
-  NS_ABORT_IF_FALSE(aRect != nsnull, "value pairs may not be null");
+  NS_ABORT_IF_FALSE(aRect != nullptr, "value pairs may not be null");
   mUnit = aUnit;
   mValue.mCSSRect = aRect; // take ownership
 }
@@ -3335,7 +3432,7 @@ nsStyleAnimation::Value::SetAndAdoptCSSValueListValue(
 {
   FreeValue();
   NS_ABORT_IF_FALSE(IsCSSValueListUnit(aUnit), "bad unit");
-  NS_ABORT_IF_FALSE(aUnit != eUnit_Dasharray || aValueList != nsnull,
+  NS_ABORT_IF_FALSE(aUnit != eUnit_Dasharray || aValueList != nullptr,
                     "dasharrays may not be null");
   mUnit = aUnit;
   mValue.mCSSValueList = aValueList; // take ownership

@@ -357,7 +357,7 @@ gfxWindowsPlatform::gfxWindowsPlatform()
 #ifdef CAIRO_HAS_D2D_SURFACE
     NS_RegisterMemoryReporter(new NS_MEMORY_REPORTER_NAME(D2DCache));
     NS_RegisterMemoryReporter(new NS_MEMORY_REPORTER_NAME(D2DVram));
-    mD2DDevice = nsnull;
+    mD2DDevice = nullptr;
 #endif
     NS_RegisterMemoryReporter(new NS_MEMORY_REPORTER_NAME(D2DVRAMDT));
     NS_RegisterMemoryReporter(new NS_MEMORY_REPORTER_NAME(D2DVRAMSS));
@@ -389,6 +389,36 @@ gfxWindowsPlatform::~gfxWindowsPlatform()
      * Uninitialize COM 
      */ 
     CoUninitialize();
+}
+
+/* static */ bool
+gfxWindowsPlatform::IsRunningInWindows8Metro()
+{
+  static bool alreadyChecked = false;
+  static bool isMetro = false;
+  if (alreadyChecked) {
+    return isMetro;
+  }
+
+  HMODULE user32DLL = LoadLibraryW(L"user32.dll");
+  if (!user32DLL) {
+    return false;
+  }
+
+  typedef BOOL (WINAPI* IsImmersiveProcessFunc)(HANDLE process);
+  IsImmersiveProcessFunc IsImmersiveProcessPtr = 
+    (IsImmersiveProcessFunc)GetProcAddress(user32DLL,
+                                            "IsImmersiveProcess");
+  FreeLibrary(user32DLL);
+  if (!IsImmersiveProcessPtr) {
+    // isMetro is already set to false.
+    alreadyChecked = true;
+    return false;
+  }
+
+  isMetro = IsImmersiveProcessPtr(GetCurrentProcess());
+  alreadyChecked = true;
+  return isMetro;
 }
 
 void
@@ -429,8 +459,11 @@ gfxWindowsPlatform::UpdateRenderMode()
     d2dDisabled = Preferences::GetBool("gfx.direct2d.disabled", false);
     d2dForceEnabled = Preferences::GetBool("gfx.direct2d.force-enabled", false);
 
+    // In Metro mode there is no fallback available
+    d2dForceEnabled |= IsRunningInWindows8Metro();
+
     bool tryD2D = !d2dBlocked || d2dForceEnabled;
-    
+
     // Do not ever try if d2d is explicitly disabled,
     // or if we're not using DWrite fonts.
     if (d2dDisabled || mUsingGDIFonts) {
@@ -444,7 +477,7 @@ gfxWindowsPlatform::UpdateRenderMode()
             mUseDirectWrite = true;
         }
     } else {
-        mD2DDevice = nsnull;
+        mD2DDevice = nullptr;
     }
 #endif
 
@@ -482,6 +515,14 @@ gfxWindowsPlatform::UpdateRenderMode()
         }
     }
 #endif
+
+    PRUint32 backendMask = 1 << BACKEND_CAIRO;
+    if (mRenderMode == RENDER_DIRECT2D) {
+      backendMask |= 1 << BACKEND_DIRECT2D;
+    } else {
+      backendMask |= 1 << BACKEND_SKIA;
+    }
+    InitCanvasBackend(backendMask);
 }
 
 void
@@ -494,7 +535,7 @@ gfxWindowsPlatform::VerifyD2DDevice(bool aAttemptForce)
         if (SUCCEEDED(device->GetDeviceRemovedReason())) {
             return;
         }
-        mD2DDevice = nsnull;
+        mD2DDevice = nullptr;
     }
 
     mozilla::ScopedGfxFeatureReporter reporter("D2D", aAttemptForce);
@@ -527,7 +568,7 @@ gfxWindowsPlatform::VerifyD2DDevice(bool aAttemptForce)
 
             if (SUCCEEDED(hr) && adapter1) {
                 hr = adapter1->CheckInterfaceSupport(__uuidof(ID3D10Device),
-                                                     nsnull);
+                                                     nullptr);
                 if (FAILED(hr)) {
                     // We should return and not accelerate if we don't have
                     // D3D 10.0 support.
@@ -685,14 +726,14 @@ gfxWindowsPlatform::CreatePlatformFontList()
     }
 
     gfxPlatformFontList::Shutdown();
-    return nsnull;
+    return nullptr;
 }
 
 already_AddRefed<gfxASurface>
 gfxWindowsPlatform::CreateOffscreenSurface(const gfxIntSize& size,
                                            gfxASurface::gfxContentType contentType)
 {
-    gfxASurface *surf = nsnull;
+    nsRefPtr<gfxASurface> surf = nullptr;
 
 #ifdef CAIRO_HAS_WIN32_SURFACE
     if (mRenderMode == RENDER_GDI)
@@ -704,12 +745,11 @@ gfxWindowsPlatform::CreateOffscreenSurface(const gfxIntSize& size,
         surf = new gfxD2DSurface(size, OptimalFormatForContent(contentType));
 #endif
 
-    if (surf == nsnull)
+    if (!surf || surf->CairoStatus()) {
         surf = new gfxImageSurface(size, OptimalFormatForContent(contentType));
+    }
 
-    NS_IF_ADDREF(surf);
-
-    return surf;
+    return surf.forget();
 }
 
 already_AddRefed<gfxASurface>
@@ -731,7 +771,7 @@ gfxWindowsPlatform::CreateOffscreenImageSurface(const gfxIntSize& aSize,
 }
 
 RefPtr<ScaledFont>
-gfxWindowsPlatform::GetScaledFontForFont(gfxFont *aFont)
+gfxWindowsPlatform::GetScaledFontForFont(DrawTarget* aTarget, gfxFont *aFont)
 {
     if (aFont->GetType() == gfxFont::FONT_TYPE_DWRITE) {
         gfxDWriteFont *font = static_cast<gfxDWriteFont*>(aFont);
@@ -753,10 +793,14 @@ gfxWindowsPlatform::GetScaledFontForFont(gfxFont *aFont)
     LOGFONT lf;
     GetObject(static_cast<gfxGDIFont*>(aFont)->GetHFONT(), sizeof(LOGFONT), &lf);
     nativeFont.mFont = &lf;
-    RefPtr<ScaledFont> scaledFont =
-    Factory::CreateScaledFontForNativeFont(nativeFont, aFont->GetAdjustedSize());
 
-    return scaledFont;
+    if (aTarget->GetType() == BACKEND_CAIRO) {
+      return Factory::CreateScaledFontWithCairo(nativeFont,
+                                                aFont->GetAdjustedSize(),
+                                                aFont->GetCairoScaledFont());
+    }
+
+    return Factory::CreateScaledFontForNativeFont(nativeFont, aFont->GetAdjustedSize());
 }
 
 already_AddRefed<gfxASurface>
@@ -764,62 +808,30 @@ gfxWindowsPlatform::GetThebesSurfaceForDrawTarget(DrawTarget *aTarget)
 {
 #ifdef XP_WIN
   if (aTarget->GetType() == BACKEND_DIRECT2D) {
-    void *surface = aTarget->GetUserData(&kThebesSurfaceKey);
-    if (surface) {
-      nsRefPtr<gfxASurface> surf = static_cast<gfxASurface*>(surface);
-      return surf.forget();
-    } else {
-      if (!GetD2DDevice()) {
-        // We no longer have a D2D device, can't do this.
-        return NULL;
-      }
-
-      RefPtr<ID3D10Texture2D> texture =
-        static_cast<ID3D10Texture2D*>(aTarget->GetNativeSurface(NATIVE_SURFACE_D3D10_TEXTURE));
-
-      if (!texture) {
-        return gfxPlatform::GetThebesSurfaceForDrawTarget(aTarget);
-      }
-
-      aTarget->Flush();
-
-      nsRefPtr<gfxASurface> surf =
-        new gfxD2DSurface(texture, ContentForFormat(aTarget->GetFormat()));
-
-      // add a reference to be held by the drawTarget
-      surf->AddRef();
-      aTarget->AddUserData(&kThebesSurfaceKey, surf.get(), DestroyThebesSurface);
-      /* "It might be worth it to clear cairo surfaces associated with a drawtarget.
-	  The strong reference means for example for D2D that cairo's scratch surface
-	  will be kept alive (well after a user being done) and consume extra VRAM.
-	  We can deal with this in a follow-up though." */
-
-      // shouldn't this hold a reference?
-      surf->SetData(&kDrawTarget, aTarget, NULL);
-      return surf.forget();
+    if (!GetD2DDevice()) {
+      // We no longer have a D2D device, can't do this.
+      return NULL;
     }
+
+    RefPtr<ID3D10Texture2D> texture =
+      static_cast<ID3D10Texture2D*>(aTarget->GetNativeSurface(NATIVE_SURFACE_D3D10_TEXTURE));
+
+    if (!texture) {
+      return gfxPlatform::GetThebesSurfaceForDrawTarget(aTarget);
+    }
+
+    aTarget->Flush();
+
+    nsRefPtr<gfxASurface> surf =
+      new gfxD2DSurface(texture, ContentForFormat(aTarget->GetFormat()));
+
+    // shouldn't this hold a reference?
+    surf->SetData(&kDrawTarget, aTarget, NULL);
+    return surf.forget();
   }
 #endif
 
   return gfxPlatform::GetThebesSurfaceForDrawTarget(aTarget);
-}
-
-bool
-gfxWindowsPlatform::SupportsAzure(BackendType& aBackend)
-{
-#ifdef CAIRO_HAS_D2D_SURFACE
-  if (mRenderMode == RENDER_DIRECT2D) {
-      aBackend = BACKEND_DIRECT2D;
-      return true;
-  }
-#endif
-  
-  if (mPreferredDrawTargetBackend != BACKEND_NONE) {
-    aBackend = mPreferredDrawTargetBackend;
-    return true;
-  }
-
-  return false;
 }
 
 nsresult
@@ -1113,7 +1125,7 @@ gfxWindowsPlatform::FindFontEntry(const nsAString& aName, const gfxFontStyle& aF
 {
     nsRefPtr<gfxFontFamily> ff = FindFontFamily(aName);
     if (!ff)
-        return nsnull;
+        return nullptr;
 
     bool aNeedsBold;
     return ff->FindFontForStyle(aFontStyle, aNeedsBold);
@@ -1126,9 +1138,9 @@ gfxWindowsPlatform::GetPlatformCMSOutputProfile()
     DWORD size = MAX_PATH;
     BOOL res;
 
-    HDC dc = GetDC(nsnull);
+    HDC dc = GetDC(nullptr);
     if (!dc)
-        return nsnull;
+        return nullptr;
 
 #if _MSC_VER
     __try {
@@ -1140,9 +1152,9 @@ gfxWindowsPlatform::GetPlatformCMSOutputProfile()
     res = GetICMProfileW(dc, &size, (LPWSTR)&str);
 #endif
 
-    ReleaseDC(nsnull, dc);
+    ReleaseDC(nullptr, dc);
     if (!res)
-        return nsnull;
+        return nullptr;
 
     qcms_profile* profile = qcms_profile_from_unicode_path(str);
 #ifdef DEBUG_tor
@@ -1234,11 +1246,11 @@ gfxWindowsPlatform::GetDLLVersion(const PRUnichar *aDLLPath, nsAString& aVersion
     } 
 
     UINT len = 0;
-    VS_FIXEDFILEINFO *fileInfo = nsnull;
+    VS_FIXEDFILEINFO *fileInfo = nullptr;
     if (!VerQueryValue(LPBYTE(versionInfo.Elements()), TEXT("\\"),
            (LPVOID *)&fileInfo, &len) ||
         len == 0 ||
-        fileInfo == nsnull)
+        fileInfo == nullptr)
     {
         return;
     }

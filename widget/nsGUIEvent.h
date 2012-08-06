@@ -132,6 +132,8 @@ class nsHashKey;
 
 #define NS_EVENT_FLAG_STOP_DISPATCH_IMMEDIATELY 0x80000
 
+#define NS_EVENT_FLAG_DONT_FORWARD_CROSS_PROCESS 0x100000
+
 #define NS_EVENT_CAPTURE_MASK             (~(NS_EVENT_FLAG_BUBBLE | NS_EVENT_FLAG_NO_CONTENT_DISPATCH))
 #define NS_EVENT_BUBBLE_MASK              (~(NS_EVENT_FLAG_CAPTURE | NS_EVENT_FLAG_NO_CONTENT_DISPATCH))
 
@@ -629,19 +631,19 @@ class nsGUIEvent : public nsEvent
 protected:
   nsGUIEvent(bool isTrusted, PRUint32 msg, nsIWidget *w, PRUint8 structType)
     : nsEvent(isTrusted, msg, structType),
-      widget(w), pluginEvent(nsnull)
+      widget(w), pluginEvent(nullptr)
   {
   }
 
   nsGUIEvent()
-    : pluginEvent(nsnull)
+    : pluginEvent(nullptr)
   {
   }
 
 public:
   nsGUIEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
     : nsEvent(isTrusted, msg, NS_GUI_EVENT),
-      widget(w), pluginEvent(nsnull)
+      widget(w), pluginEvent(nullptr)
   {
   }
 
@@ -661,7 +663,7 @@ class nsScriptErrorEvent : public nsEvent
 public:
   nsScriptErrorEvent(bool isTrusted, PRUint32 msg)
     : nsEvent(isTrusted, msg, NS_SCRIPT_ERROR_EVENT),
-      lineNr(0), errorMsg(nsnull), fileName(nsnull)
+      lineNr(0), errorMsg(nullptr), fileName(nullptr)
   {
   }
 
@@ -679,7 +681,7 @@ class nsSizeEvent : public nsGUIEvent
 public:
   nsSizeEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
     : nsGUIEvent(isTrusted, msg, w, NS_SIZE_EVENT),
-      windowSize(nsnull), mWinWidth(0), mWinHeight(0)
+      windowSize(nullptr), mWinWidth(0), mWinHeight(0)
   {
   }
 
@@ -716,7 +718,7 @@ class nsZLevelEvent : public nsGUIEvent
 public:
   nsZLevelEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
     : nsGUIEvent(isTrusted, msg, w, NS_ZLEVEL_EVENT),
-      mPlacement(nsWindowZTop), mReqBelow(nsnull), mActualBelow(nsnull),
+      mPlacement(nsWindowZTop), mReqBelow(nullptr), mActualBelow(nullptr),
       mImmediate(false), mAdjusted(false)
   {
   }
@@ -1058,7 +1060,7 @@ class nsAccessibleEvent : public nsInputEvent
 public:
   nsAccessibleEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
     : nsInputEvent(isTrusted, msg, w, NS_ACCESSIBLE_EVENT),
-      mAccessible(nsnull)
+      mAccessible(nullptr)
   {
   }
 
@@ -1249,7 +1251,7 @@ public:
 public:
   nsTextEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
     : nsInputEvent(isTrusted, msg, w, NS_TEXT_EVENT),
-      rangeCount(0), rangeArray(nsnull), isChar(false)
+      rangeCount(0), rangeArray(nullptr), isChar(false)
   {
   }
 
@@ -1419,8 +1421,8 @@ private:
 
   nsQueryContentEvent()
   {
-    mReply.mContentsRoot = nsnull;
-    mReply.mFocusedWidget = nsnull;
+    mReply.mContentsRoot = nullptr;
+    mReply.mFocusedWidget = nullptr;
   }
 
 public:
@@ -1623,6 +1625,9 @@ public:
 class nsTouchEvent : public nsInputEvent
 {
 public:
+  nsTouchEvent()
+  {
+  }
   nsTouchEvent(bool isTrusted, nsTouchEvent *aEvent)
     : nsInputEvent(isTrusted,
                    aEvent->message,
@@ -1659,7 +1664,7 @@ class nsFormEvent : public nsEvent
 public:
   nsFormEvent(bool isTrusted, PRUint32 msg)
     : nsEvent(isTrusted, msg, NS_FORM_EVENT),
-      originator(nsnull)
+      originator(nullptr)
   {
   }
 
@@ -1799,6 +1804,17 @@ enum nsDragDropEventStatus {
   nsDragDropEventStatus_eDrop  
 };
 
+#define NS_IS_INPUT_EVENT(evnt) \
+       (((evnt)->eventStructType == NS_INPUT_EVENT) || \
+        ((evnt)->eventStructType == NS_ACCESSIBLE_EVENT) || \
+        ((evnt)->eventStructType == NS_MOUSE_EVENT) || \
+        ((evnt)->eventStructType == NS_KEY_EVENT) || \
+        ((evnt)->eventStructType == NS_TEXT_EVENT) || \
+        ((evnt)->eventStructType == NS_TOUCH_EVENT) || \
+        ((evnt)->eventStructType == NS_DRAG_EVENT) || \
+        ((evnt)->eventStructType == NS_MOUSE_SCROLL_EVENT) || \
+        ((evnt)->eventStructType == NS_MOZTOUCH_EVENT) || \
+        ((evnt)->eventStructType == NS_SIMPLE_GESTURE_EVENT))
 
 #define NS_IS_MOUSE_EVENT(evnt) \
        (((evnt)->message == NS_MOUSE_BUTTON_DOWN) || \

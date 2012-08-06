@@ -217,6 +217,7 @@ CopyErrorReport(JSContext *cx, JSErrorReport *report)
     /* Copy non-pointer members. */
     copy->lineno = report->lineno;
     copy->errorNumber = report->errorNumber;
+    copy->exnType = report->exnType;
 
     /* Note that this is before it gets flagged with JSREPORT_EXCEPTION */
     copy->flags = report->flags;
@@ -533,7 +534,7 @@ Exception(JSContext *cx, unsigned argc, Value *vp)
      * NewNativeClassInstance to find the class prototype, we must get the
      * class prototype ourselves.
      */
-    Value protov;
+    RootedValue protov(cx);
     if (!args.callee().getProperty(cx, cx->runtime->atomState.classPrototypeAtom, &protov))
         return false;
 
@@ -616,7 +617,7 @@ exn_toString(JSContext *cx, unsigned argc, Value *vp)
     RootedObject obj(cx, &args.thisv().toObject());
 
     /* Step 3. */
-    Value nameVal;
+    RootedValue nameVal(cx);
     if (!obj->getProperty(cx, cx->runtime->atomState.nameAtom, &nameVal))
         return false;
 
@@ -631,7 +632,7 @@ exn_toString(JSContext *cx, unsigned argc, Value *vp)
     }
 
     /* Step 5. */
-    Value msgVal;
+    RootedValue msgVal(cx);
     if (!obj->getProperty(cx, cx->runtime->atomState.messageAtom, &msgVal))
         return false;
 
@@ -689,7 +690,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
     if (!obj)
         return false;
 
-    Value nameVal;
+    RootedValue nameVal(cx);
     RootedString name(cx);
     if (!obj->getProperty(cx, cx->runtime->atomState.nameAtom, &nameVal) ||
         !(name = ToString(cx, nameVal)))
@@ -697,7 +698,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
         return false;
     }
 
-    Value messageVal;
+    RootedValue messageVal(cx);
     RootedString message(cx);
     if (!obj->getProperty(cx, cx->runtime->atomState.messageAtom, &messageVal) ||
         !(message = js_ValueToSource(cx, messageVal)))
@@ -705,7 +706,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
         return false;
     }
 
-    Value filenameVal;
+    RootedValue filenameVal(cx);
     RootedString filename(cx);
     if (!obj->getProperty(cx, cx->runtime->atomState.fileNameAtom, &filenameVal) ||
         !(filename = js_ValueToSource(cx, filenameVal)))
@@ -713,7 +714,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
         return false;
     }
 
-    Value linenoVal;
+    RootedValue linenoVal(cx);
     uint32_t lineno;
     if (!obj->getProperty(cx, cx->runtime->atomState.lineNumberAtom, &linenoVal) ||
         !ToUint32(cx, linenoVal, &lineno))
@@ -782,18 +783,20 @@ InitErrorClass(JSContext *cx, Handle<GlobalObject*> global, int type, HandleObje
     if (!errorProto)
         return NULL;
 
+    RootedValue nameValue(cx, StringValue(name));
+    RootedValue zeroValue(cx, Int32Value(0));
     RootedValue empty(cx, StringValue(cx->runtime->emptyString));
     RootedId nameId(cx, NameToId(cx->runtime->atomState.nameAtom));
     RootedId messageId(cx, NameToId(cx->runtime->atomState.messageAtom));
     RootedId fileNameId(cx, NameToId(cx->runtime->atomState.fileNameAtom));
     RootedId lineNumberId(cx, NameToId(cx->runtime->atomState.lineNumberAtom));
-    if (!DefineNativeProperty(cx, errorProto, nameId, StringValue(name),
+    if (!DefineNativeProperty(cx, errorProto, nameId, nameValue,
                               JS_PropertyStub, JS_StrictPropertyStub, 0, 0, 0) ||
         !DefineNativeProperty(cx, errorProto, messageId, empty,
                               JS_PropertyStub, JS_StrictPropertyStub, 0, 0, 0) ||
         !DefineNativeProperty(cx, errorProto, fileNameId, empty,
                               JS_PropertyStub, JS_StrictPropertyStub, JSPROP_ENUMERATE, 0, 0) ||
-        !DefineNativeProperty(cx, errorProto, lineNumberId, Int32Value(0),
+        !DefineNativeProperty(cx, errorProto, lineNumberId, zeroValue,
                               JS_PropertyStub, JS_StrictPropertyStub, JSPROP_ENUMERATE, 0, 0))
     {
         return NULL;
@@ -865,19 +868,18 @@ js_GetLocalizedErrorMessage(JSContext* cx, void *userRef, const char *locale,
 namespace js {
 
 JS_FRIEND_API(const jschar*)
-GetErrorTypeNameFromNumber(JSContext* cx, const unsigned errorNumber)
+GetErrorTypeName(JSContext* cx, int16_t exnType)
 {
-    const JSErrorFormatString *efs = js_GetErrorMessage(NULL, NULL, errorNumber);
     /*
      * JSEXN_INTERNALERR returns null to prevent that "InternalError: "
      * is prepended before "uncaught exception: "
      */
-    if (!efs || efs->exnType <= JSEXN_NONE || efs->exnType >= JSEXN_LIMIT ||
-        efs->exnType == JSEXN_INTERNALERR)
+    if (exnType <= JSEXN_NONE || exnType >= JSEXN_LIMIT ||
+        exnType == JSEXN_INTERNALERR)
     {
         return NULL;
     }
-    JSProtoKey key = GetExceptionProtoKey(efs->exnType);
+    JSProtoKey key = GetExceptionProtoKey(exnType);
     return cx->runtime->atomState.classAtoms[key]->chars();
 }
 
@@ -1109,6 +1111,7 @@ js_ReportUncaughtException(JSContext *cx)
         PodZero(&report);
         report.filename = filename.ptr();
         report.lineno = (unsigned) lineno;
+        report.exnType = int16_t(JSEXN_NONE);
         if (str) {
             if (JSFixedString *fixed = str->ensureFixed(cx))
                 report.ucmessage = fixed->chars();

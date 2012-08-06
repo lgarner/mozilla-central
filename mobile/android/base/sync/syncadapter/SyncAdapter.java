@@ -49,7 +49,6 @@ import android.database.sqlite.SQLiteConstraintException;
 import android.database.sqlite.SQLiteException;
 import android.os.Bundle;
 import android.os.Handler;
-import android.util.Log;
 
 public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSessionCallback, ClientsDataDelegate {
   private static final String  LOG_TAG = "SyncAdapter";
@@ -126,32 +125,32 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
     setShouldInvalidateAuthToken();
     try {
       if (e instanceof SQLiteConstraintException) {
-        Log.e(LOG_TAG, "Constraint exception. Aborting sync.", e);
+        Logger.error(LOG_TAG, "Constraint exception. Aborting sync.", e);
         syncResult.stats.numParseExceptions++;       // This is as good as we can do.
         return;
       }
       if (e instanceof SQLiteException) {
-        Log.e(LOG_TAG, "Couldn't open database (locked?). Aborting sync.", e);
+        Logger.error(LOG_TAG, "Couldn't open database (locked?). Aborting sync.", e);
         syncResult.stats.numIoExceptions++;
         return;
       }
       if (e instanceof OperationCanceledException) {
-        Log.e(LOG_TAG, "Operation canceled. Aborting sync.", e);
+        Logger.error(LOG_TAG, "Operation canceled. Aborting sync.", e);
         return;
       }
       if (e instanceof AuthenticatorException) {
         syncResult.stats.numParseExceptions++;
-        Log.e(LOG_TAG, "AuthenticatorException. Aborting sync.", e);
+        Logger.error(LOG_TAG, "AuthenticatorException. Aborting sync.", e);
         return;
       }
       if (e instanceof IOException) {
         syncResult.stats.numIoExceptions++;
-        Log.e(LOG_TAG, "IOException. Aborting sync.", e);
+        Logger.error(LOG_TAG, "IOException. Aborting sync.", e);
         e.printStackTrace();
         return;
       }
       syncResult.stats.numIoExceptions++;
-      Log.e(LOG_TAG, "Unknown exception. Aborting sync.", e);
+      Logger.error(LOG_TAG, "Unknown exception. Aborting sync.", e);
     } finally {
       notifyMonitor();
     }
@@ -168,7 +167,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
     String token;
     try {
       token = future.getResult().getString(AccountManager.KEY_AUTHTOKEN);
-      mAccountManager.invalidateAuthToken(Constants.ACCOUNTTYPE_SYNC, token);
+      mAccountManager.invalidateAuthToken(GlobalConstants.ACCOUNTTYPE_SYNC, token);
     } catch (Exception e) {
       Logger.error(LOG_TAG, "Couldn't invalidate auth token: " + e);
     }
@@ -228,6 +227,21 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
   }
 
   /**
+   * Request that no sync start right away.  A new sync won't start until
+   * at least <code>backoff</code> milliseconds from now.
+   *
+   * @param backoff time to wait in milliseconds.
+   */
+  @Override
+  public void requestBackoff(long backoff) {
+    if (backoff > 0) {
+      // Fuzz the backoff time (up to 25% more) to prevent client lock-stepping; agrees with desktop.
+      backoff = backoff + Math.round((double) backoff * 0.25d * Math.random());
+      this.extendEarliestNextSync(System.currentTimeMillis() + backoff);
+    }
+  }
+
+  /**
    * Asynchronously request an immediate sync, optionally syncing only the given
    * named stages.
    * <p>
@@ -263,7 +277,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
     this.syncResult   = syncResult;
     this.localAccount = account;
 
-    Log.i(LOG_TAG,
+    Logger.info(LOG_TAG,
         "Syncing account named " + account.name +
         " for client named '" + getClientName() +
         "' with client guid " + getAccountGUID() +
@@ -273,9 +287,9 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
     long delay = delayMilliseconds();
     if (delay > 0) {
       if (thisSyncIsForced) {
-        Log.i(LOG_TAG, "Forced sync: overruling remaining backoff of " + delay + "ms.");
+        Logger.info(LOG_TAG, "Forced sync: overruling remaining backoff of " + delay + "ms.");
       } else {
-        Log.i(LOG_TAG, "Not syncing: must wait another " + delay + "ms.");
+        Logger.info(LOG_TAG, "Not syncing: must wait another " + delay + "ms.");
         long remainingSeconds = delay / 1000;
         syncResult.delayUntil = remainingSeconds + BACKOFF_PAD_SECONDS;
         return;
@@ -299,7 +313,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
         try {
           Bundle bundle = future.getResult(60L, TimeUnit.SECONDS);
           if (bundle.containsKey("KEY_INTENT")) {
-            Log.w(LOG_TAG, "KEY_INTENT included in AccountManagerFuture bundle. Problem?");
+            Logger.warn(LOG_TAG, "KEY_INTENT included in AccountManagerFuture bundle. Problem?");
           }
           String username  = bundle.getString(Constants.OPTION_USERNAME);
           String syncKey   = bundle.getString(Constants.OPTION_SYNCKEY);
@@ -332,14 +346,14 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
 
           // Now catch the individual cases.
           if (password == null) {
-            Log.e(LOG_TAG, "No password: aborting sync.");
+            Logger.error(LOG_TAG, "No password: aborting sync.");
             syncResult.stats.numAuthExceptions++;
             notifyMonitor();
             return;
           }
 
           if (syncKey == null) {
-            Log.e(LOG_TAG, "No Sync Key: aborting sync.");
+            Logger.error(LOG_TAG, "No Sync Key: aborting sync.");
             syncResult.stats.numAuthExceptions++;
             notifyMonitor();
             return;
@@ -379,11 +393,11 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
         syncMonitor.wait();
         long interval = getSyncInterval();
         long next = System.currentTimeMillis() + interval;
-        Log.i(LOG_TAG, "Setting minimum next sync time to " + next + " (" + interval + "ms from now).");
+        Logger.info(LOG_TAG, "Setting minimum next sync time to " + next + " (" + interval + "ms from now).");
         extendEarliestNextSync(next);
-        Log.i(LOG_TAG, "Sync took " + Utils.formatDuration(syncStartTimestamp, System.currentTimeMillis()) + ".");
+        Logger.info(LOG_TAG, "Sync took " + Utils.formatDuration(syncStartTimestamp, System.currentTimeMillis()) + ".");
       } catch (InterruptedException e) {
-        Log.w(LOG_TAG, "Waiting on sync monitor interrupted.", e);
+        Logger.warn(LOG_TAG, "Waiting on sync monitor interrupted.", e);
       } finally {
         // And we're done with HTTP stuff.
         stale.shutdown();
@@ -489,7 +503,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
   // Implementing GlobalSession callbacks.
   @Override
   public void handleError(GlobalSession globalSession, Exception ex) {
-    Log.i(LOG_TAG, "GlobalSession indicated error. Flagging auth token as invalid, just in case.");
+    Logger.info(LOG_TAG, "GlobalSession indicated error. Flagging auth token as invalid, just in case.");
     setShouldInvalidateAuthToken();
     this.updateStats(globalSession, ex);
     notifyMonitor();
@@ -497,7 +511,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
 
   @Override
   public void handleAborted(GlobalSession globalSession, String reason) {
-    Log.w(LOG_TAG, "Sync aborted: " + reason);
+    Logger.warn(LOG_TAG, "Sync aborted: " + reason);
     notifyMonitor();
   }
 
@@ -519,7 +533,7 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
 
   @Override
   public void handleSuccess(GlobalSession globalSession) {
-    Log.i(LOG_TAG, "GlobalSession indicated success.");
+    Logger.info(LOG_TAG, "GlobalSession indicated success.");
     Logger.debug(LOG_TAG, "Prefs target: " + globalSession.config.prefsPath);
     globalSession.config.persistToPrefs();
     notifyMonitor();
@@ -529,13 +543,6 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter implements GlobalSe
   public void handleStageCompleted(Stage currentState,
                                    GlobalSession globalSession) {
     Logger.trace(LOG_TAG, "Stage completed: " + currentState);
-  }
-
-  @Override
-  public void requestBackoff(long backoff) {
-    if (backoff > 0) {
-      this.extendEarliestNextSync(System.currentTimeMillis() + backoff);
-    }
   }
 
   @Override

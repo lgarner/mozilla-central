@@ -454,30 +454,6 @@ js_DumpAtoms(JSContext *cx, FILE *fp)
 
 namespace js {
 
-void
-InitAtomMap(JSContext *cx, AtomIndexMap *indices, HeapPtrAtom *atoms)
-{
-    if (indices->isMap()) {
-        typedef AtomIndexMap::WordMap WordMap;
-        const WordMap &wm = indices->asMap();
-        for (WordMap::Range r = wm.all(); !r.empty(); r.popFront()) {
-            JSAtom *atom = r.front().key;
-            jsatomid index = r.front().value;
-            JS_ASSERT(index < indices->count());
-            atoms[index].init(atom);
-        }
-    } else {
-        for (const AtomIndexMap::InlineElem *it = indices->asInline(), *end = indices->inlineEnd();
-             it != end; ++it) {
-            JSAtom *atom = it->key;
-            if (!atom)
-                continue;
-            JS_ASSERT(it->value < indices->count());
-            atoms[it->value].init(atom);
-        }
-    }
-}
-
 bool
 IndexToIdSlow(JSContext *cx, uint32_t index, jsid *idp)
 {
@@ -497,7 +473,7 @@ IndexToIdSlow(JSContext *cx, uint32_t index, jsid *idp)
 
 bool
 InternNonIntElementId(JSContext *cx, JSObject *obj, const Value &idval,
-                      jsid *idp, Value *vp)
+                      jsid *idp, MutableHandleValue vp)
 {
 #if JS_HAS_XML_SUPPORT
     if (idval.isObject()) {
@@ -505,18 +481,18 @@ InternNonIntElementId(JSContext *cx, JSObject *obj, const Value &idval,
 
         if (obj && obj->isXML()) {
             *idp = OBJECT_TO_JSID(idobj);
-            *vp = idval;
+            vp.set(idval);
             return true;
         }
 
         if (js_GetLocalNameFromFunctionQName(idobj, idp, cx)) {
-            *vp = IdToValue(*idp);
+            vp.set(IdToValue(*idp));
             return true;
         }
 
         if (!obj && idobj->isXMLId()) {
             *idp = OBJECT_TO_JSID(idobj);
-            *vp = idval;
+            vp.set(idval);
             return JS_TRUE;
         }
     }
@@ -527,7 +503,7 @@ InternNonIntElementId(JSContext *cx, JSObject *obj, const Value &idval,
         return false;
 
     *idp = AtomToId(atom);
-    vp->setString(atom);
+    vp.setString(atom);
     return true;
 }
 

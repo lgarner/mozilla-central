@@ -11,6 +11,7 @@ const Cu = Components.utils;
 
 const FRAME_STEP_CACHE_DURATION = 100; // ms
 const DBG_STRINGS_URI = "chrome://browser/locale/devtools/debugger.properties";
+const SCRIPTS_URL_MAX_LENGTH = 64; // chars
 const SYNTAX_HIGHLIGHT_MAX_FILE_SIZE = 1048576; // 1 MB in bytes
 
 Cu.import("resource:///modules/source-editor.jsm");
@@ -72,14 +73,13 @@ let DebuggerController = {
     this._isDestroyed = true;
     window.removeEventListener("unload", this._shutdownDebugger, true);
 
-    DebuggerView.destroyPanes();
-    DebuggerView.destroyEditor();
     DebuggerView.Scripts.destroy();
     DebuggerView.StackFrames.destroy();
     DebuggerView.Breakpoints.destroy();
     DebuggerView.Properties.destroy();
+    DebuggerView.destroyPanes();
+    DebuggerView.destroyEditor();
 
-    DebuggerController.Breakpoints.destroy();
     DebuggerController.SourceScripts.disconnect();
     DebuggerController.StackFrames.disconnect();
     DebuggerController.ThreadState.disconnect();
@@ -436,6 +436,7 @@ StackFrames.prototype = {
       this.exception = aPacket.why.exception;
     }
     this.activeThread.fillFrames(this.pageSize);
+    DebuggerView.editor.focus();
   },
 
   /**
@@ -907,6 +908,11 @@ SourceScripts.prototype = {
 
     this._addScript({ url: aPacket.url, startLine: aPacket.startLine }, true);
 
+    // Select the script if it's the preferred one.
+    if (aPacket.url === DebuggerView.Scripts.preferredScriptUrl) {
+      DebuggerView.Scripts.selectScript(aPacket.url);
+    }
+
     // If there are any stored breakpoints for this script, display them again,
     // both in the editor and the pane.
     for each (let breakpoint in DebuggerController.Breakpoints.store) {
@@ -925,6 +931,14 @@ SourceScripts.prototype = {
     }
     DebuggerView.Scripts.commitScripts();
     DebuggerController.Breakpoints.updatePaneBreakpoints();
+
+    // Select the preferred script if one exists, the first entry otherwise.
+    let preferredScriptUrl = DebuggerView.Scripts.preferredScriptUrl;
+    if (preferredScriptUrl) {
+      DebuggerView.Scripts.selectScript(preferredScriptUrl);
+    } else {
+      DebuggerView.Scripts.selectIndex(0);
+    }
   },
 
   /**
@@ -1089,7 +1103,12 @@ SourceScripts.prototype = {
    *         The simplified label.
    */
   getScriptLabel: function SS_getScriptLabel(aUrl, aHref) {
-    return this._labelsCache[aUrl] || (this._labelsCache[aUrl] = this._trimUrl(aUrl));
+    let label = this._trimUrl(aUrl);
+    if (label.length > SCRIPTS_URL_MAX_LENGTH) {
+      let ellipsis = Services.prefs.getComplexValue("intl.ellipsis", Ci.nsIPrefLocalizedString);
+      label = label.substring(0, SCRIPTS_URL_MAX_LENGTH) + ellipsis.data;
+    }
+    return this._labelsCache[aUrl] || (this._labelsCache[aUrl] = label);
   },
 
   /**

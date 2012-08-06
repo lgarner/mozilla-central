@@ -1,7 +1,18 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this file,
- * You can obtain one at http://mozilla.org/MPL/2.0/. */
+/* Copyright 2012 Mozilla Foundation and Mozilla contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #include <dlfcn.h>
 #include "android/log.h"
@@ -117,7 +128,7 @@ template<class T> class CameraImpl : public CameraHardwareInterface {
     typedef sp<T> (*HAL_openCameraHardware_SGS2)(int);
     typedef sp<T> (*HAL_openCameraHardware_MAGURO)(int, int);
 
-    CameraImpl(PRUint32 aCamera = 0) : mOk(false), mCamera(nsnull) {
+    CameraImpl(PRUint32 aCamera = 0) : mOk(false), mCamera(nullptr) {
       void* cameraLib = GetCameraLibHandle();
       if (!cameraLib) {
         printf_stderr("CameraImpl: Failed to dlopen() camera library.");
@@ -143,7 +154,7 @@ template<class T> class CameraImpl : public CameraHardwareInterface {
           break;
       }
 
-      mOk = mCamera != nsnull;
+      mOk = mCamera != nullptr;
       if (!mOk) {
         printf_stderr("CameraImpl: HAL_openCameraHardware() returned NULL (no camera interface).");
       }
@@ -211,7 +222,7 @@ CameraHardwareInterface* CameraHardwareInterface::openCamera(PRUint32 aCamera)  
   }
 
   if (!instance->ok()) {
-    return nsnull;
+    return nullptr;
   }
 
   return instance.forget();
@@ -257,7 +268,7 @@ GonkCameraInputStream::getNumberOfCameras() {
     return 0;
   
   void *hal = dlsym(cameraLib, "HAL_getNumberOfCameras");
-  if (nsnull == hal)
+  if (nullptr == hal)
     return 0;
 
   HAL_getNumberOfCamerasFunct funct = reinterpret_cast<HAL_getNumberOfCamerasFunct> (hal);       
@@ -396,11 +407,11 @@ NS_IMETHODIMP GonkCameraInputStream::IsNonBlocking(bool *aNonBlock) {
   return NS_OK;
 }
 
-NS_IMETHODIMP GonkCameraInputStream::Read(char *aBuffer, PRUint32 aCount, PRUint32 *aRead NS_OUTPARAM) {
+NS_IMETHODIMP GonkCameraInputStream::Read(char *aBuffer, PRUint32 aCount, PRUint32 *aRead) {
   return ReadSegments(NS_CopySegmentToBuffer, aBuffer, aCount, aRead);
 }
 
-NS_IMETHODIMP GonkCameraInputStream::ReadSegments(nsWriteSegmentFun aWriter, void *aClosure, PRUint32 aCount, PRUint32 *aRead NS_OUTPARAM) {
+NS_IMETHODIMP GonkCameraInputStream::ReadSegments(nsWriteSegmentFun aWriter, void *aClosure, PRUint32 aCount, PRUint32 *aRead) {
   *aRead = 0;
   
   nsresult rv;
@@ -502,8 +513,8 @@ void GonkCameraInputStream::NotifyListeners() {
     NS_ASSERTION(callback, "Shouldn't fail to make the callback!");
 
     // Null the callback first because OnInputStreamReady may reenter AsyncWait
-    mCallback = nsnull;
-    mCallbackTarget = nsnull;
+    mCallback = nullptr;
+    mCallbackTarget = nullptr;
 
     callback->OnInputStreamReady(this);
   }

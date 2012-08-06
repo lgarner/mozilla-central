@@ -19,10 +19,15 @@
 #include "nsFrameLoader.h"
 #include "xpcpublic.h"
 #include "nsIMozBrowserFrame.h"
+#include "nsDOMClassInfoID.h"
+#include "mozilla/dom/StructuredCloneUtils.h"
+
+using mozilla::dom::StructuredCloneData;
+using mozilla::dom::StructuredCloneClosure;
 
 bool SendSyncMessageToParent(void* aCallbackData,
                              const nsAString& aMessage,
-                             const nsAString& aJSON,
+                             const StructuredCloneData& aData,
                              InfallibleTArray<nsString>* aJSONRetVal)
 {
   nsInProcessTabChildGlobal* tabChild =
@@ -37,7 +42,7 @@ bool SendSyncMessageToParent(void* aCallbackData,
   }
   if (tabChild->mChromeMessageManager) {
     nsRefPtr<nsFrameMessageManager> mm = tabChild->mChromeMessageManager;
-    mm->ReceiveMessage(owner, aMessage, true, aJSON, nsnull, aJSONRetVal);
+    mm->ReceiveMessage(owner, aMessage, true, &aData, nullptr, aJSONRetVal);
   }
   return true;
 }
@@ -46,32 +51,45 @@ class nsAsyncMessageToParent : public nsRunnable
 {
 public:
   nsAsyncMessageToParent(nsInProcessTabChildGlobal* aTabChild,
-                         const nsAString& aMessage, const nsAString& aJSON)
-    : mTabChild(aTabChild), mMessage(aMessage), mJSON(aJSON) {}
+                         const nsAString& aMessage,
+                         const StructuredCloneData& aData)
+    : mTabChild(aTabChild), mMessage(aMessage)
+  {
+    if (aData.mDataLength && !mData.copy(aData.mData, aData.mDataLength)) {
+      NS_RUNTIMEABORT("OOM");
+    }
+    mClosure = aData.mClosure;
+  }
 
   NS_IMETHOD Run()
   {
     mTabChild->mASyncMessages.RemoveElement(this);
     if (mTabChild->mChromeMessageManager) {
+      StructuredCloneData data;
+      data.mData = mData.data();
+      data.mDataLength = mData.nbytes();
+      data.mClosure = mClosure;
+
       nsRefPtr<nsFrameMessageManager> mm = mTabChild->mChromeMessageManager;
-      mm->ReceiveMessage(mTabChild->mOwner, mMessage, false,
-                         mJSON, nsnull, nsnull);
+      mm->ReceiveMessage(mTabChild->mOwner, mMessage, false, &data,
+                         nullptr, nullptr, nullptr);
     }
     return NS_OK;
   }
   nsRefPtr<nsInProcessTabChildGlobal> mTabChild;
   nsString mMessage;
-  nsString mJSON;
+  JSAutoStructuredCloneBuffer mData;
+  StructuredCloneClosure mClosure;
 };
 
 bool SendAsyncMessageToParent(void* aCallbackData,
                               const nsAString& aMessage,
-                              const nsAString& aJSON)
+                              const StructuredCloneData& aData)
 {
   nsInProcessTabChildGlobal* tabChild =
     static_cast<nsInProcessTabChildGlobal*>(aCallbackData);
   nsCOMPtr<nsIRunnable> ev =
-    new nsAsyncMessageToParent(tabChild, aMessage, aJSON);
+    new nsAsyncMessageToParent(tabChild, aMessage, aData);
   tabChild->mASyncMessages.AppendElement(ev);
   NS_DispatchToCurrentThread(ev);
   return true;
@@ -111,9 +129,9 @@ nsInProcessTabChildGlobal::Init()
   mMessageManager = new nsFrameMessageManager(false,
                                               SendSyncMessageToParent,
                                               SendAsyncMessageToParent,
-                                              nsnull,
+                                              nullptr,
                                               this,
-                                              nsnull,
+                                              nullptr,
                                               mCx);
 
   // Set the location information for the new global, so that tools like
@@ -157,7 +175,7 @@ NS_IMPL_RELEASE_INHERITED(nsInProcessTabChildGlobal, nsDOMEventTargetHelper)
 NS_IMETHODIMP
 nsInProcessTabChildGlobal::GetContent(nsIDOMWindow** aContent)
 {
-  *aContent = nsnull;
+  *aContent = nullptr;
   nsCOMPtr<nsIDOMWindow> window = do_GetInterface(mDocShell);
   window.swap(*aContent);
   return NS_OK;
@@ -205,11 +223,11 @@ void
 nsInProcessTabChildGlobal::DelayedDisconnect()
 {
   // Don't let the event escape
-  mOwner = nsnull;
+  mOwner = nullptr;
 
   // Fire the "unload" event
   nsCOMPtr<nsIDOMEvent> event;
-  NS_NewDOMEvent(getter_AddRefs(event), nsnull, nsnull);
+  NS_NewDOMEvent(getter_AddRefs(event), nullptr, nullptr);
   if (event) {
     event->InitEvent(NS_LITERAL_STRING("unload"), false, false);
     event->SetTrusted(true);
@@ -224,11 +242,11 @@ nsInProcessTabChildGlobal::DelayedDisconnect()
   if (pwin) {
     pwin->SetChromeEventHandler(pwin->GetChromeEventHandler());
   }
-  mDocShell = nsnull;
-  mChromeMessageManager = nsnull;
+  mDocShell = nullptr;
+  mChromeMessageManager = nullptr;
   if (mMessageManager) {
     static_cast<nsFrameMessageManager*>(mMessageManager.get())->Disconnect();
-    mMessageManager = nsnull;
+    mMessageManager = nullptr;
   }
   if (mListenerManager) {
     mListenerManager->Disconnect();

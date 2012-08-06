@@ -7,12 +7,15 @@
 #include "EditTxn.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/css/Declaration.h"
+#include "mozilla/css/StyleRule.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/mozalloc.h"
 #include "nsAString.h"
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
 #include "nsColor.h"
+#include "nsComputedDOMStyle.h"
 #include "nsContentUtils.h"
 #include "nsDebug.h"
 #include "nsDependentSubstring.h"
@@ -220,110 +223,110 @@ void ProcessFontSizeValue(const nsAString* aInputString, nsAString& aOutputStrin
 }
 
 const nsHTMLCSSUtils::CSSEquivTable boldEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_font_weight, ProcessBValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_font_weight, ProcessBValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable italicEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_font_style, ProcessDefaultValue, "italic", nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_font_style, ProcessDefaultValue, "italic", nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable underlineEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_text_decoration, ProcessDefaultValue, "underline", nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_text_decoration, ProcessDefaultValue, "underline", nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable strikeEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_text_decoration, ProcessDefaultValue, "line-through", nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_text_decoration, ProcessDefaultValue, "line-through", nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable ttEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_font_family, ProcessDefaultValue, "monospace", nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_font_family, ProcessDefaultValue, "monospace", nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable fontColorEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_color, ProcessSameValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_color, ProcessSameValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable fontFaceEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_font_family, ProcessSameValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_font_family, ProcessSameValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable fontSizeEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_font_size, ProcessFontSizeValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_font_size, ProcessFontSizeValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable bgcolorEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_background_color, ProcessSameValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_background_color, ProcessSameValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable backgroundImageEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_background_image, ProcessExtendedValue, nsnull, "url(", ")", true, true },
+  { nsHTMLCSSUtils::eCSSEditableProperty_background_image, ProcessExtendedValue, nullptr, "url(", ")", true, true },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable textColorEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_color, ProcessSameValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_color, ProcessSameValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable borderEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_border, ProcessExtendedValue, nsnull, nsnull, "px solid", true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_border, ProcessExtendedValue, nullptr, nullptr, "px solid", true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable textAlignEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_text_align, ProcessSameValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_text_align, ProcessSameValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable captionAlignEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_caption_side, ProcessSameValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_caption_side, ProcessSameValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable verticalAlignEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_vertical_align, ProcessSameValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_vertical_align, ProcessSameValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable nowrapEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_whitespace, ProcessDefaultValue, "nowrap", nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_whitespace, ProcessDefaultValue, "nowrap", nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable widthEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_width, ProcessLengthValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_width, ProcessLengthValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable heightEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_height, ProcessLengthValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_height, ProcessLengthValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable listStyleTypeEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_list_style_type, ProcessListStyleTypeValue, nsnull, nsnull, nsnull, true, true },
+  { nsHTMLCSSUtils::eCSSEditableProperty_list_style_type, ProcessListStyleTypeValue, nullptr, nullptr, nullptr, true, true },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable tableAlignEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_text_align, ProcessDefaultValue, "left", nsnull, nsnull, false, false },
-  { nsHTMLCSSUtils::eCSSEditableProperty_margin_left, ProcessMarginLeftValue, nsnull, nsnull, nsnull, true, false },
-  { nsHTMLCSSUtils::eCSSEditableProperty_margin_right, ProcessMarginRightValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_text_align, ProcessDefaultValue, "left", nullptr, nullptr, false, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_margin_left, ProcessMarginLeftValue, nullptr, nullptr, nullptr, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_margin_right, ProcessMarginRightValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
 const nsHTMLCSSUtils::CSSEquivTable hrAlignEquivTable[] = {
-  { nsHTMLCSSUtils::eCSSEditableProperty_margin_left, ProcessMarginLeftValue, nsnull, nsnull, nsnull, true, false },
-  { nsHTMLCSSUtils::eCSSEditableProperty_margin_right, ProcessMarginRightValue, nsnull, nsnull, nsnull, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_margin_left, ProcessMarginLeftValue, nullptr, nullptr, nullptr, true, false },
+  { nsHTMLCSSUtils::eCSSEditableProperty_margin_right, ProcessMarginRightValue, nullptr, nullptr, nullptr, true, false },
   { nsHTMLCSSUtils::eCSSEditableProperty_NONE, 0 }
 };
 
@@ -570,94 +573,86 @@ nsresult
 nsHTMLCSSUtils::GetSpecifiedProperty(nsIDOMNode *aNode, nsIAtom *aProperty,
                                      nsAString & aValue)
 {
-  return GetCSSInlinePropertyBase(aNode, aProperty, aValue, nsnull, SPECIFIED_STYLE_TYPE);
+  return GetCSSInlinePropertyBase(aNode, aProperty, aValue, eSpecified);
 }
 
 nsresult
 nsHTMLCSSUtils::GetComputedProperty(nsIDOMNode *aNode, nsIAtom *aProperty,
                                     nsAString & aValue)
 {
-  nsCOMPtr<nsIDOMWindow> window;
-  nsresult res = GetDefaultViewCSS(aNode, getter_AddRefs(window));
-  NS_ENSURE_SUCCESS(res, res);
+  return GetCSSInlinePropertyBase(aNode, aProperty, aValue, eComputed);
+}
 
-  return GetCSSInlinePropertyBase(aNode, aProperty, aValue, window, COMPUTED_STYLE_TYPE);
+nsresult
+nsHTMLCSSUtils::GetCSSInlinePropertyBase(nsIDOMNode* aNode, nsIAtom* aProperty,
+                                         nsAString& aValue,
+                                         StyleType aStyleType)
+{
+  nsCOMPtr<nsINode> node = do_QueryInterface(aNode);
+  return GetCSSInlinePropertyBase(node, aProperty, aValue, aStyleType);
 }
 
 nsresult
 nsHTMLCSSUtils::GetCSSInlinePropertyBase(nsINode* aNode, nsIAtom* aProperty,
                                          nsAString& aValue,
-                                         nsIDOMWindow* aWindow,
-                                         PRUint8 aStyleType)
+                                         StyleType aStyleType)
 {
-  nsCOMPtr<nsIDOMNode> node = do_QueryInterface(aNode);
-  return GetCSSInlinePropertyBase(node, aProperty, aValue, aWindow, aStyleType);
-}
-
-nsresult
-nsHTMLCSSUtils::GetCSSInlinePropertyBase(nsIDOMNode *aNode, nsIAtom *aProperty,
-                                         nsAString& aValue,
-                                         nsIDOMWindow* aWindow,
-                                         PRUint8 aStyleType)
-{
+  MOZ_ASSERT(aNode && aProperty);
   aValue.Truncate();
-  NS_ENSURE_TRUE(aProperty, NS_ERROR_NULL_POINTER);
 
-  nsCOMPtr<nsIDOMElement> element = GetElementContainerOrSelf(aNode);
+  nsCOMPtr<dom::Element> element = GetElementContainerOrSelf(aNode);
   NS_ENSURE_TRUE(element, NS_ERROR_NULL_POINTER);
 
-  switch (aStyleType) {
-    case COMPUTED_STYLE_TYPE:
-      if (element && aWindow) {
-        nsAutoString value, propString;
-        nsCOMPtr<nsIDOMCSSStyleDeclaration> cssDecl;
-        aProperty->ToString(propString);
-        // Get the all the computed css styles attached to the element node
-        nsresult res = aWindow->GetComputedStyle(element, EmptyString(), getter_AddRefs(cssDecl));
-        if (NS_FAILED(res) || !cssDecl)
-          return res;
-        // from these declarations, get the one we want and that one only
-        res = cssDecl->GetPropertyValue(propString, value);
-        NS_ENSURE_SUCCESS(res, res);
-        aValue.Assign(value);
-      }
-      break;
-    case SPECIFIED_STYLE_TYPE:
-      if (element) {
-        nsCOMPtr<nsIDOMCSSStyleDeclaration> cssDecl;
-        PRUint32 length;
-        nsresult res = GetInlineStyles(element, getter_AddRefs(cssDecl), &length);
-        if (NS_FAILED(res) || !cssDecl) return res;
-        nsAutoString value, propString;
-        aProperty->ToString(propString);
-        res = cssDecl->GetPropertyValue(propString, value);
-        NS_ENSURE_SUCCESS(res, res);
-        aValue.Assign(value);
-      }
-      break;
+  if (aStyleType == eComputed) {
+    // Get the all the computed css styles attached to the element node
+    nsRefPtr<nsComputedDOMStyle> cssDecl = GetComputedStyle(element);
+    NS_ENSURE_STATE(cssDecl);
+
+    // from these declarations, get the one we want and that one only
+    MOZ_ALWAYS_TRUE(NS_SUCCEEDED(
+      cssDecl->GetPropertyValue(nsDependentAtomString(aProperty), aValue)));
+
+    return NS_OK;
   }
+
+  MOZ_ASSERT(aStyleType == eSpecified);
+  nsRefPtr<css::StyleRule> rule = element->GetInlineStyleRule();
+  if (!rule) {
+    return NS_OK;
+  }
+  nsCSSProperty prop =
+    nsCSSProps::LookupProperty(nsDependentAtomString(aProperty),
+                               nsCSSProps::eEnabled);
+  MOZ_ASSERT(prop != eCSSProperty_UNKNOWN);
+  rule->GetDeclaration()->GetValue(prop, aValue);
+
   return NS_OK;
 }
 
-nsresult
-nsHTMLCSSUtils::GetDefaultViewCSS(nsIDOMNode *aNode, nsIDOMWindow **aViewCSS)
+already_AddRefed<nsComputedDOMStyle>
+nsHTMLCSSUtils::GetComputedStyle(nsIDOMElement* aElement)
 {
-  nsCOMPtr<nsINode> node = do_QueryInterface(aNode);
-  NS_ENSURE_TRUE(node, NS_ERROR_NULL_POINTER);
-  return GetDefaultViewCSS(node, aViewCSS);
+  nsCOMPtr<dom::Element> element = do_QueryInterface(aElement);
+  return GetComputedStyle(element);
 }
 
-nsresult
-nsHTMLCSSUtils::GetDefaultViewCSS(nsINode* aNode, nsIDOMWindow** aViewCSS)
+already_AddRefed<nsComputedDOMStyle>
+nsHTMLCSSUtils::GetComputedStyle(dom::Element* aElement)
 {
-  MOZ_ASSERT(aNode);
-  dom::Element* element = GetElementContainerOrSelf(aNode);
-  NS_ENSURE_TRUE(element, NS_ERROR_NULL_POINTER);
+  MOZ_ASSERT(aElement);
 
-  nsCOMPtr<nsIDOMWindow> window = element->OwnerDoc()->GetWindow();
-  NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
-  window.forget(aViewCSS);
-  return NS_OK;
+  nsIDocument* doc = aElement->GetCurrentDoc();
+  NS_ASSERTION(doc, "Trying to compute style of detached element");
+  NS_ENSURE_TRUE(doc, nullptr);
+
+  nsIPresShell* presShell = doc->GetShell();
+  NS_ASSERTION(presShell, "Trying to compute style without PresShell");
+  NS_ENSURE_TRUE(presShell, nullptr);
+
+  nsRefPtr<nsComputedDOMStyle> style =
+    NS_NewComputedDOMStyle(aElement, EmptyString(), presShell);
+
+  return style.forget();
 }
 
 // remove the CSS style "aProperty : aPropertyValue" and possibly remove the whole node
@@ -774,7 +769,7 @@ nsHTMLCSSUtils::ParseLength(const nsAString & aString, float * aValue, nsIAtom *
 void
 nsHTMLCSSUtils::GetCSSPropertyAtom(nsCSSEditableProperty aProperty, nsIAtom ** aAtom)
 {
-  *aAtom = nsnull;
+  *aAtom = nullptr;
   switch (aProperty) {
     case eCSSEditableProperty_background_color:
       *aAtom = nsEditProperty::cssBackgroundColor;
@@ -895,7 +890,7 @@ nsHTMLCSSUtils::GenerateCSSDeclarationsFromHTMLStyle(dom::Element* aElement,
 {
   MOZ_ASSERT(aElement);
   nsIAtom* tagName = aElement->Tag();
-  const nsHTMLCSSUtils::CSSEquivTable* equivTable = nsnull;
+  const nsHTMLCSSUtils::CSSEquivTable* equivTable = nullptr;
 
   if (nsEditProperty::b == aHTMLProperty) {
     equivTable = boldEquivTable;
@@ -1066,7 +1061,7 @@ nsHTMLCSSUtils::GetCSSEquivalentToHTMLInlineStyleSet(nsINode* aNode,
                                                      nsIAtom *aHTMLProperty,
                                                      const nsAString *aAttribute,
                                                      nsAString & aValueString,
-                                                     PRUint8 aStyleType)
+                                                     StyleType aStyleType)
 {
   aValueString.Truncate();
   nsCOMPtr<dom::Element> theElement = GetElementContainerOrSelf(aNode);
@@ -1078,24 +1073,18 @@ nsHTMLCSSUtils::GetCSSEquivalentToHTMLInlineStyleSet(nsINode* aNode,
   }
 
   // Yes, the requested HTML style has a CSS equivalence in this implementation
-  // Retrieve the default ViewCSS if we are asked for computed styles
-  nsCOMPtr<nsIDOMWindow> window;
-  if (COMPUTED_STYLE_TYPE == aStyleType) {
-    nsresult res = GetDefaultViewCSS(theElement, getter_AddRefs(window));
-    NS_ENSURE_SUCCESS(res, res);
-  }
   nsTArray<nsIAtom*> cssPropertyArray;
   nsTArray<nsString> cssValueArray;
   // get the CSS equivalence with last param true indicating we want only the
   // "gettable" properties
-  GenerateCSSDeclarationsFromHTMLStyle(theElement, aHTMLProperty, aAttribute, nsnull,
+  GenerateCSSDeclarationsFromHTMLStyle(theElement, aHTMLProperty, aAttribute, nullptr,
                                        cssPropertyArray, cssValueArray, true);
   PRInt32 count = cssPropertyArray.Length();
   for (PRInt32 index = 0; index < count; index++) {
     nsAutoString valueString;
     // retrieve the specified/computed value of the property
     nsresult res = GetCSSInlinePropertyBase(theElement, cssPropertyArray[index],
-                                            valueString, window, aStyleType);
+                                            valueString, aStyleType);
     NS_ENSURE_SUCCESS(res, res);
     // append the value to aValueString (possibly with a leading whitespace)
     if (index) {
@@ -1118,11 +1107,9 @@ nsHTMLCSSUtils::IsCSSEquivalentToHTMLInlineStyleSet(nsIContent* aContent,
                                                     nsIAtom* aProperty,
                                                     const nsAString* aAttribute,
                                                     const nsAString& aValue,
-                                                    PRUint8 aStyleType)
+                                                    StyleType aStyleType)
 {
   MOZ_ASSERT(aContent && aProperty);
-  MOZ_ASSERT(aStyleType == SPECIFIED_STYLE_TYPE ||
-             aStyleType == COMPUTED_STYLE_TYPE);
   bool isSet;
   nsAutoString value(aValue);
   nsresult res = IsCSSEquivalentToHTMLInlineStyleSet(aContent->AsDOMNode(),
@@ -1139,7 +1126,7 @@ nsHTMLCSSUtils::IsCSSEquivalentToHTMLInlineStyleSet(nsIDOMNode *aNode,
                                                     const nsAString *aHTMLAttribute,
                                                     bool& aIsSet,
                                                     nsAString& valueString,
-                                                    PRUint8 aStyleType)
+                                                    StyleType aStyleType)
 {
   NS_ENSURE_TRUE(aNode, NS_ERROR_NULL_POINTER);
 
@@ -1168,7 +1155,7 @@ nsHTMLCSSUtils::IsCSSEquivalentToHTMLInlineStyleSet(nsIDOMNode *aNode,
         valueString.AssignLiteral("bold");
       } else {
         PRInt32 weight = 0;
-        PRInt32 errorCode;
+        nsresult errorCode;
         nsAutoString value(valueString);
         weight = value.ToInteger(&errorCode, 10);
         if (400 < weight) {
@@ -1419,7 +1406,7 @@ already_AddRefed<nsIDOMElement>
 nsHTMLCSSUtils::GetElementContainerOrSelf(nsIDOMNode* aNode)
 {
   nsCOMPtr<nsINode> node = do_QueryInterface(aNode);
-  NS_ENSURE_TRUE(node, nsnull);
+  NS_ENSURE_TRUE(node, nullptr);
   nsCOMPtr<nsIDOMElement> element =
     do_QueryInterface(GetElementContainerOrSelf(node));
   return element.forget();
@@ -1430,7 +1417,7 @@ nsHTMLCSSUtils::GetElementContainerOrSelf(nsINode* aNode)
 {
   MOZ_ASSERT(aNode);
   if (nsIDOMNode::DOCUMENT_NODE == aNode->NodeType()) {
-    return nsnull;
+    return nullptr;
   }
 
   nsINode* node = aNode;
@@ -1439,7 +1426,7 @@ nsHTMLCSSUtils::GetElementContainerOrSelf(nsINode* aNode)
     node = node->GetNodeParent();
   }
 
-  NS_ENSURE_TRUE(node, nsnull);
+  NS_ENSURE_TRUE(node, nullptr);
   return node->AsElement();
 }
 

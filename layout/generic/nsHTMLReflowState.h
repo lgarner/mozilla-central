@@ -10,6 +10,7 @@
 
 #include "nsMargin.h"
 #include "nsStyleCoord.h"
+#include "nsStyleStructInlines.h"
 #include "nsIFrame.h"
 #include "mozilla/AutoRestore.h"
 
@@ -174,8 +175,8 @@ protected:
 
   void InitOffsets(nscoord aContainingBlockWidth,
                    nsIAtom* aFrameType,
-                   const nsMargin *aBorder = nsnull,
-                   const nsMargin *aPadding = nsnull);
+                   const nsMargin *aBorder = nullptr,
+                   const nsMargin *aPadding = nullptr);
 
   /*
    * Convert nsStyleCoord to nscoord when percentages depend on the
@@ -292,6 +293,14 @@ public:
   const nsStylePadding*    mStylePadding;
   const nsStyleText*       mStyleText;
 
+  bool IsFloating() const {
+    return mStyleDisplay->IsFloating(frame);
+  }
+
+  PRUint8 GetDisplay() const {
+    return mStyleDisplay->GetDisplay(frame);
+  }
+
   // a frame (e.g. nsTableCellFrame) which may need to generate a special 
   // reflow for percent height calculations 
   nsIPercentHeightObserver* mPercentHeightObserver;
@@ -376,8 +385,8 @@ public:
   void Init(nsPresContext* aPresContext,
             nscoord         aContainingBlockWidth = -1,
             nscoord         aContainingBlockHeight = -1,
-            const nsMargin* aBorder = nsnull,
-            const nsMargin* aPadding = nsnull);
+            const nsMargin* aBorder = nullptr,
+            const nsMargin* aPadding = nullptr);
   /**
    * Find the content width of the containing block of aReflowState
    */
@@ -413,11 +422,25 @@ public:
                                        nscoord&                 aContainingBlockHeight);
 
   /**
-   * Apply the mComputed(Min/Max)(Width/Height) values to the content
-   * size computed so far. If a passed-in pointer is null, we skip
-   * adjusting that dimension.
+   * Apply the mComputed(Min/Max)Width constraints to the content
+   * size computed so far.
    */
-  void ApplyMinMaxConstraints(nscoord* aContentWidth, nscoord* aContentHeight) const;
+  nscoord ApplyMinMaxWidth(nscoord aWidth) const {
+    if (NS_UNCONSTRAINEDSIZE != mComputedMaxWidth) {
+      aWidth = NS_MIN(aWidth, mComputedMaxWidth);
+    }
+    return NS_MAX(aWidth, mComputedMinWidth);
+  }
+  /**
+   * Apply the mComputed(Min/Max)Height constraints to the content
+   * size computed so far.
+   */
+  nscoord ApplyMinMaxHeight(nscoord aHeight) const {
+    if (NS_UNCONSTRAINEDSIZE != mComputedMaxHeight) {
+      aHeight = NS_MIN(aHeight, mComputedMaxHeight);
+    }
+    return NS_MAX(aHeight, mComputedMinHeight);
+  }
 
   bool ShouldReflowAllKids() const {
     // Note that we could make a stronger optimization for mVResize if

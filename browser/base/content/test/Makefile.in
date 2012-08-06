@@ -2,11 +2,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-DEPTH		= ../../../..
+DEPTH		= @DEPTH@
 topsrcdir	= @top_srcdir@
 srcdir		= @srcdir@
 VPATH		= @srcdir@
-relativesrcdir  = browser/base/content/test
+relativesrcdir  = @relativesrcdir@
 
 DIRS += \
 		newtab \
@@ -257,6 +257,12 @@ _BROWSER_FILES = \
                  browser_lastAccessedTab.js \
                  browser_bug734076.js \
                  browser_social_toolbar.js \
+                 browser_social_sidebar.js \
+                 browser_social_mozSocial_API.js \
+                 social_panel.html \
+                 social_sidebar.html \
+                 social_window.html \
+                 social_worker.js \
                  $(NULL)
 
 ifneq (cocoa,$(MOZ_WIDGET_TOOLKIT))

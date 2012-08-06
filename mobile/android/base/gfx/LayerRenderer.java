@@ -5,39 +5,28 @@
 
 package org.mozilla.gecko.gfx;
 
-import org.mozilla.gecko.gfx.BufferedCairoImage;
-import org.mozilla.gecko.gfx.IntSize;
-import org.mozilla.gecko.gfx.Layer.RenderContext;
-import org.mozilla.gecko.gfx.LayerController;
-import org.mozilla.gecko.gfx.NinePatchTileLayer;
-import org.mozilla.gecko.gfx.SingleTileLayer;
-import org.mozilla.gecko.gfx.TextureReaper;
-import org.mozilla.gecko.gfx.TextureGenerator;
-import org.mozilla.gecko.gfx.TextLayer;
-import org.mozilla.gecko.gfx.TileLayer;
 import org.mozilla.gecko.GeckoAppShell;
+import org.mozilla.gecko.gfx.Layer.RenderContext;
+import org.mozilla.gecko.mozglue.DirectBufferAllocator;
+
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
 import android.graphics.Point;
-import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Region;
 import android.graphics.RegionIterator;
 import android.opengl.GLES20;
-import android.opengl.GLSurfaceView;
 import android.os.SystemClock;
-import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.WindowManager;
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import javax.microedition.khronos.egl.EGLConfig;
 
 /**
  * The layer renderer implements the rendering logic for a layer view.
@@ -135,20 +124,11 @@ public class LayerRenderer {
         "}\n";
 
     public void setCheckerboardBitmap(ByteBuffer data, int width, int height, RectF pageRect, Rect copyRect) {
-        mCheckerboardLayer.setBitmap(data, width, height, copyRect);
-        mCheckerboardLayer.beginTransaction();
         try {
-            mCheckerboardLayer.setPosition(RectUtils.round(pageRect));
-            mCheckerboardLayer.invalidate();
-        } finally {
-            mCheckerboardLayer.endTransaction();
+            mCheckerboardLayer.setBitmap(data, width, height, copyRect);
+        } catch (IllegalArgumentException ex) {
+            Log.e(LOGTAG, "error setting bitmap: ", ex);
         }
-    }
-
-    public void updateCheckerboardBitmap(Bitmap bitmap, float x, float y,
-                                         float width, float height,
-                                         RectF pageRect) {
-        mCheckerboardLayer.updateBitmap(bitmap, x, y, width, height);
         mCheckerboardLayer.beginTransaction();
         try {
             mCheckerboardLayer.setPosition(RectUtils.round(pageRect));
@@ -184,7 +164,7 @@ public class LayerRenderer {
 
         // Initialize the FloatBuffer that will be used to store all vertices and texture
         // coordinates in draw() commands.
-        mCoordByteBuffer = GeckoAppShell.allocateDirectBuffer(COORD_BUFFER_SIZE * 4);
+        mCoordByteBuffer = DirectBufferAllocator.allocate(COORD_BUFFER_SIZE * 4);
         mCoordByteBuffer.order(ByteOrder.nativeOrder());
         mCoordBuffer = mCoordByteBuffer.asFloatBuffer();
     }
@@ -192,11 +172,9 @@ public class LayerRenderer {
     @Override
     protected void finalize() throws Throwable {
         try {
-            if (mCoordByteBuffer != null) {
-                GeckoAppShell.freeDirectBuffer(mCoordByteBuffer);
-                mCoordByteBuffer = null;
-                mCoordBuffer = null;
-            }
+            DirectBufferAllocator.free(mCoordByteBuffer);
+            mCoordByteBuffer = null;
+            mCoordBuffer = null;
         } finally {
             super.finalize();
         }

@@ -55,8 +55,6 @@ extern cairo_user_data_key_t gKeyD3D10Texture;
 class THEBES_API LayerManagerD3D10 : public ShadowLayerManager,
                                      public ShadowLayerForwarder {
 public:
-  typedef LayerManager::LayersBackend LayersBackend;
-
   LayerManagerD3D10(nsIWidget *aWidget);
   virtual ~LayerManagerD3D10();
 
@@ -122,15 +120,15 @@ public:
 
   virtual already_AddRefed<ImageLayer> CreateImageLayer();
   virtual already_AddRefed<ShadowImageLayer> CreateShadowImageLayer()
-  { return nsnull; }
+  { return nullptr; }
 
   virtual already_AddRefed<ColorLayer> CreateColorLayer();
   virtual already_AddRefed<ShadowColorLayer> CreateShadowColorLayer()
-  { return nsnull; }
+  { return nullptr; }
 
   virtual already_AddRefed<CanvasLayer> CreateCanvasLayer();
   virtual already_AddRefed<ShadowCanvasLayer> CreateShadowCanvasLayer()
-  { return nsnull; }
+  { return nullptr; }
 
   virtual already_AddRefed<ReadbackLayer> CreateReadbackLayer();
 
@@ -157,7 +155,10 @@ public:
   ID3D10Device1 *device() const { return mDevice; }
 
   ID3D10Effect *effect() const { return mEffect; }
-
+  IDXGISwapChain *SwapChain() const
+  {
+    return mSwapChain;
+  }
   ReadbackManagerD3D10 *readbackManager();
 
   void SetupInputAssembler();
@@ -240,7 +241,7 @@ class LayerD3D10
 public:
   LayerD3D10(LayerManagerD3D10 *aManager);
 
-  virtual LayerD3D10 *GetFirstChildD3D10() { return nsnull; }
+  virtual LayerD3D10 *GetFirstChildD3D10() { return nullptr; }
 
   void SetFirstChild(LayerD3D10 *aParent);
 
@@ -276,7 +277,7 @@ public:
    */
   virtual already_AddRefed<ID3D10ShaderResourceView> GetAsTexture(gfxIntSize* aSize)
   {
-    return nsnull;
+    return nullptr;
   }
 
   void SetEffectTransformAndOpacity()

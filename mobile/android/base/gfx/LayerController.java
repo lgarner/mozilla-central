@@ -5,9 +5,9 @@
 
 package org.mozilla.gecko.gfx;
 
-import org.mozilla.gecko.gfx.Layer;
 import org.mozilla.gecko.ui.PanZoomController;
 import org.mozilla.gecko.ui.SimpleScaleGestureDetector;
+
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -15,9 +15,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PointF;
 import android.graphics.RectF;
-import android.util.Log;
+import android.util.DisplayMetrics;
 import android.view.GestureDetector;
-import android.view.View.OnTouchListener;
 
 /**
  * The layer controller manages a tile that represents the visible page. It does panning and
@@ -67,12 +66,16 @@ public class LayerController {
 
     public LayerController(Context context) {
         mContext = context;
-
         mForceRedraw = true;
-        mViewportMetrics = new ImmutableViewportMetrics(new ViewportMetrics());
+        DisplayMetrics displayMetrics = context.getResources().getDisplayMetrics();
+        mViewportMetrics = new ImmutableViewportMetrics(new ViewportMetrics(displayMetrics));
         mPanZoomController = new PanZoomController(this);
-        mView = new LayerView(context, this);
         mCheckerboardShouldShowChecks = true;
+    }
+
+    public void setView(LayerView v) {
+        mView = v;
+        mView.connect(this);
     }
 
     public void setRoot(Layer layer) { mRootLayer = layer; }
@@ -123,7 +126,7 @@ public class LayerController {
         return mViewportMetrics.zoomFactor;
     }
 
-    public Bitmap getBackgroundPattern()    { return getDrawable("background"); }
+    public Bitmap getBackgroundPattern()    { return getDrawable("tabs_tray_selected_bg"); }
     public Bitmap getShadowPattern()        { return getDrawable("shadow"); }
 
     public PanZoomController getPanZoomController()                                 { return mPanZoomController; }

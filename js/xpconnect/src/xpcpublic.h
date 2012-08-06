@@ -32,6 +32,16 @@ class nsScriptNameSpaceManager;
 #define BAD_TLS_INDEX ((PRUint32) -1)
 #endif
 
+namespace xpc {
+JSObject *
+TransplantObject(JSContext *cx, JSObject *origobj, JSObject *target);
+
+JSObject *
+TransplantObjectWithWrapper(JSContext *cx,
+                            JSObject *origobj, JSObject *origwrapper,
+                            JSObject *targetobj, JSObject *targetwrapper);
+} /* namespace xpc */
+
 nsresult
 xpc_CreateGlobalObject(JSContext *cx, JSClass *clasp,
                        nsIPrincipal *principal, nsISupports *ptr,
@@ -128,7 +138,7 @@ xpc_FastGetCachedWrapper(nsWrapperCache *cache, JSObject *scope, jsval *vp)
         }
     }
 
-    return nsnull;
+    return nullptr;
 }
 
 // The JS GC marks objects gray that are held alive directly or
@@ -269,56 +279,6 @@ ReportJSRuntimeExplicitTreeStats(const JS::RuntimeStats &rtStats,
                                  const nsACString &rtPath,
                                  nsIMemoryMultiReporterCallback *cb,
                                  nsISupports *closure, size_t *rtTotal = NULL);
-
-/**
- * Convert a jsval to PRInt64. Return true on success.
- */
-inline bool
-ValueToInt64(JSContext *cx, JS::Value v, int64_t *result)
-{
-    if (JSVAL_IS_INT(v)) {
-        int32_t intval;
-        if (!JS_ValueToECMAInt32(cx, v, &intval))
-            return false;
-        *result = static_cast<int64_t>(intval);
-    } else {
-        double doubleval;
-        if (!JS_ValueToNumber(cx, v, &doubleval))
-            return false;
-        // Be careful with non-finite doubles
-        if (NS_finite(doubleval))
-            // XXXbz this isn't quite right either; need to do the mod thing
-            *result = static_cast<int64_t>(doubleval);
-        else
-            *result = 0;
-    }
-    return true;
-}
-
-/**
- * Convert a jsval to uint64_t. Return true on success.
- */
-inline bool
-ValueToUint64(JSContext *cx, JS::Value v, uint64_t *result)
-{
-    if (JSVAL_IS_INT(v)) {
-        uint32_t intval;
-        if (!JS_ValueToECMAUint32(cx, v, &intval))
-            return false;
-        *result = static_cast<uint64_t>(intval);
-    } else {
-        double doubleval;
-        if (!JS_ValueToNumber(cx, v, &doubleval))
-            return false;
-        // Be careful with non-finite doubles
-        if (NS_finite(doubleval))
-            // XXXbz this isn't quite right either; need to do the mod thing
-            *result = static_cast<uint64_t>(doubleval);
-        else
-            *result = 0;
-    }
-    return true;
-}
 
 /**
  * Given an arbitrary object, Unwrap will return the wrapped object if the

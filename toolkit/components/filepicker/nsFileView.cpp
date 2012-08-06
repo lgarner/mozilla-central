@@ -25,6 +25,7 @@
 #include "nsAutoPtr.h"
 #include "nsIMutableArray.h"
 #include "nsTArray.h"
+#include "mozilla/Attributes.h"
 
 #include "nsWildCard.h"
 
@@ -34,7 +35,7 @@ class nsIDOMDataTransfer;
                             { 0x91, 0x10, 0x81, 0x46, 0x61, 0x4c, 0xa7, 0xf0 } }
 #define NS_FILECOMPLETE_CONTRACTID "@mozilla.org/autocomplete/search;1?name=file"
 
-class nsFileResult : public nsIAutoCompleteResult
+class nsFileResult MOZ_FINAL : public nsIAutoCompleteResult
 {
 public:
   // aSearchString is the text typed into the autocomplete widget
@@ -169,7 +170,7 @@ NS_IMETHODIMP nsFileResult::RemoveValueAt(PRInt32 rowIndex, bool removeFromDb)
   return NS_OK;
 }
 
-class nsFileComplete : public nsIAutoCompleteSearch
+class nsFileComplete MOZ_FINAL : public nsIAutoCompleteSearch
 {
 public:
   NS_DECL_ISUPPORTS
@@ -538,7 +539,7 @@ nsFileView::SetFilter(const nsAString& aFilterString)
 NS_IMETHODIMP
 nsFileView::GetSelectedFiles(nsIArray** aFiles)
 {
-  *aFiles = nsnull;
+  *aFiles = nullptr;
   if (!mSelection)
     return NS_OK;
 
@@ -753,7 +754,7 @@ nsFileView::GetCellText(PRInt32 aRow, nsITreeColumn* aCol,
     curFile->GetLastModifiedTime(&lastModTime);
     // XXX FormatPRTime could take an nsAString&
     nsAutoString temp;
-    mDateFormatter->FormatPRTime(nsnull, kDateFormatShort, kTimeFormatSeconds,
+    mDateFormatter->FormatPRTime(nullptr, kDateFormatShort, kTimeFormatSeconds,
                                  lastModTime * 1000, temp);
     aCellText = temp;
   } else {
@@ -987,7 +988,7 @@ nsFileView::SortArray(nsISupportsArray* aArray)
   for (i = 0; i < count; ++i)
     aArray->QueryElementAt(i, NS_GET_IID(nsIFile), (void**)&(array[i]));
 
-  NS_QuickSort(array, count, sizeof(nsIFile*), compareFunc, nsnull);
+  NS_QuickSort(array, count, sizeof(nsIFile*), compareFunc, nullptr);
 
   for (i = 0; i < count; ++i) {
     aArray->ReplaceElementAt(array[i], i);

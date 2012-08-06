@@ -16,6 +16,7 @@
 #include "nsCycleCollectionParticipant.h"
 #include "nsILoadGroup.h"
 #include "nsIObserver.h"
+#include "nsDataHashtable.h"
 #include "nsAudioStream.h"
 #include "VideoFrameContainer.h"
 #include "mozilla/CORSMode.h"
@@ -42,6 +43,8 @@ public:
   typedef mozilla::VideoFrameContainer VideoFrameContainer;
   typedef mozilla::MediaStream MediaStream;
   typedef mozilla::MediaResource MediaResource;
+
+  typedef nsDataHashtable<nsCStringHashKey, nsCString> MetadataTags;
 
   enum CanPlayStatus {
     CANPLAY_NO,
@@ -85,7 +88,7 @@ public:
   nsresult SetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
                    const nsAString& aValue, bool aNotify)
   {
-    return SetAttr(aNameSpaceID, aName, nsnull, aValue, aNotify);
+    return SetAttr(aNameSpaceID, aName, nullptr, aValue, aNotify);
   }
   virtual nsresult SetAttr(PRInt32 aNameSpaceID, nsIAtom* aName,
                            nsIAtom* aPrefix, const nsAString& aValue,
@@ -109,7 +112,10 @@ public:
   // Called by the video decoder object, on the main thread,
   // when it has read the metadata containing video dimensions,
   // etc.
-  void MetadataLoaded(PRUint32 aChannels, PRUint32 aRate, bool aHasAudio);
+  void MetadataLoaded(PRUint32 aChannels,
+                      PRUint32 aRate,
+                      bool aHasAudio,
+                      const MetadataTags* aTags);
 
   // Called by the video decoder object, on the main thread,
   // when it has read the first frame of the video
@@ -180,7 +186,7 @@ public:
   ImageContainer* GetImageContainer()
   {
     VideoFrameContainer* container = GetVideoFrameContainer();
-    return container ? container->GetImageContainer() : nsnull;
+    return container ? container->GetImageContainer() : nullptr;
   }
 
   // Called by the video frame to get the print surface, if this is
@@ -283,21 +289,21 @@ public:
 #ifdef MOZ_WAVE
   static bool IsWaveEnabled();
   static bool IsWaveType(const nsACString& aType);
-  static const char gWaveTypes[4][16];
+  static const char gWaveTypes[4][15];
   static char const *const gWaveCodecs[2];
 #endif
 
 #ifdef MOZ_WEBM
   static bool IsWebMEnabled();
   static bool IsWebMType(const nsACString& aType);
-  static const char gWebMTypes[2][17];
+  static const char gWebMTypes[2][11];
   static char const *const gWebMCodecs[4];
 #endif
 
 #ifdef MOZ_GSTREAMER
   static bool IsH264Enabled();
   static bool IsH264Type(const nsACString& aType);
-  static const char gH264Types[3][17];
+  static const char gH264Types[3][16];
   static char const *const gH264Codecs[7];
 #endif
 
@@ -384,7 +390,7 @@ protected:
    * of parameters in aParams.
    */
   void ReportLoadError(const char* aMsg,
-                       const PRUnichar** aParams = nsnull,
+                       const PRUnichar** aParams = nullptr,
                        PRUint32 aParamCount = 0);
 
   /**
@@ -699,6 +705,13 @@ protected:
 
   // Current audio sample rate.
   PRUint32 mRate;
+
+  // Helper function to iterate over a hash table
+  // and convert it to a JSObject.
+  static PLDHashOperator BuildObjectFromTags(nsCStringHashKey::KeyType aKey,
+                                             nsCString aValue,
+                                             void* aUserArg);
+  nsAutoPtr<const MetadataTags> mTags;
 
   // URI of the resource we're attempting to load. This stores the value we
   // return in the currentSrc attribute. Use GetCurrentSrc() to access the

@@ -48,7 +48,7 @@ PRInt32 nsSliderFrame::gSnapMultiplier;
 #undef DEBUG_SLIDER
 
 static already_AddRefed<nsIContent>
-GetContentOfBox(nsIBox *aBox)
+GetContentOfBox(nsIFrame *aBox)
 {
   nsIContent* content = aBox->GetContent();
   NS_IF_ADDREF(content);
@@ -171,7 +171,7 @@ nsSliderFrame::GetIntegerAttribute(nsIContent* content, nsIAtom* atom, PRInt32 d
     nsAutoString value;
     content->GetAttr(kNameSpaceID_None, atom, value);
     if (!value.IsEmpty()) {
-      PRInt32 error;
+      nsresult error;
 
       // convert it to an integer
       defaultValue = value.ToInteger(&error);
@@ -238,7 +238,7 @@ nsSliderFrame::AttributeChanged(PRInt32 aNameSpaceID,
              aAttribute == nsGkAtoms::maxpos) {
       // bounds check it.
 
-      nsIBox* scrollbarBox = GetScrollbar();
+      nsIFrame* scrollbarBox = GetScrollbar();
       nsCOMPtr<nsIContent> scrollbar;
       scrollbar = GetContentOfBox(scrollbarBox);
       PRInt32 current = GetCurrentPosition(scrollbar);
@@ -310,7 +310,7 @@ nsSliderFrame::BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
                                            const nsDisplayListSet& aLists)
 {
   // if we are too small to have a thumb don't paint it.
-  nsIBox* thumb = GetChildBox();
+  nsIFrame* thumb = GetChildBox();
 
   if (thumb) {
     nsRect thumbRect(thumb->GetRect());
@@ -332,7 +332,7 @@ NS_IMETHODIMP
 nsSliderFrame::DoLayout(nsBoxLayoutState& aState)
 {
   // get the thumb should be our only child
-  nsIBox* thumbBox = GetChildBox();
+  nsIFrame* thumbBox = GetChildBox();
 
   if (!thumbBox) {
     SyncLayout(aState);
@@ -355,7 +355,7 @@ nsSliderFrame::DoLayout(nsBoxLayoutState& aState)
   GetClientRect(clientRect);
 
   // get the scrollbar
-  nsIBox* scrollbarBox = GetScrollbar();
+  nsIFrame* scrollbarBox = GetScrollbar();
   nsCOMPtr<nsIContent> scrollbar;
   scrollbar = GetContentOfBox(scrollbarBox);
 
@@ -430,7 +430,7 @@ nsSliderFrame::HandleEvent(nsPresContext* aPresContext,
     return NS_OK;
   }
 
-  nsIBox* scrollbarBox = GetScrollbar();
+  nsIFrame* scrollbarBox = GetScrollbar();
   nsCOMPtr<nsIContent> scrollbar;
   scrollbar = GetContentOfBox(scrollbarBox);
   bool isHorizontal = IsHorizontal();
@@ -574,40 +574,6 @@ nsSliderFrame::HandleEvent(nsPresContext* aPresContext,
   return nsFrame::HandleEvent(aPresContext, aEvent, aEventStatus);
 }
 
-bool
-nsSliderFrame::GetEventPoint(nsGUIEvent* aEvent, nsPoint &aPoint) {
-  nsIntPoint refPoint;
-  nsresult rv;
-  if (aEvent->eventStructType == NS_TOUCH_EVENT) {
-    rv = GetTouchPoint(static_cast<nsTouchEvent*>(aEvent), refPoint);
-    if (NS_FAILED(rv))
-       return false;
-  } else {
-    refPoint = aEvent->refPoint;
-  }
-  aPoint = nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, refPoint, this);
-  return true;
-}
-
-bool
-nsSliderFrame::GetTouchPoint(nsTouchEvent* aEvent, nsIntPoint &aPoint)
-{
-  NS_ENSURE_ARG_POINTER(aEvent);
-  // return false if there is more than one touch on the page, or if
-  // we can't find a touch point
-  if (aEvent->touches.Length() != 1) {
-    return false;
-  }
-
-  nsIDOMTouch *touch = aEvent->touches.SafeElementAt(0);
-  if (!touch) {
-    return false;
-  }
-  nsDOMTouch* domtouch = static_cast<nsDOMTouch*>(touch);
-  aPoint = domtouch->mRefPoint;
-  return true;
-}
-
 // Helper function to collect the "scroll to click" metric. Beware of
 // caching this, users expect to be able to change the system preference
 // and see the browser change its behavior immediately.
@@ -638,7 +604,7 @@ nsSliderFrame::GetScrollToClick()
 #endif
 }
 
-nsIBox*
+nsIFrame*
 nsSliderFrame::GetScrollbar()
 {
   // if we are in a scrollbar then return the scrollbar's content node
@@ -646,7 +612,7 @@ nsSliderFrame::GetScrollbar()
    nsIFrame* scrollbar;
    nsScrollbarButtonFrame::GetParentWithTag(nsGkAtoms::scrollbar, this, scrollbar);
 
-   if (scrollbar == nsnull)
+   if (scrollbar == nullptr)
        return this;
 
    return scrollbar->IsBoxFrame() ? scrollbar : this;
@@ -658,7 +624,7 @@ nsSliderFrame::PageUpDown(nscoord change)
   // on a page up or down get our page increment. We get this by getting the scrollbar we are in and
   // asking it for the current position and the page increment. If we are not in a scrollbar we will
   // get the values from our own node.
-  nsIBox* scrollbarBox = GetScrollbar();
+  nsIFrame* scrollbarBox = GetScrollbar();
   nsCOMPtr<nsIContent> scrollbar;
   scrollbar = GetContentOfBox(scrollbarBox);
 
@@ -686,7 +652,7 @@ nsresult
 nsSliderFrame::CurrentPositionChanged(nsPresContext* aPresContext,
                                       bool aImmediateRedraw)
 {
-  nsIBox* scrollbarBox = GetScrollbar();
+  nsIFrame* scrollbarBox = GetScrollbar();
   nsCOMPtr<nsIContent> scrollbar;
   scrollbar = GetContentOfBox(scrollbarBox);
 
@@ -818,7 +784,7 @@ nsSliderFrame::SetCurrentPositionInternal(nsIContent* aScrollbar, PRInt32 aNewPo
                                           bool aImmediateRedraw)
 {
   nsCOMPtr<nsIContent> scrollbar = aScrollbar;
-  nsIBox* scrollbarBox = GetScrollbar();
+  nsIFrame* scrollbarBox = GetScrollbar();
 
   mUserChanged = true;
 
@@ -931,7 +897,7 @@ nsSliderFrame::StartDrag(nsIDOMEvent* aEvent)
 
     newpos -= (thumbLength/2);
 
-    nsIBox* scrollbarBox = GetScrollbar();
+    nsIFrame* scrollbarBox = GetScrollbar();
     scrollbar = GetContentOfBox(scrollbarBox);
   }
 
@@ -974,7 +940,7 @@ nsSliderFrame::DragThumb(bool aGrabMouseEvents)
     }
   }
 
-  nsIPresShell::SetCapturingContent(aGrabMouseEvents ? GetContent() : nsnull,
+  nsIPresShell::SetCapturingContent(aGrabMouseEvents ? GetContent() : nullptr,
                                     aGrabMouseEvents ? CAPTURE_IGNOREALLOWED : 0);
 }
 
@@ -1079,8 +1045,8 @@ nsSliderFrame::DestroyFrom(nsIFrame* aDestructRoot)
 {
   // tell our mediator if we have one we are gone.
   if (mMediator) {
-    mMediator->SetSlider(nsnull);
-    mMediator = nsnull;
+    mMediator->SetSlider(nullptr);
+    mMediator = nullptr;
   }
   StopRepeat();
 
@@ -1114,7 +1080,7 @@ nsSliderFrame::GetMaxSize(nsBoxLayoutState& aState)
 void
 nsSliderFrame::EnsureOrient()
 {
-  nsIBox* scrollbarBox = GetScrollbar();
+  nsIFrame* scrollbarBox = GetScrollbar();
 
   bool isHorizontal = (scrollbarBox->GetStateBits() & NS_STATE_IS_HORIZONTAL) != 0;
   if (isHorizontal)

@@ -133,14 +133,14 @@ public:
                                const nsIntRect& aRect,
                                EVENT_CALLBACK aHandleEventFunction,
                                nsDeviceContext* aContext,
-                               nsWidgetInitData* aInitData = nsnull);
+                               nsWidgetInitData* aInitData = nullptr);
   NS_IMETHOD            Destroy();
   virtual nsIWidget*    GetParent();
   virtual float         GetDPI();
   NS_IMETHOD            Enable(bool aState);
-  NS_IMETHOD            IsEnabled(bool* aState);
+  virtual bool          IsEnabled() const;
   NS_IMETHOD            Show(bool aState);
-  NS_IMETHOD            IsVisible(bool& aState);
+  virtual bool          IsVisible() const;
   NS_IMETHOD            SetFocus(bool aRaise);
   NS_IMETHOD            Invalidate(const nsIntRect& aRect);
   gfxASurface*          GetThebesSurface();

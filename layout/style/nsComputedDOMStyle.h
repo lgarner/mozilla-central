@@ -16,31 +16,29 @@
 #include "nsCSSProps.h"
 
 #include "nsIContent.h"
-#include "nsIFrame.h"
 #include "nsCOMPtr.h"
 #include "nsWeakReference.h"
 #include "nsAutoPtr.h"
 #include "nsStyleStruct.h"
+#include "nsStyleContext.h"
 
+class nsIFrame;
 class nsIPresShell;
 
-class nsComputedDOMStyle : public nsDOMCSSDeclaration,
-                           public nsWrapperCache
+class nsComputedDOMStyle : public nsDOMCSSDeclaration
 {
 public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_SKIPPABLE_CLASS_AMBIGUOUS(nsComputedDOMStyle,
-                                                     nsICSSDeclaration)
-
-  NS_IMETHOD Init(nsIDOMElement *aElement,
-                  const nsAString& aPseudoElt,
-                  nsIPresShell *aPresShell);
+  NS_DECL_CYCLE_COLLECTION_SKIPPABLE_SCRIPT_HOLDER_CLASS_AMBIGUOUS(nsComputedDOMStyle,
+                                                                   nsICSSDeclaration)
 
   NS_DECL_NSICSSDECLARATION
 
   NS_DECL_NSIDOMCSSSTYLEDECLARATION
 
-  nsComputedDOMStyle();
+  nsComputedDOMStyle(mozilla::dom::Element* aElement,
+                     const nsAString& aPseudoElt,
+                     nsIPresShell* aPresShell);
   virtual ~nsComputedDOMStyle();
 
   static void Shutdown();
@@ -335,6 +333,7 @@ private:
 
   /* Column properties */
   nsIDOMCSSValue* DoGetColumnCount();
+  nsIDOMCSSValue* DoGetColumnFill();
   nsIDOMCSSValue* DoGetColumnWidth();
   nsIDOMCSSValue* DoGetColumnGap();
   nsIDOMCSSValue* DoGetColumnRuleWidth();
@@ -437,8 +436,8 @@ private:
   void SetValueToCoord(nsROCSSPrimitiveValue* aValue,
                        const nsStyleCoord& aCoord,
                        bool aClampNegativeCalc,
-                       PercentageBaseGetter aPercentageBaseGetter = nsnull,
-                       const PRInt32 aTable[] = nsnull,
+                       PercentageBaseGetter aPercentageBaseGetter = nullptr,
+                       const PRInt32 aTable[] = nullptr,
                        nscoord aMinAppUnits = nscoord_MIN,
                        nscoord aMaxAppUnits = nscoord_MAX);
 
@@ -511,10 +510,10 @@ private:
 #endif
 };
 
-nsresult
-NS_NewComputedDOMStyle(nsIDOMElement *aElement, const nsAString &aPseudoElt,
-                       nsIPresShell *aPresShell,
-                       nsComputedDOMStyle **aComputedStyle);
+already_AddRefed<nsComputedDOMStyle>
+NS_NewComputedDOMStyle(mozilla::dom::Element* aElement,
+                       const nsAString& aPseudoElt,
+                       nsIPresShell* aPresShell);
 
 #endif /* nsComputedDOMStyle_h__ */
 

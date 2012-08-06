@@ -287,10 +287,12 @@ DOMWifiManager.prototype = {
                             network: this._currentNetwork });
   },
 
-  get connectionInfo() {
+  get connectionInformation() {
     if (!this._hasPrivileges)
       throw new Components.Exception("Denied", Cr.NS_ERROR_FAILURE);
-    return this._lastConnectionInfo;
+    return this._lastConnectionInfo
+           ? exposeReadOnly(this._lastConnectionInfo)
+           : null;
   },
 
   set onstatuschange(callback) {

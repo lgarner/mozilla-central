@@ -551,7 +551,7 @@ public:
   // containing block frame.
   static PRInt32 GetLineNumber(nsIFrame *aFrame,
                                bool aLockScroll,
-                               nsIFrame** aContainingBlock = nsnull);
+                               nsIFrame** aContainingBlock = nullptr);
 
   /**
    * Returns true if aFrame should apply overflow clipping.
@@ -571,11 +571,18 @@ public:
       nsIAtom* type = aFrame->GetType();
       if (type == nsGkAtoms::tableFrame ||
           type == nsGkAtoms::tableCellFrame ||
-          type == nsGkAtoms::bcTableCellFrame) {
+          type == nsGkAtoms::bcTableCellFrame ||
+          type == nsGkAtoms::svgOuterSVGFrame ||
+          type == nsGkAtoms::svgInnerSVGFrame ||
+          type == nsGkAtoms::svgForeignObjectFrame) {
         return true;
       }
     }
-    
+
+    if ((aFrame->GetStateBits() & NS_FRAME_SVG_LAYOUT)) {
+      return false;
+    }
+
     // If we're paginated and a block, and have NS_BLOCK_CLIP_PAGINATED_OVERFLOW
     // set, then we want to clip our overflow.
     return
@@ -612,7 +619,7 @@ protected:
   nsBoxLayoutMetrics* BoxMetrics() const;
 
   // Fire DOM event. If no aContent argument use frame's mContent.
-  void FireDOMEvent(const nsAString& aDOMEventName, nsIContent *aContent = nsnull);
+  void FireDOMEvent(const nsAString& aDOMEventName, nsIContent *aContent = nullptr);
 
 private:
   nsresult BoxReflow(nsBoxLayoutState& aState,

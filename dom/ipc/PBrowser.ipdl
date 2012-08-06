@@ -5,6 +5,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+include protocol PBlob;
 include protocol PContent;
 include protocol PContentDialog;
 include protocol PDocumentRenderer;
@@ -13,26 +14,35 @@ include protocol PRenderFrame;
 include protocol POfflineCacheUpdate;
 include protocol PIndexedDB;
 
-include "mozilla/dom/TabMessageUtils.h";
 include "gfxMatrix.h";
-include "mozilla/net/NeckoMessageUtils.h";
 include "IPC/nsGUIEventIPC.h";
+include "mozilla/dom/TabMessageUtils.h";
+include "mozilla/layout/RenderFrameUtils.h";
+include "mozilla/net/NeckoMessageUtils.h";
 
-using gfxMatrix;
+include DOMTypes;
+
 using IPC::URI;
+using gfxMatrix;
+using gfxSize;
+using mozilla::layers::LayersBackend;
+using mozilla::layout::ScrollingBehavior;
+using mozilla::WindowsHandle;
+using nscolor;
 using nsCompositionEvent;
 using nsIMEUpdatePreference;
+using nsIntPoint;
+using nsIntRect;
 using nsIntSize;
+using nsKeyEvent;
+using nsMouseEvent;
+using nsMouseScrollEvent;
 using nsQueryContentEvent;
 using nsRect;
 using nsSelectionEvent;
 using nsTextEvent;
-using nsMouseEvent;
-using nsMouseScrollEvent;
-using nsKeyEvent;
+using nsTouchEvent;
 using RemoteDOMEvent;
-using mozilla::WindowsHandle;
-using nscolor;
 
 namespace mozilla {
 namespace dom {
@@ -49,7 +59,7 @@ rpc protocol PBrowser
     manages PIndexedDB;
 
 both:
-    AsyncMessage(nsString aMessage, nsString aJSON);
+    AsyncMessage(nsString aMessage, ClonedMessageData aData);
 
 parent:
     /**
@@ -62,7 +72,7 @@ parent:
 
     rpc CreateWindow() returns (PBrowser window);
 
-    sync SyncMessage(nsString aMessage, nsString aJSON)
+    sync SyncMessage(nsString aMessage, ClonedMessageData aData)
       returns (nsString[] retval);
 
     /**
@@ -173,7 +183,9 @@ parent:
      * Create a layout frame (encapsulating a remote layer tree) for
      * the page that is currently loaded in the <browser>.
      */
-    async PRenderFrame();
+    sync PRenderFrame()
+        returns (ScrollingBehavior scrolling,
+                 LayersBackend backend, int32_t maxTextureSize, uint64_t layersId);
 
     /** 
      * Starts an offline application cache update.
@@ -238,6 +250,11 @@ child:
 
     UpdateDimensions(nsRect rect, nsIntSize size);
 
+    UpdateFrame(nsIntRect displayPort,
+                nsIntPoint scrollOffset,
+                gfxSize resolution,
+                nsIntRect screenSize);
+
     /**
      * Sending an activate message moves focus to the child.
      */
@@ -259,6 +276,7 @@ child:
     RealMouseEvent(nsMouseEvent event);
     RealKeyEvent(nsKeyEvent event);
     MouseScrollEvent(nsMouseScrollEvent event);
+    RealTouchEvent(nsTouchEvent event);
 
     /**
      * @see nsIDOMWindowUtils sendKeyEvent.

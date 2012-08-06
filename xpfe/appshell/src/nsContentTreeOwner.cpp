@@ -70,7 +70,7 @@ private:
 //***    nsContentTreeOwner: Object Management
 //*****************************************************************************
 
-nsContentTreeOwner::nsContentTreeOwner(bool fPrimary) : mXULWindow(nsnull), 
+nsContentTreeOwner::nsContentTreeOwner(bool fPrimary) : mXULWindow(nullptr), 
    mPrimary(fPrimary), mContentTitleSetting(false)
 {
   // note if this fails, QI on nsIEmbeddingSiteWindow(2) will simply fail
@@ -165,7 +165,7 @@ NS_IMETHODIMP nsContentTreeOwner::FindItemWithName(const PRUnichar* aName,
 {
    NS_ENSURE_ARG_POINTER(aFoundItem);
 
-   *aFoundItem = nsnull;
+   *aFoundItem = nullptr;
 
    bool fIs_Content = false;
 
@@ -217,14 +217,14 @@ NS_IMETHODIMP nsContentTreeOwner::FindItemWithName(const PRUnichar* aName,
    NS_ENSURE_TRUE(windowMediator, NS_ERROR_FAILURE);
 
    nsCOMPtr<nsISimpleEnumerator> windowEnumerator;
-   NS_ENSURE_SUCCESS(windowMediator->GetXULWindowEnumerator(nsnull, 
+   NS_ENSURE_SUCCESS(windowMediator->GetXULWindowEnumerator(nullptr, 
       getter_AddRefs(windowEnumerator)), NS_ERROR_FAILURE);
    
    bool more;
    
    windowEnumerator->HasMoreElements(&more);
    while(more) {
-     nsCOMPtr<nsISupports> nextWindow = nsnull;
+     nsCOMPtr<nsISupports> nextWindow = nullptr;
      windowEnumerator->GetNext(getter_AddRefs(nextWindow));
      nsCOMPtr<nsIXULWindow> xulWindow(do_QueryInterface(nextWindow));
      NS_ENSURE_TRUE(xulWindow, NS_ERROR_FAILURE);
@@ -481,7 +481,7 @@ NS_IMETHODIMP nsContentTreeOwner::SetStatus(PRUint32 aStatusType,
   return SetStatusWithContext(aStatusType,
       aStatus ? static_cast<const nsString &>(nsDependentString(aStatus))
               : EmptyString(),
-      nsnull);
+      nullptr);
 }
 
 NS_IMETHODIMP nsContentTreeOwner::SetWebBrowser(nsIWebBrowser* aWebBrowser)
@@ -635,6 +635,12 @@ NS_IMETHODIMP nsContentTreeOwner::SetParentNativeWindow(nativeWindow aParentNati
    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
+NS_IMETHODIMP nsContentTreeOwner::GetNativeHandle(nsAString& aNativeHandle)
+{
+   NS_ENSURE_STATE(mXULWindow);
+   return mXULWindow->GetNativeHandle(aNativeHandle);
+}
+
 NS_IMETHODIMP nsContentTreeOwner::GetVisibility(bool* aVisibility)
 {
    NS_ENSURE_STATE(mXULWindow);
@@ -786,7 +792,7 @@ public:
 #ifdef DEBUG
       nsresult rv =
 #endif
-        mService->Push(nsnull);
+        mService->Push(nullptr);
       NS_ASSERTION(NS_SUCCEEDED(rv), "Mismatched push/pop");
     }
   }
@@ -823,7 +829,7 @@ nsContentTreeOwner::ProvideWindow(nsIDOMWindow* aParent,
 {
   NS_ENSURE_ARG_POINTER(aParent);
   
-  *aReturn = nsnull;
+  *aReturn = nullptr;
 
   if (!mXULWindow) {
     // Nothing to do here
@@ -842,12 +848,12 @@ nsContentTreeOwner::ProvideWindow(nsIDOMWindow* aParent,
   // open a modal-type window, we're going to create a new <iframe mozbrowser>
   // and return its window here.
   nsCOMPtr<nsIDocShell> docshell = do_GetInterface(aParent);
-  bool inBrowserFrame = false;
+  bool isInContentBoundary = false;
   if (docshell) {
-    docshell->GetContainedInBrowserFrame(&inBrowserFrame);
+    docshell->GetIsBelowContentBoundary(&isInContentBoundary);
   }
 
-  if (inBrowserFrame &&
+  if (isInContentBoundary &&
       !(aChromeFlags & (nsIWebBrowserChrome::CHROME_MODAL |
                         nsIWebBrowserChrome::CHROME_OPENAS_DIALOG |
                         nsIWebBrowserChrome::CHROME_OPENAS_CHROME))) {
@@ -922,7 +928,7 @@ nsContentTreeOwner::ProvideWindow(nsIDOMWindow* aParent,
 
     // Get a new rendering area from the browserDOMWin.  We don't want
     // to be starting any loads here, so get it with a null URI.
-    return browserDOMWin->OpenURI(nsnull, aParent, containerPref,
+    return browserDOMWin->OpenURI(nullptr, aParent, containerPref,
                                   nsIBrowserDOMWindow::OPEN_NEW, aReturn);
   }
 }

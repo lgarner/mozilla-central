@@ -12,6 +12,7 @@
 #include "nsAlgorithm.h"
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
+#include "nsComputedDOMStyle.h"
 #include "nsDebug.h"
 #include "nsEditProperty.h"
 #include "nsEditRules.h"
@@ -113,7 +114,7 @@ nsHTMLEditor::GetAbsolutelyPositionedSelectionContainer(nsIDOMElement **_retval)
 NS_IMETHODIMP
 nsHTMLEditor::GetSelectionContainerAbsolutelyPositioned(bool *aIsSelectionContainerAbsolutelyPositioned)
 {
-  *aIsSelectionContainerAbsolutelyPositioned = (mAbsolutelyPositionedObject != nsnull);
+  *aIsSelectionContainerAbsolutelyPositioned = (mAbsolutelyPositionedObject != nullptr);
   return NS_OK;
 }
 
@@ -232,7 +233,7 @@ nsHTMLEditor::GetElementZIndex(nsIDOMElement * aElement,
   }
 
   if (!zIndexStr.EqualsLiteral("auto")) {
-    PRInt32 errorCode;
+    nsresult errorCode;
     *aZindex = zIndexStr.ToInteger(&errorCode);
   }
 
@@ -289,7 +290,7 @@ nsHTMLEditor::HideGrabber()
     mAbsolutelyPositionedObject->RemoveAttribute(NS_LITERAL_STRING("_moz_abspos"));
   NS_ENSURE_SUCCESS(res, res);
 
-  mAbsolutelyPositionedObject = nsnull;
+  mAbsolutelyPositionedObject = nullptr;
   NS_ENSURE_TRUE(mGrabber, NS_ERROR_NULL_POINTER);
 
   // get the presshell's document observer interface.
@@ -306,9 +307,9 @@ nsHTMLEditor::HideGrabber()
   NS_ENSURE_TRUE(parentContent, NS_ERROR_NULL_POINTER);
 
   DeleteRefToAnonymousNode(mGrabber, parentContent, ps);
-  mGrabber = nsnull;
+  mGrabber = nullptr;
   DeleteRefToAnonymousNode(mPositioningShadow, parentContent, ps);
-  mPositioningShadow = nsnull;
+  mPositioningShadow = nullptr;
 
   return NS_OK;
 }
@@ -422,7 +423,7 @@ nsHTMLEditor::EndMoving()
 
     DeleteRefToAnonymousNode(mPositioningShadow, parentContent, ps);
 
-    mPositioningShadow = nsnull;
+    mPositioningShadow = nullptr;
   }
   nsCOMPtr<nsIDOMEventTarget> piTarget = GetDOMEventTarget();
 
@@ -435,7 +436,7 @@ nsHTMLEditor::EndMoving()
                                   false);
     NS_ASSERTION(NS_SUCCEEDED(res), "failed to remove mouse motion listener");
   }
-  mMouseMotionListenerP = nsnull;
+  mMouseMotionListenerP = nullptr;
 
   mGrabberClicked = false;
   mIsMoving = false;
@@ -656,13 +657,9 @@ nsHTMLEditor::CheckPositionedElementBGandFG(nsIDOMElement * aElement,
                                          bgColorStr);
     NS_ENSURE_SUCCESS(res, res);
     if (bgColorStr.EqualsLiteral("transparent")) {
-      nsCOMPtr<nsIDOMWindow> window;
-      res = mHTMLCSSUtils->GetDefaultViewCSS(aElement, getter_AddRefs(window));
-      NS_ENSURE_SUCCESS(res, res);
-
-      nsCOMPtr<nsIDOMCSSStyleDeclaration> cssDecl;
-      res = window->GetComputedStyle(aElement, EmptyString(), getter_AddRefs(cssDecl));
-      NS_ENSURE_SUCCESS(res, res);
+      nsRefPtr<nsComputedDOMStyle> cssDecl =
+        mHTMLCSSUtils->GetComputedStyle(aElement);
+      NS_ENSURE_STATE(cssDecl);
 
       // from these declarations, get the one we want and that one only
       nsCOMPtr<nsIDOMCSSValue> colorCssValue;

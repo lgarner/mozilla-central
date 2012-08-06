@@ -8,13 +8,14 @@
 #include "nsIContent.h"
 #include "nsContentUtils.h"
 #include "DictionaryHelpers.h"
+#include "nsDOMClassInfoID.h"
 
 using namespace mozilla;
 
 nsDOMMouseEvent::nsDOMMouseEvent(nsPresContext* aPresContext,
                                  nsInputEvent* aEvent)
   : nsDOMUIEvent(aPresContext, aEvent ? aEvent :
-                 new nsMouseEvent(false, 0, nsnull,
+                 new nsMouseEvent(false, 0, nullptr,
                                   nsMouseEvent::eReal))
 {
   // There's no way to make this class' ctor allocate an nsMouseScrollEvent.
@@ -56,7 +57,7 @@ nsDOMMouseEvent::~nsDOMMouseEvent()
         delete mEvent;
         break;
     }
-    mEvent = nsnull;
+    mEvent = nullptr;
   }
 }
 
@@ -243,8 +244,8 @@ NS_IMETHODIMP
 nsDOMMouseEvent::GetRelatedTarget(nsIDOMEventTarget** aRelatedTarget)
 {
   NS_ENSURE_ARG_POINTER(aRelatedTarget);
-  *aRelatedTarget = nsnull;
-  nsISupports* relatedTarget = nsnull;
+  *aRelatedTarget = nullptr;
+  nsISupports* relatedTarget = nullptr;
   switch(mEvent->eventStructType)
   {
     case NS_MOUSE_EVENT:

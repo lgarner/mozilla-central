@@ -1,11 +1,23 @@
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* vim: set sw=2 ts=8 et ft=cpp : */
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this file,
- * You can obtain one at http://mozilla.org/MPL/2.0/. */
+/* Copyright 2012 Mozilla Foundation and Mozilla contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #include "base/basictypes.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/Hal.h"
 #include "nsIScreen.h"
 #include "nsIScreenManager.h"
@@ -41,7 +53,7 @@ GetPrimaryScreen()
 {
   nsCOMPtr<nsIScreenManager> screenMgr =
     do_GetService("@mozilla.org/gfx/screenmanager;1");
-  NS_ENSURE_TRUE(screenMgr, nsnull);
+  NS_ENSURE_TRUE(screenMgr, nullptr);
 
   nsCOMPtr<nsIScreen> screen;
   screenMgr->GetPrimaryScreen(getter_AddRefs(screen));
@@ -139,7 +151,7 @@ ConvertToDomOrientation(PRUint32 aRotation, ScreenOrientation *aResult)
 
 // Note that all operations with sOrientationSensorObserver
 // should be on the main thread.
-static nsAutoPtr<OrientationObserver> sOrientationSensorObserver;
+static StaticAutoPtr<OrientationObserver> sOrientationSensorObserver;
 
 } // Anonymous namespace
 

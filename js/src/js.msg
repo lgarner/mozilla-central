@@ -116,7 +116,7 @@ MSG_DEF(JSMSG_UNMATCHED_RIGHT_PAREN,   62, 0, JSEXN_SYNTAXERR, "unmatched ) in r
 MSG_DEF(JSMSG_TOO_BIG_TO_ENCODE,       63, 0, JSEXN_INTERNALERR, "data are to big to encode")
 MSG_DEF(JSMSG_ARG_INDEX_OUT_OF_RANGE,  64, 1, JSEXN_RANGEERR, "argument {0} accesses an index that is out of range")
 MSG_DEF(JSMSG_SPREAD_TOO_LARGE,        65, 0, JSEXN_RANGEERR, "array too large due to spread operand(s)")
-MSG_DEF(JSMSG_UNUSED66,                66, 0, JSEXN_NONE,    "")
+MSG_DEF(JSMSG_SOURCE_TOO_LONG,         66, 0, JSEXN_RANGEERR, "source is too long")
 MSG_DEF(JSMSG_UNUSED67,                67, 0, JSEXN_NONE,    "")
 MSG_DEF(JSMSG_BAD_SCRIPT_MAGIC,        68, 0, JSEXN_INTERNALERR, "bad script XDR magic number")
 MSG_DEF(JSMSG_PAREN_BEFORE_FORMAL,     69, 0, JSEXN_SYNTAXERR, "missing ( before formal parameters")
@@ -352,3 +352,4 @@ MSG_DEF(JSMSG_FUNCTION_ARGUMENTS_AND_REST, 298, 0, JSEXN_ERR, "the 'arguments' p
 MSG_DEF(JSMSG_REST_WITH_DEFAULT,      299, 0, JSEXN_SYNTAXERR, "rest parameter may not have a default")
 MSG_DEF(JSMSG_NONDEFAULT_FORMAL_AFTER_DEFAULT, 300, 0, JSEXN_SYNTAXERR, "parameter(s) with default followed by parameter without default")
 MSG_DEF(JSMSG_YIELD_IN_DEFAULT,       301, 0, JSEXN_SYNTAXERR, "yield in default expression")
+MSG_DEF(JSMSG_INTRINSIC_NOT_DEFINED,  302, 1, JSEXN_REFERENCEERR, "no intrinsic function {0}")

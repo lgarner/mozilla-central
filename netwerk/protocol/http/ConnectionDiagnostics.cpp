@@ -18,7 +18,7 @@ extern PRThread *gSocketThread;
 void
 nsHttpConnectionMgr::PrintDiagnostics()
 {
-  PostEvent(&nsHttpConnectionMgr::OnMsgPrintDiagnostics, 0, nsnull);
+  PostEvent(&nsHttpConnectionMgr::OnMsgPrintDiagnostics, 0, nullptr);
 }
 
 void
@@ -108,13 +108,13 @@ nsHttpConnectionMgr::nsHalfOpenSocket::PrintDiagnostics(nsCString &log)
     log.AppendPrintf("    primary not started\n");
   else
     log.AppendPrintf("    primary started %.2fms ago\n",
-                     (mPrimarySynStarted - now).ToMilliseconds());
+                     (now - mPrimarySynStarted).ToMilliseconds());
 
   if (mBackupSynStarted.IsNull())
     log.AppendPrintf("    backup not started\n");
   else
-    log.AppendPrintf("    backup started %ldms ago\n",
-                     (mBackupSynStarted - now).ToMilliseconds());
+    log.AppendPrintf("    backup started %.2f ago\n",
+                     (now - mBackupSynStarted).ToMilliseconds());
     
   log.AppendPrintf("    primary transport %d, backup transport %d\n",
                    !!mSocketTransport.get(), !!mBackupTransport.get());

@@ -5,37 +5,36 @@
 
 package org.mozilla.gecko.gfx;
 
-import org.mozilla.gecko.FloatUtils;
-import org.mozilla.gecko.GeckoApp;
 import org.mozilla.gecko.GeckoAppShell;
 import org.mozilla.gecko.GeckoEvent;
 import org.mozilla.gecko.GeckoEventResponder;
 import org.mozilla.gecko.Tab;
 import org.mozilla.gecko.Tabs;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.Point;
 import android.graphics.PointF;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
-import java.util.Map;
-import java.util.HashMap;
 
-public class GeckoLayerClient implements GeckoEventResponder,
-                                         LayerView.Listener {
+import java.util.HashMap;
+import java.util.Map;
+
+public class GeckoLayerClient implements GeckoEventResponder, LayerView.Listener {
     private static final String LOGTAG = "GeckoLayerClient";
 
     private LayerController mLayerController;
     private LayerRenderer mLayerRenderer;
     private boolean mLayerRendererInitialized;
 
+    private Context mContext;
     private IntSize mScreenSize;
     private IntSize mWindowSize;
     private DisplayPortMetrics mDisplayPort;
@@ -69,6 +68,7 @@ public class GeckoLayerClient implements GeckoEventResponder,
     public GeckoLayerClient(Context context) {
         // we can fill these in with dummy values because they are always written
         // to before being read
+        mContext = context;
         mScreenSize = new IntSize(0, 0);
         mWindowSize = new IntSize(0, 0);
         mDisplayPort = new DisplayPortMetrics();
@@ -120,7 +120,7 @@ public class GeckoLayerClient implements GeckoEventResponder,
 
     /* Informs Gecko that the screen size has changed. */
     private void sendResizeEventIfNecessary(boolean force) {
-        DisplayMetrics metrics = GeckoApp.mAppContext.getDisplayMetrics();
+        DisplayMetrics metrics = mContext.getResources().getDisplayMetrics();
         View view = mLayerController.getView();
 
         IntSize newScreenSize = new IntSize(metrics.widthPixels, metrics.heightPixels);
@@ -501,4 +501,3 @@ public class GeckoLayerClient implements GeckoEventResponder,
         public void drawFinished();
     }
 }
-

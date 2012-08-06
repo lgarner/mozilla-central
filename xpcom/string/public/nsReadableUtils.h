@@ -25,17 +25,17 @@ inline size_t Distance( const nsReadingIterator<char>& start, const nsReadingIte
     return end.get() - start.get();
   }
 
-void LossyCopyUTF16toASCII( const nsAString& aSource, nsACString& aDest NS_OUTPARAM );
-void CopyASCIItoUTF16( const nsACString& aSource, nsAString& aDest NS_OUTPARAM );
+void LossyCopyUTF16toASCII( const nsAString& aSource, nsACString& aDest );
+void CopyASCIItoUTF16( const nsACString& aSource, nsAString& aDest );
 
-void LossyCopyUTF16toASCII( const PRUnichar* aSource, nsACString& aDest NS_OUTPARAM );
-void CopyASCIItoUTF16( const char* aSource, nsAString& aDest NS_OUTPARAM );
+void LossyCopyUTF16toASCII( const PRUnichar* aSource, nsACString& aDest );
+void CopyASCIItoUTF16( const char* aSource, nsAString& aDest );
 
-void CopyUTF16toUTF8( const nsAString& aSource, nsACString& aDest NS_OUTPARAM );
-void CopyUTF8toUTF16( const nsACString& aSource, nsAString& aDest NS_OUTPARAM );
+void CopyUTF16toUTF8( const nsAString& aSource, nsACString& aDest );
+void CopyUTF8toUTF16( const nsACString& aSource, nsAString& aDest );
 
-void CopyUTF16toUTF8( const PRUnichar* aSource, nsACString& aDest NS_OUTPARAM );
-void CopyUTF8toUTF16( const char* aSource, nsAString& aDest NS_OUTPARAM );
+void CopyUTF16toUTF8( const PRUnichar* aSource, nsACString& aDest );
+void CopyUTF8toUTF16( const char* aSource, nsAString& aDest );
 
 void LossyAppendUTF16toASCII( const nsAString& aSource, nsACString& aDest );
 void AppendASCIItoUTF16( const nsACString& aSource, nsAString& aDest );
@@ -89,7 +89,7 @@ char* ToNewCString( const nsACString& aSource );
    * @return a new |char| buffer you must free with |nsMemory::Free|.
    */
 
-char* ToNewUTF8String( const nsAString& aSource, PRUint32 *aUTF8Count = nsnull );
+char* ToNewUTF8String( const nsAString& aSource, PRUint32 *aUTF8Count = nullptr );
 
 
   /**
@@ -135,7 +135,7 @@ PRUnichar* ToNewUnicode( const nsACString& aSource );
    * @return a new |PRUnichar| buffer you must free with |nsMemory::Free|.
    *         (UTF-16 encoded)
    */
-PRUnichar* UTF8ToNewUnicode( const nsACString& aSource, PRUint32 *aUTF16Count = nsnull );
+PRUnichar* UTF8ToNewUnicode( const nsACString& aSource, PRUint32 *aUTF16Count = nullptr );
 
   /**
    * Copies |aLength| 16-bit code units from the start of |aSource| to the

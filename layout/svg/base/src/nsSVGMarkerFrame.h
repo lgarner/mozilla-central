@@ -34,7 +34,7 @@ class nsSVGMarkerFrame : public nsSVGMarkerFrameBase
 protected:
   nsSVGMarkerFrame(nsStyleContext* aContext)
     : nsSVGMarkerFrameBase(aContext)
-    , mMarkedFrame(nsnull)
+    , mMarkedFrame(nullptr)
     , mInUse(false)
     , mInUse2(false)
   {
@@ -50,6 +50,12 @@ public:
                   nsIFrame*        aParent,
                   nsIFrame*        aPrevInFlow);
 #endif
+
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists) {
+    return NS_OK;
+  }
 
   NS_IMETHOD AttributeChanged(PRInt32         aNameSpaceID,
                               nsIAtom*        aAttribute,

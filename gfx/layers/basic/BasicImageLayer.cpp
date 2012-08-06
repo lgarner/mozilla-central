@@ -5,6 +5,7 @@
 
 #include "mozilla/layers/PLayersParent.h"
 #include "BasicLayersImpl.h"
+#include "SharedTextureImage.h"
 #include "gfxUtils.h"
 #include "gfxSharedImageSurface.h"
 #include "mozilla/layers/ImageContainerChild.h"
@@ -75,9 +76,9 @@ BasicImageLayer::GetAndPaintCurrentImage(gfxContext* aContext,
                                          Layer* aMaskLayer)
 {
   if (!mContainer)
-    return nsnull;
+    return nullptr;
 
-  mContainer->SetImageFactory(mManager->IsCompositingCheap() ? nsnull : BasicManager()->GetImageFactory());
+  mContainer->SetImageFactory(mManager->IsCompositingCheap() ? nullptr : BasicManager()->GetImageFactory());
 
   nsRefPtr<gfxASurface> surface;
   AutoLockImage autoLock(mContainer, getter_AddRefs(surface));
@@ -85,12 +86,12 @@ BasicImageLayer::GetAndPaintCurrentImage(gfxContext* aContext,
   gfxIntSize size = mSize = autoLock.GetSize();
 
   if (!surface || surface->CairoStatus()) {
-    return nsnull;
+    return nullptr;
   }
 
   nsRefPtr<gfxPattern> pat = new gfxPattern(surface);
   if (!pat) {
-    return nsnull;
+    return nullptr;
   }
 
   pat->SetFilter(mFilter);
@@ -274,7 +275,18 @@ BasicShadowableImageLayer::Paint(gfxContext* aContext, Layer* aMaskLayer)
 
   if (aMaskLayer) {
     static_cast<BasicImplData*>(aMaskLayer->ImplData())
-      ->Paint(aContext, nsnull);
+      ->Paint(aContext, nullptr);
+  }
+
+  if (image->GetFormat() == Image::SHARED_TEXTURE &&
+      BasicManager()->GetParentBackendType() == mozilla::layers::LAYERS_OPENGL) {
+    SharedTextureImage *sharedImage = static_cast<SharedTextureImage*>(image);
+    const SharedTextureImage::Data *data = sharedImage->GetData();
+
+    SharedTextureDescriptor texture(data->mShareType, data->mHandle, data->mSize, data->mInverted);
+    SurfaceDescriptor descriptor(texture);
+    BasicManager()->PaintedImage(BasicManager()->Hold(this), descriptor);
+    return;
   }
 
   if (image->GetFormat() == Image::PLANAR_YCBCR && BasicManager()->IsCompositingCheap()) {
@@ -337,7 +349,7 @@ BasicShadowableImageLayer::Paint(gfxContext* aContext, Layer* aMaskLayer)
 
   gfxIntSize oldSize = mSize;
   nsRefPtr<gfxPattern> pat = GetAndPaintCurrentImage
-    (aContext, GetEffectiveOpacity(), nsnull);
+    (aContext, GetEffectiveOpacity(), nullptr);
   if (!pat)
     return;
 
@@ -366,7 +378,7 @@ BasicShadowableImageLayer::Paint(gfxContext* aContext, Layer* aMaskLayer)
   tmpCtx->SetOperator(gfxContext::OPERATOR_SOURCE);
   PaintContext(pat,
                nsIntRegion(nsIntRect(0, 0, mSize.width, mSize.height)),
-               1.0, tmpCtx, nsnull);
+               1.0, tmpCtx, nullptr);
 
   BasicManager()->PaintedImage(BasicManager()->Hold(this),
                                mBackBuffer);

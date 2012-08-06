@@ -173,13 +173,13 @@ AutoRedirectVetoNotifier::ReportRedirectResult(bool succeeded)
     if (!mChannel)
         return;
 
-    mChannel->mRedirectChannel = nsnull;
+    mChannel->mRedirectChannel = nullptr;
 
     nsCOMPtr<nsIRedirectResultListener> vetoHook;
     NS_QueryNotificationCallbacks(mChannel, 
                                   NS_GET_IID(nsIRedirectResultListener), 
                                   getter_AddRefs(vetoHook));
-    mChannel = nsnull;
+    mChannel = nullptr;
     if (vetoHook)
         vetoHook->OnRedirectResult(succeeded);
 }
@@ -301,7 +301,7 @@ nsHttpChannel::nsHttpChannel()
     , mCacheEntryDeviceTelemetryID(UNKNOWN_DEVICE)
     , mPostID(0)
     , mRequestTime(0)
-    , mOnCacheEntryAvailableCallback(nsnull)
+    , mOnCacheEntryAvailableCallback(nullptr)
     , mOfflineCacheAccess(0)
     , mOfflineCacheLastModifiedTime(0)
     , mCachedContentIsValid(false)
@@ -467,7 +467,7 @@ nsHttpChannel::ContinueConnect()
     if (mCacheEntry) {
         // read straight from the cache if possible...
         if (mCachedContentIsValid) {
-            nsRunnableMethod<nsHttpChannel> *event = nsnull;
+            nsRunnableMethod<nsHttpChannel> *event = nullptr;
             if (!mCachedContentIsPartial) {
                 AsyncCall(&nsHttpChannel::AsyncOnExamineCachedResponse, &event);
             }
@@ -509,7 +509,7 @@ nsHttpChannel::ContinueConnect()
     rv = gHttpHandler->InitiateTransaction(mTransaction, mPriority);
     if (NS_FAILED(rv)) return rv;
 
-    rv = mTransactionPump->AsyncRead(this, nsnull);
+    rv = mTransactionPump->AsyncRead(this, nullptr);
     if (NS_FAILED(rv)) return rv;
 
     PRUint32 suspendCount = mSuspendCount;
@@ -544,7 +544,7 @@ nsHttpChannel::SpeculativeConnect()
         return;
 
     mConnectionInfo->SetAnonymous((mLoadFlags & LOAD_ANONYMOUS) != 0);
-    mConnectionInfo->SetPrivate(UsingPrivateBrowsing());
+    mConnectionInfo->SetPrivate(mPrivateBrowsing);
     gHttpHandler->SpeculativeConnect(mConnectionInfo,
                                      callbacks, NS_GetCurrentThread());
 }
@@ -611,7 +611,7 @@ nsHttpChannel::ContinueHandleAsyncRedirect(nsresult rv)
     mIsPending = false;
 
     if (mLoadGroup)
-        mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+        mLoadGroup->RemoveRequest(this, nullptr, mStatus);
 
     return NS_OK;
 }
@@ -637,7 +637,7 @@ nsHttpChannel::HandleAsyncNotModified()
     mIsPending = false;
 
     if (mLoadGroup)
-        mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+        mLoadGroup->RemoveRequest(this, nullptr, mStatus);
 }
 
 void
@@ -684,7 +684,7 @@ nsHttpChannel::ContinueHandleAsyncFallback(nsresult rv)
     mIsPending = false;
 
     if (mLoadGroup)
-        mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+        mLoadGroup->RemoveRequest(this, nullptr, mStatus);
 
     return rv;
 }
@@ -839,7 +839,7 @@ nsHttpChannel::SetupTransaction()
         mCaps |= NS_HTTP_TIMING_ENABLED;
 
     mConnectionInfo->SetAnonymous((mLoadFlags & LOAD_ANONYMOUS) != 0);
-    mConnectionInfo->SetPrivate(UsingPrivateBrowsing());
+    mConnectionInfo->SetPrivate(mPrivateBrowsing);
 
     if (mUpgradeProtocolCallback) {
         mRequestHead.SetHeader(nsHttp::Upgrade, mUpgradeProtocol, false);
@@ -858,7 +858,7 @@ nsHttpChannel::SetupTransaction()
                             NS_GetCurrentThread(), callbacks, this,
                             getter_AddRefs(responseStream));
     if (NS_FAILED(rv)) {
-        mTransaction = nsnull;
+        mTransaction = nullptr;
         return rv;
     }
 
@@ -1213,7 +1213,7 @@ nsHttpChannel::ProcessResponse()
         // reset the authentication's current continuation state because our
         // last authentication attempt has been completed successfully
         mAuthProvider->Disconnect(NS_ERROR_ABORT);
-        mAuthProvider = nsnull;
+        mAuthProvider = nullptr;
         LOG(("  continuation state has been reset"));
     }
 
@@ -1505,7 +1505,7 @@ nsHttpChannel::PromptTempRedirect()
         if (!prompt)
             return NS_ERROR_NO_INTERFACE;
 
-        prompt->Confirm(nsnull, messageString, &repost);
+        prompt->Confirm(nullptr, messageString, &repost);
         if (!repost)
             return NS_ERROR_FAILURE;
     }
@@ -1569,7 +1569,7 @@ nsresult
 nsHttpChannel::ContinueHandleAsyncReplaceWithProxy(nsresult status)
 {
     if (mLoadGroup && NS_SUCCEEDED(status)) {
-        mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+        mLoadGroup->RemoveRequest(this, nullptr, mStatus);
     }
     else if (NS_FAILED(status)) {
         AsyncAbort(status);
@@ -1635,7 +1635,7 @@ nsHttpChannel::AsyncRedirectChannelToHttps()
     rv = ioService->NewChannelFromURI(upgradedURI, getter_AddRefs(newChannel));
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = SetupReplacementChannel(upgradedURI, newChannel, true, false);
+    rv = SetupReplacementChannel(upgradedURI, newChannel, true);
     NS_ENSURE_SUCCESS(rv, rv);
 
     // Inform consumers about this fake redirect
@@ -1671,7 +1671,7 @@ nsHttpChannel::ContinueAsyncRedirectChannelToHttps(nsresult rv)
     }
 
     if (mLoadGroup)
-        mLoadGroup->RemoveRequest(this, nsnull, mStatus);
+        mLoadGroup->RemoveRequest(this, nullptr, mStatus);
 
     if (NS_FAILED(rv)) {
         // We have to manually notify the listener because there is not any pump
@@ -1711,12 +1711,12 @@ nsHttpChannel::ContinueAsyncRedirectChannelToHttps(nsresult rv)
     notifier.RedirectSucceeded();
 
     // disconnect from the old listeners...
-    mListener = nsnull;
-    mListenerContext = nsnull;
+    mListener = nullptr;
+    mListenerContext = nullptr;
 
     // ...and the old callbacks
-    mCallbacks = nsnull;
-    mProgressSink = nsnull;
+    mCallbacks = nullptr;
+    mProgressSink = nullptr;
 
     return rv;
 }
@@ -1732,7 +1732,7 @@ nsHttpChannel::AsyncDoReplaceWithProxy(nsIProxyInfo* pi)
     if (NS_FAILED(rv))
         return rv;
 
-    rv = SetupReplacementChannel(mURI, newChannel, true, true);
+    rv = SetupReplacementChannel(mURI, newChannel, true);
     if (NS_FAILED(rv))
         return rv;
 
@@ -1777,12 +1777,12 @@ nsHttpChannel::ContinueDoReplaceWithProxy(nsresult rv)
     notifier.RedirectSucceeded();
 
     // disconnect from the old listeners...
-    mListener = nsnull;
-    mListenerContext = nsnull;
+    mListener = nullptr;
+    mListenerContext = nullptr;
 
     // ...and the old callbacks
-    mCallbacks = nsnull;
-    mProgressSink = nsnull;
+    mCallbacks = nullptr;
+    mProgressSink = nullptr;
 
     return rv;
 }
@@ -1939,7 +1939,7 @@ nsHttpChannel::EnsureAssocReq()
     bool equals;
     char *endofmethod;
     
-    assoc_val = nsnull;
+    assoc_val = nullptr;
     endofmethod = net_FindCharInSet(method, HTTP_LWS);
     if (endofmethod)
         assoc_val = net_FindCharNotInSet(endofmethod, HTTP_LWS);
@@ -1957,7 +1957,7 @@ nsHttpChannel::EnsureAssocReq()
             gHttpHandler->ConnMgr()->
                 PipelineFeedbackInfo(mConnectionInfo,
                                      nsHttpConnectionMgr::RedCorruptedContent,
-                                     nsnull, 0);
+                                     nullptr, 0);
 
         nsCOMPtr<nsIConsoleService> consoleService =
             do_GetService(NS_CONSOLESERVICE_CONTRACTID);
@@ -1990,7 +1990,7 @@ nsHttpChannel::EnsureAssocReq()
             gHttpHandler->ConnMgr()->
                 PipelineFeedbackInfo(mConnectionInfo,
                                      nsHttpConnectionMgr::RedCorruptedContent,
-                                     nsnull, 0);
+                                     nullptr, 0);
 
         nsCOMPtr<nsIConsoleService> consoleService =
             do_GetService(NS_CONSOLESERVICE_CONTRACTID);
@@ -2190,7 +2190,7 @@ nsHttpChannel::ProcessNotModified()
             gHttpHandler->ConnMgr()->
                 PipelineFeedbackInfo(mConnectionInfo,
                                      nsHttpConnectionMgr::RedCorruptedContent,
-                                     nsnull, 0);
+                                     nullptr, 0);
         Telemetry::Accumulate(Telemetry::CACHE_LM_INCONSISTENT, true);
     }
 
@@ -2268,7 +2268,7 @@ nsHttpChannel::ProcessFallback(bool *waitingForRedirectCallback)
         mOfflineCacheAccess = 0;
     }
 
-    mApplicationCacheForWrite = nsnull;
+    mApplicationCacheForWrite = nullptr;
     mOfflineCacheEntry = 0;
     mOfflineCacheAccess = 0;
 
@@ -2280,7 +2280,7 @@ nsHttpChannel::ProcessFallback(bool *waitingForRedirectCallback)
     rv = gHttpHandler->NewChannel(mURI, getter_AddRefs(newChannel));
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = SetupReplacementChannel(mURI, newChannel, true, false);
+    rv = SetupReplacementChannel(mURI, newChannel, true);
     NS_ENSURE_SUCCESS(rv, rv);
 
     // Make sure the new channel loads from the fallback key.
@@ -2344,8 +2344,8 @@ nsHttpChannel::ContinueProcessFallback(nsresult rv)
     mListenerContext = 0;
 
     // and from our callbacks
-    mCallbacks = nsnull;
-    mProgressSink = nsnull;
+    mCallbacks = nullptr;
+    mProgressSink = nullptr;
 
     mFallingBack = true;
 
@@ -2447,7 +2447,7 @@ nsHttpChannel::OpenCacheEntry(bool usingSSL)
             // us from writing to the offline cache as a normal cache entry.
             mCacheQuery = new HttpCacheQuery(
                                 this, appCacheClientID,
-                                nsICache::STORE_OFFLINE, UsingPrivateBrowsing(),
+                                nsICache::STORE_OFFLINE, mPrivateBrowsing,
                                 cacheKey, nsICache::ACCESS_READ,
                                 mLoadFlags & LOAD_BYPASS_LOCAL_CACHE_IF_BUSY,
                                 usingSSL, true);
@@ -2460,12 +2460,12 @@ nsHttpChannel::OpenCacheEntry(bool usingSSL)
             if (NS_SUCCEEDED(rv))
                 return NS_OK;
 
-            mCacheQuery = nsnull;
-            mOnCacheEntryAvailableCallback = nsnull;
+            mCacheQuery = nullptr;
+            mOnCacheEntryAvailableCallback = nullptr;
         }
 
         // opening cache entry failed
-        return OnOfflineCacheEntryAvailable(nsnull, nsICache::ACCESS_NONE, rv);
+        return OnOfflineCacheEntryAvailable(nullptr, nsICache::ACCESS_NONE, rv);
     }
 
     return OpenNormalCacheEntry(usingSSL);
@@ -2548,10 +2548,9 @@ nsHttpChannel::OpenNormalCacheEntry(bool usingSSL)
 
     nsresult rv;
 
-    bool isPrivate = UsingPrivateBrowsing();
-    nsCacheStoragePolicy storagePolicy = DetermineStoragePolicy(isPrivate);
+    nsCacheStoragePolicy storagePolicy = DetermineStoragePolicy();
     nsDependentCString clientID(
-        GetCacheSessionNameForStoragePolicy(storagePolicy, isPrivate));
+        GetCacheSessionNameForStoragePolicy(storagePolicy, mPrivateBrowsing));
 
     nsCAutoString cacheKey;
     GenerateCacheKey(mPostID, cacheKey);
@@ -2563,8 +2562,7 @@ nsHttpChannel::OpenNormalCacheEntry(bool usingSSL)
  
     mCacheQuery = new HttpCacheQuery(
                                 this, clientID, storagePolicy,
-                                UsingPrivateBrowsing(), cacheKey,
-                                accessRequested,
+                                mPrivateBrowsing, cacheKey, accessRequested,
                                 mLoadFlags & LOAD_BYPASS_LOCAL_CACHE_IF_BUSY,
                                 usingSSL, false);
 
@@ -2575,8 +2573,8 @@ nsHttpChannel::OpenNormalCacheEntry(bool usingSSL)
     if (NS_SUCCEEDED(rv))
         return NS_OK;
 
-    mCacheQuery = nsnull;
-    mOnCacheEntryAvailableCallback = nsnull;
+    mCacheQuery = nullptr;
+    mOnCacheEntryAvailableCallback = nullptr;
 
     return rv;
 }
@@ -2677,7 +2675,7 @@ nsHttpChannel::OpenOfflineCacheEntryForWriting()
     if (NS_SUCCEEDED(rv))
         return NS_OK;
 
-    mOnCacheEntryAvailableCallback = nsnull;
+    mOnCacheEntryAvailableCallback = nullptr;
 
     return rv;
 }
@@ -2871,12 +2869,12 @@ HttpCacheQuery::Run()
         if (NS_FAILED(rv)) {
             LOG(("Failed to open cache entry -- calling OnCacheEntryAvailable "
                  "directly."));
-            rv = OnCacheEntryAvailable(nsnull, 0, rv);
+            rv = OnCacheEntryAvailable(nullptr, 0, rv);
         }
     } else {
         // break cycles
         nsCOMPtr<nsICacheListener> channel = mChannel.forget();
-        mCacheThread = nsnull;
+        mCacheThread = nullptr;
         nsCOMPtr<nsICacheEntryDescriptor> entry = mCacheEntry.forget();
 
         rv = channel->OnCacheEntryAvailable(entry, mCacheAccess, mStatus);
@@ -2909,7 +2907,7 @@ HttpCacheQuery::OnCacheEntryAvailable(nsICacheEntryDescriptor *entry,
     mStatus = status;
 
     if (mCacheEntry) {
-        char* cacheDeviceID = nsnull;
+        char* cacheDeviceID = nullptr;
         mCacheEntry->GetDeviceID(&cacheDeviceID);
         if (cacheDeviceID) {
             if (!strcmp(cacheDeviceID, kDiskDeviceID)) {
@@ -3048,7 +3046,7 @@ HttpCacheQuery::CheckCache()
 
                 bool hasContentEncoding =
                     mCachedResponseHead->PeekHeader(nsHttp::Content_Encoding)
-                    != nsnull;
+                    != nullptr;
                 if ((PRInt64(size) < contentLength) &&
                      size > 0 &&
                      !hasContentEncoding &&
@@ -3549,7 +3547,7 @@ nsHttpChannel::ReadFromCache(bool alreadyMarkedValid)
 void
 nsHttpChannel::CloseCacheEntry(bool doomOnFailure)
 {
-    mCacheQuery = nsnull;
+    mCacheQuery = nullptr;
     mCacheInputStream.CloseAndRelease();
 
     if (!mCacheEntry)
@@ -3579,7 +3577,7 @@ nsHttpChannel::CloseCacheEntry(bool doomOnFailure)
         mCacheEntry->Doom();
     }
 
-    mCachedResponseHead = nsnull;
+    mCachedResponseHead = nullptr;
 
     mCachePump = 0;
     mCacheEntry = 0;
@@ -3761,7 +3759,7 @@ nsHttpChannel::AddCacheEntryHeaders(nsICacheEntryDescriptor *entry)
                         LOG(("nsHttpChannel::AddCacheEntryHeaders [this=%x] " \
                                 "clearing metadata for %s", this, token));
                         metaKey = prefix + nsDependentCString(token);
-                        entry->SetMetaDataElement(metaKey.get(), nsnull);
+                        entry->SetMetaDataElement(metaKey.get(), nullptr);
                     }
                 }
                 token = nsCRT::strtok(val, NS_HTTP_HEADER_SEPS, &val);
@@ -3785,7 +3783,7 @@ GetAuthType(const char *challenge, nsCString &authType)
     const char *p;
 
     // get the challenge type
-    if ((p = strchr(challenge, ' ')) != nsnull)
+    if ((p = strchr(challenge, ' ')) != nullptr)
         authType.Assign(challenge, p - challenge);
     else
         authType.Assign(challenge);
@@ -3842,7 +3840,7 @@ nsHttpChannel::InstallCacheListener(PRUint32 offset)
 
     // If the content is compressible and the server has not compressed it,
     // mark the cache entry for compression.
-    if ((mResponseHead->PeekHeader(nsHttp::Content_Encoding) == nsnull) && (
+    if ((mResponseHead->PeekHeader(nsHttp::Content_Encoding) == nullptr) && (
          policy != nsICache::STORE_ON_DISK_AS_FILE) && (
          mResponseHead->ContentType().EqualsLiteral(TEXT_HTML) ||
          mResponseHead->ContentType().EqualsLiteral(TEXT_PLAIN) ||
@@ -3886,10 +3884,10 @@ nsHttpChannel::InstallCacheListener(PRUint32 offset)
         !cacheIOTarget) {
         LOG(("nsHttpChannel::InstallCacheListener sync tee %p rv=%x policy=%d "
              "cacheIOTarget=%p", tee.get(), rv, policy, cacheIOTarget.get()));
-        rv = tee->Init(mListener, out, nsnull);
+        rv = tee->Init(mListener, out, nullptr);
     } else {
         LOG(("nsHttpChannel::InstallCacheListener async tee %p", tee.get()));
-        rv = tee->InitAsync(mListener, cacheIOTarget, out, nsnull);
+        rv = tee->InitAsync(mListener, cacheIOTarget, out, nullptr);
     }
 
     if (NS_FAILED(rv)) return rv;
@@ -3916,7 +3914,7 @@ nsHttpChannel::InstallOfflineCacheListener()
         do_CreateInstance(kStreamListenerTeeCID, &rv);
     if (NS_FAILED(rv)) return rv;
 
-    rv = tee->Init(mListener, out, nsnull);
+    rv = tee->Init(mListener, out, nullptr);
     if (NS_FAILED(rv)) return rv;
 
     mListener = tee;
@@ -3955,15 +3953,13 @@ nsHttpChannel::ClearBogusContentEncodingIfNeeded()
 nsresult
 nsHttpChannel::SetupReplacementChannel(nsIURI       *newURI, 
                                        nsIChannel   *newChannel,
-                                       bool          preserveMethod,
-                                       bool          forProxy)
+                                       bool          preserveMethod)
 {
     LOG(("nsHttpChannel::SetupReplacementChannel "
          "[this=%p newChannel=%p preserveMethod=%d]",
          this, newChannel, preserveMethod));
 
-    nsresult rv = HttpBaseChannel::SetupReplacementChannel(newURI, newChannel,
-                                                           preserveMethod, forProxy);
+    nsresult rv = HttpBaseChannel::SetupReplacementChannel(newURI, newChannel, preserveMethod);
     if (NS_FAILED(rv))
         return rv;
 
@@ -3984,28 +3980,6 @@ nsHttpChannel::SetupReplacementChannel(nsIURI       *newURI,
             return NS_ERROR_NOT_RESUMABLE;
         }
         resumableChannel->ResumeAt(mStartPos, mEntityID);
-    }
-
-    if (forProxy) {
-        // Transfer the cache info to the new channel, if needed.
-        nsCOMPtr<nsICachingChannel> cachingChannel = do_QueryInterface(newChannel);
-        if (cachingChannel) {
-            // cacheKey is just mPostID wrapped in an nsISupportsPRUint32,
-            // we don't need to transfer it if it's 0.
-            if (mPostID) {
-                nsCOMPtr<nsISupports> cacheKey;
-                GetCacheKey(getter_AddRefs(cacheKey));
-                if (cacheKey) {
-                    cachingChannel->SetCacheKey(cacheKey);
-                }
-            }
-        }
-
-        nsCOMPtr<nsIApplicationCacheChannel> appCacheChannel = do_QueryInterface(newChannel);
-        if (appCacheChannel) {
-            // app cache for write
-            appCacheChannel->SetApplicationCacheForWrite(mApplicationCacheForWrite);
-        }
     }
 
     return NS_OK;
@@ -4131,7 +4105,7 @@ nsHttpChannel::ContinueProcessRedirectionAfterFallback(nsresult rv)
     rv = ioService->NewChannelFromURI(mRedirectURI, getter_AddRefs(newChannel));
     if (NS_FAILED(rv)) return rv;
 
-    rv = SetupReplacementChannel(mRedirectURI, newChannel, !rewriteToGET, false);
+    rv = SetupReplacementChannel(mRedirectURI, newChannel, !rewriteToGET);
     if (NS_FAILED(rv)) return rv;
 
     PRUint32 redirectFlags;
@@ -4200,8 +4174,8 @@ nsHttpChannel::ContinueProcessRedirection(nsresult rv)
     mListenerContext = 0;
 
     // and from our callbacks
-    mCallbacks = nsnull;
-    mProgressSink = nsnull;
+    mCallbacks = nullptr;
+    mProgressSink = nullptr;
     return NS_OK;
 }
 
@@ -4243,6 +4217,19 @@ NS_IMETHODIMP nsHttpChannel::OnAuthCancelled(bool userCancel)
     }
     
     return NS_OK;
+}
+
+NS_IMETHODIMP nsHttpChannel::GetAsciiHostForAuth(nsACString &host)
+{
+    if (mAuthProvider)
+        return mAuthProvider->GetAsciiHostForAuth(host);
+
+    nsresult rv;
+    nsCOMPtr<nsIURI> uri;
+    rv = GetURI(getter_AddRefs(uri));
+    if (NS_FAILED(rv))
+        return rv;
+    return uri->GetAsciiHost(host);
 }
 
 //-----------------------------------------------------------------------------
@@ -4299,7 +4286,7 @@ nsHttpChannel::Cancel(nsresult status)
         gHttpHandler->CancelTransaction(mTransaction, status);
     if (mTransactionPump)
         mTransactionPump->Cancel(status);
-    mCacheQuery = nsnull;
+    mCacheQuery = nullptr;
     mCacheInputStream.CloseAndRelease();
     if (mCachePump)
         mCachePump->Cancel(status);
@@ -4334,7 +4321,7 @@ nsHttpChannel::Resume()
         
     if (--mSuspendCount == 0 && mCallOnResume) {
         nsresult rv = AsyncCall(mCallOnResume);
-        mCallOnResume = nsnull;
+        mCallOnResume = nullptr;
         NS_ENSURE_SUCCESS(rv, rv);
     }
 
@@ -4430,7 +4417,7 @@ nsHttpChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *context)
     // add ourselves to the load group.  from this point forward, we'll report
     // all failures asynchronously.
     if (mLoadGroup)
-        mLoadGroup->AddRequest(this, nsnull);
+        mLoadGroup->AddRequest(this, nullptr);
 
     // Collect mAsyncOpenTime after we have called all obsrevers like
     // "http-on-modify-request" and load group observers that may set
@@ -4506,7 +4493,7 @@ NS_IMETHODIMP
 nsHttpChannel::OnProxyAvailable(nsICancelable *request, nsIURI *uri,
                                 nsIProxyInfo *pi, nsresult status)
 {
-    mProxyRequest = nsnull;
+    mProxyRequest = nullptr;
 
     // If status is a failure code, then it means that we failed to resolve
     // proxy info.  That is a non-fatal error assuming it wasn't because the
@@ -4529,7 +4516,7 @@ NS_IMETHODIMP
 nsHttpChannel::GetProxyInfo(nsIProxyInfo **result)
 {
     if (!mConnectionInfo)
-        *result = nsnull;
+        *result = nullptr;
     else {
         *result = mConnectionInfo->ProxyInfo();
         NS_IF_ADDREF(*result);
@@ -4931,7 +4918,7 @@ nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult st
             // connection for authentication retry. See bug 459620 comment 4
             // for details.
             if (conn && !conn->IsPersistent())
-                conn = nsnull;
+                conn = nullptr;
         }
 
         nsRefPtr<nsAHttpConnection> stickyConn;
@@ -4940,7 +4927,7 @@ nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult st
         
         // at this point, we're done with the transaction
         mTransactionTimings = mTransaction->Timings();
-        mTransaction = nsnull;
+        mTransaction = nullptr;
         mTransactionPump = 0;
 
         // We no longer need the dns prefetch object
@@ -4950,7 +4937,7 @@ nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult st
             mTransactionTimings.domainLookupEnd =
                 mDNSPrefetch->EndTimestamp();
         }
-        mDNSPrefetch = nsnull;
+        mDNSPrefetch = nullptr;
 
         // handle auth retry...
         if (authRetry) {
@@ -5021,13 +5008,13 @@ nsHttpChannel::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult st
         CloseOfflineCacheEntry();
 
     if (mLoadGroup)
-        mLoadGroup->RemoveRequest(this, nsnull, status);
+        mLoadGroup->RemoveRequest(this, nullptr, status);
 
     // We don't need this info anymore
     CleanRedirectCacheChainIfNecessary();
 
-    mCallbacks = nsnull;
-    mProgressSink = nsnull;
+    mCallbacks = nullptr;
+    mProgressSink = nullptr;
     
     return NS_OK;
 }
@@ -5056,7 +5043,7 @@ nsHttpChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
 
     if (mAuthRetryPending || (request == mTransactionPump && mTransactionReplaced)) {
         PRUint32 n;
-        return input->ReadSegments(NS_DiscardSegment, nsnull, count, &n);
+        return input->ReadSegments(NS_DiscardSegment, nullptr, count, &n);
     }
 
     if (mListener) {
@@ -5067,9 +5054,9 @@ nsHttpChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
         //
         nsresult transportStatus;
         if (request == mCachePump)
-            transportStatus = nsITransport::STATUS_READING;
+            transportStatus = NS_NET_STATUS_READING;
         else
-            transportStatus = nsISocketTransport::STATUS_RECEIVING_FROM;
+            transportStatus = NS_NET_STATUS_RECEIVING_FROM;
 
         // mResponseHead may reference new or cached headers, but either way it
         // holds our best estimate of the total content length.  Even in the case
@@ -5080,7 +5067,7 @@ nsHttpChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
         PRUint64 progress = mLogicalOffset + PRUint64(count);
         NS_ASSERTION(progress <= progressMax, "unexpected progress values");
 
-        OnTransportStatus(nsnull, transportStatus, progress, progressMax);
+        OnTransportStatus(nullptr, transportStatus, progress, progressMax);
 
         //
         // we have to manually keep the logical offset of the stream up-to-date.
@@ -5121,8 +5108,8 @@ nsHttpChannel::OnTransportStatus(nsITransport *trans, nsresult status,
     if (!mProgressSink)
         GetCallback(mProgressSink);
 
-    if (status == nsISocketTransport::STATUS_CONNECTED_TO ||
-        status == nsISocketTransport::STATUS_WAITING_FOR) {
+    if (status == NS_NET_STATUS_CONNECTED_TO ||
+        status == NS_NET_STATUS_WAITING_FOR) {
         nsCOMPtr<nsISocketTransport> socketTransport =
             do_QueryInterface(trans);
         if (socketTransport) {
@@ -5138,12 +5125,12 @@ nsHttpChannel::OnTransportStatus(nsITransport *trans, nsresult status,
 
         nsCAutoString host;
         mURI->GetHost(host);
-        mProgressSink->OnStatus(this, nsnull, status,
+        mProgressSink->OnStatus(this, nullptr, status,
                                 NS_ConvertUTF8toUTF16(host).get());
 
         if (progress > 0) {
             NS_ASSERTION(progress <= progressMax, "unexpected progress values");
-            mProgressSink->OnProgress(this, nsnull, progress, progressMax);
+            mProgressSink->OnProgress(this, nullptr, progress, progressMax);
         }
     }
 #ifdef DEBUG
@@ -5255,11 +5242,11 @@ class nsHttpChannelCacheKey MOZ_FINAL : public nsISupportsPRUint32,
     
     // Both interfaces declares toString method with the same signature.
     // Thus we have to delegate only to nsISupportsPRUint32 implementation.
-    NS_SCRIPTABLE NS_IMETHOD GetData(nsACString & aData) 
+    NS_IMETHOD GetData(nsACString & aData) 
     { 
         return mSupportsCString->GetData(aData);
     }
-    NS_SCRIPTABLE NS_IMETHOD SetData(const nsACString & aData)
+    NS_IMETHOD SetData(const nsACString & aData)
     { 
         return mSupportsCString->SetData(aData);
     }
@@ -5325,7 +5312,7 @@ nsHttpChannel::GetCacheKey(nsISupports **key)
 
     LOG(("nsHttpChannel::GetCacheKey [this=%p]\n", this));
 
-    *key = nsnull;
+    *key = nullptr;
 
     nsRefPtr<nsHttpChannelCacheKey> container =
         new nsHttpChannelCacheKey();
@@ -5441,7 +5428,7 @@ nsHttpChannel::OnCacheEntryAvailable(nsICacheEntryDescriptor *entry,
         mCustomConditionalRequest = mCacheQuery->mCustomConditionalRequest;
         mDidReval = mCacheQuery->mDidReval;
         mCacheEntryDeviceTelemetryID = mCacheQuery->mCacheEntryDeviceTelemetryID;
-        mCacheQuery = nsnull;
+        mCacheQuery = nullptr;
     }
 
     // if the channel's already fired onStopRequest, then we should ignore
@@ -5469,7 +5456,7 @@ nsHttpChannel::OnCacheEntryAvailableInternal(nsICacheEntryDescriptor *entry,
     nsresult rv;
 
     nsOnCacheEntryAvailableCallback callback = mOnCacheEntryAvailableCallback;
-    mOnCacheEntryAvailableCallback = nsnull;
+    mOnCacheEntryAvailableCallback = nullptr;
 
     NS_ASSERTION(callback,
         "nsHttpChannel::OnCacheEntryAvailable called without callback");
@@ -5551,7 +5538,7 @@ nsHttpChannel::DoAuthRetry(nsAHttpConnection *conn)
     mIsPending = true;
 
     // get rid of the old response headers
-    mResponseHead = nsnull;
+    mResponseHead = nullptr;
 
     // set sticky connection flag and disable pipelining.
     mCaps |=  NS_HTTP_STICKY_CONNECTION;
@@ -5575,7 +5562,7 @@ nsHttpChannel::DoAuthRetry(nsAHttpConnection *conn)
     rv = gHttpHandler->InitiateTransaction(mTransaction, mPriority);
     if (NS_FAILED(rv)) return rv;
 
-    rv = mTransactionPump->AsyncRead(this, nsnull);
+    rv = mTransactionPump->AsyncRead(this, nullptr);
     if (NS_FAILED(rv)) return rv;
 
     PRUint32 suspendCount = mSuspendCount;
@@ -5664,13 +5651,13 @@ nsHttpChannel::OfflineCacheEntryAsForeignMarker*
 nsHttpChannel::GetOfflineCacheEntryAsForeignMarker()
 {
     if (!mApplicationCache)
-        return nsnull;
+        return nullptr;
 
     nsresult rv;
 
     nsCAutoString cacheKey;
     rv = GenerateCacheKey(mPostID, cacheKey);
-    NS_ENSURE_SUCCESS(rv, nsnull);
+    NS_ENSURE_SUCCESS(rv, nullptr);
 
     return new OfflineCacheEntryAsForeignMarker(mApplicationCache, cacheKey);
 }
@@ -5769,7 +5756,7 @@ nsHttpChannel::OnRedirectVerifyCallback(nsresult result)
     if (!mWaitingForRedirectCallback) {
         // We are not waiting for the callback. At this moment we must release
         // reference to the redirect target channel, otherwise we may leak.
-        mRedirectChannel = nsnull;
+        mRedirectChannel = nullptr;
     }
 
     // We always resume the pumps here. If all functions on stack have been
@@ -5873,10 +5860,9 @@ nsHttpChannel::DoInvalidateCacheEntry(const nsCString &key)
     // one point by using only READ_ONLY access-policy. I think this is safe.
 
     // First, find session holding the cache-entry - use current storage-policy
-    bool isPrivate = UsingPrivateBrowsing();
-    nsCacheStoragePolicy storagePolicy = DetermineStoragePolicy(isPrivate);
-    const char * clientID = GetCacheSessionNameForStoragePolicy(storagePolicy,
-                                                                isPrivate);
+    nsCacheStoragePolicy storagePolicy = DetermineStoragePolicy();
+    const char * clientID =
+        GetCacheSessionNameForStoragePolicy(storagePolicy, mPrivateBrowsing);
 
     LOG(("DoInvalidateCacheEntry [channel=%p session=%s policy=%d key=%s]",
          this, clientID, PRIntn(storagePolicy), key.get()));
@@ -5891,10 +5877,10 @@ nsHttpChannel::DoInvalidateCacheEntry(const nsCString &key)
                                  getter_AddRefs(session));
     }
     if (NS_SUCCEEDED(rv)) {
-        rv = session->SetIsPrivate(UsingPrivateBrowsing());
+        rv = session->SetIsPrivate(mPrivateBrowsing);
     }
     if (NS_SUCCEEDED(rv)) {
-        rv = session->DoomEntry(key, nsnull);
+        rv = session->DoomEntry(key, nullptr);
     }
 
     LOG(("DoInvalidateCacheEntry [channel=%p session=%s policy=%d key=%s rv=%d]",
@@ -5902,10 +5888,10 @@ nsHttpChannel::DoInvalidateCacheEntry(const nsCString &key)
 }
 
 nsCacheStoragePolicy
-nsHttpChannel::DetermineStoragePolicy(bool isPrivate)
+nsHttpChannel::DetermineStoragePolicy()
 {
     nsCacheStoragePolicy policy = nsICache::STORE_ANYWHERE;
-    if (isPrivate)
+    if (mPrivateBrowsing)
         policy = nsICache::STORE_IN_MEMORY;
     else if (mLoadFlags & INHIBIT_PERSISTENT_CACHING)
         policy = nsICache::STORE_IN_MEMORY;

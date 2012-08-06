@@ -200,7 +200,8 @@ nsInputStreamTransport::Read(char *buf, PRUint32 count, PRUint32 *result)
     if (NS_SUCCEEDED(rv)) {
         mOffset += *result;
         if (mEventSink)
-            mEventSink->OnTransportStatus(this, STATUS_READING, mOffset, mLimit);
+            mEventSink->OnTransportStatus(this, NS_NET_STATUS_READING, mOffset,
+                                          mLimit);
     }
     return rv;
 }
@@ -399,7 +400,8 @@ nsOutputStreamTransport::Write(const char *buf, PRUint32 count, PRUint32 *result
     if (NS_SUCCEEDED(rv)) {
         mOffset += *result;
         if (mEventSink)
-            mEventSink->OnTransportStatus(this, STATUS_WRITING, mOffset, mLimit);
+            mEventSink->OnTransportStatus(this, NS_NET_STATUS_WRITING, mOffset,
+                                          mLimit);
     }
     return rv;
 }
@@ -538,7 +540,7 @@ nsStreamTransportService::Observe(nsISupports *subject, const char *topic,
 
   if (mPool) {
     mPool->Shutdown();
-    mPool = nsnull;
+    mPool = nullptr;
   }
   return NS_OK;
 }

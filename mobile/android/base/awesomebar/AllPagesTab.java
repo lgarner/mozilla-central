@@ -5,53 +5,42 @@
 
 package org.mozilla.gecko;
 
+import org.mozilla.gecko.AwesomeBar.ContextMenuSubject;
+import org.mozilla.gecko.db.BrowserContract.Combined;
+import org.mozilla.gecko.db.BrowserDB;
+import org.mozilla.gecko.db.BrowserDB.URLColumns;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import android.app.Activity;
 import android.content.Context;
-import android.widget.ListView;
-import android.widget.ImageView;
-import android.widget.TextView;
-import android.view.View;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
-import android.view.MenuItem;
-import android.view.View.OnClickListener;
-import android.view.View.OnLongClickListener;
-import android.app.Activity;
-import android.widget.AdapterView;
 import android.database.Cursor;
-import android.widget.AdapterView;
-import android.util.Log;
-import android.text.TextUtils;
-import android.widget.Toast;
-import android.widget.SimpleCursorAdapter;
-import android.widget.LinearLayout;
-import android.widget.TabHost.TabContentFactory;
-import android.view.LayoutInflater;
-import android.view.ViewGroup;
 import android.graphics.drawable.Drawable;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.content.Intent;
-import android.widget.FilterQueryProvider;
 import android.os.AsyncTask;
 import android.os.SystemClock;
-import android.view.MenuInflater;
-import android.widget.TabHost;
+import android.util.Log;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
+import android.view.LayoutInflater;
+import android.view.MenuInflater;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.view.View.OnLongClickListener;
+import android.view.ViewGroup;
+import android.widget.AdapterView;
+import android.widget.FilterQueryProvider;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.SimpleCursorAdapter;
+import android.widget.TabHost.TabContentFactory;
+import android.widget.TextView;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.json.JSONException;
-
-import org.mozilla.gecko.AwesomeBar.ContextMenuSubject;
-import org.mozilla.gecko.db.BrowserDB;
-import org.mozilla.gecko.db.BrowserDB.URLColumns;
-import org.mozilla.gecko.db.BrowserContract.Combined;
 
 public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
     public static final String LOGTAG = "ALL_PAGES";
@@ -64,7 +53,6 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
     private ArrayList<SearchEngine> mSearchEngines;
     private SuggestClient mSuggestClient;
     private AsyncTask<String, Void, ArrayList<String>> mSuggestTask;
-    private ListView mView = null;
     private AwesomeBarCursorAdapter mCursorAdapter = null;
 
     private class SearchEntryViewHolder {
@@ -114,10 +102,10 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
             ((Activity)mContext).registerForContextMenu(mView);
             mView.setTag(TAG);
             AwesomeBarCursorAdapter adapter = getCursorAdapter();
-            mView.setAdapter(adapter);
+            ((ListView)mView).setAdapter(adapter);
             mView.setOnTouchListener(mListListener);
         }
-        return mView;
+        return (ListView)mView;
     }
 
     public void destroy() {
@@ -179,6 +167,7 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
 
     private interface AwesomeBarItem {
         public void onClick();
+        public ContextMenuSubject getSubject();
     }
 
     private class AwesomeBarCursorItem implements AwesomeBarItem {
@@ -186,10 +175,6 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
 
         public AwesomeBarCursorItem(Cursor cursor) {
             mCursor = cursor;
-        }
-
-        public Cursor getCursor() {
-            return mCursor;
         }
 
         public void onClick() {
@@ -205,6 +190,22 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
             }
             listener.onUrlOpen(url);
         }
+
+        public ContextMenuSubject getSubject() {
+            // Use the history id in order to allow removing history entries
+            int id = mCursor.getInt(mCursor.getColumnIndexOrThrow(Combined.HISTORY_ID));
+
+            String keyword = null;
+            int keywordCol = mCursor.getColumnIndex(URLColumns.KEYWORD);
+            if (keywordCol != -1)
+                keyword = mCursor.getString(keywordCol);
+
+            return new ContextMenuSubject(id,
+                                          mCursor.getString(mCursor.getColumnIndexOrThrow(URLColumns.URL)),
+                                          mCursor.getBlob(mCursor.getColumnIndexOrThrow(URLColumns.FAVICON)),
+                                          mCursor.getString(mCursor.getColumnIndexOrThrow(URLColumns.TITLE)),
+                                          keyword);
+        }
     }
 
     private class AwesomeBarSearchEngineItem implements AwesomeBarItem {
@@ -218,6 +219,11 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
             AwesomeBarTabs.OnUrlOpenListener listener = getUrlListener();
             if (listener != null)
                 listener.onSearch(mSearchEngine, mSearchTerm);
+        }
+
+        public ContextMenuSubject getSubject() {
+            // Do not show context menu for search engine items
+            return null;
         }
     }
 
@@ -539,29 +545,7 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
 
         ListView list = (ListView)view;
         AdapterView.AdapterContextMenuInfo info = (AdapterView.AdapterContextMenuInfo) menuInfo;
-        Object selectedItem = list.getItemAtPosition(info.position);
-
-        if (!(selectedItem instanceof AwesomeBarCursorItem)) {
-            Log.e(LOGTAG, "item at " + info.position + " is a search item");
-            return subject;
-        }
-
-        Cursor cursor = ((AwesomeBarCursorItem) selectedItem).getCursor();
-
-        // Don't show the context menu for folders
-        String keyword = null;
-        int keywordCol = cursor.getColumnIndex(URLColumns.KEYWORD);
-        if (keywordCol != -1)
-            keyword = cursor.getString(keywordCol);
-
-        // Use the bookmark id for the Bookmarks tab and the history id for the Top Sites tab 
-        int id = cursor.getInt(cursor.getColumnIndexOrThrow(Combined._ID));
-
-        subject = new ContextMenuSubject(id,
-                                        cursor.getString(cursor.getColumnIndexOrThrow(URLColumns.URL)),
-                                        cursor.getBlob(cursor.getColumnIndexOrThrow(URLColumns.FAVICON)),
-                                        cursor.getString(cursor.getColumnIndexOrThrow(URLColumns.TITLE)),
-                                        keyword);
+        subject = ((AwesomeBarItem) list.getItemAtPosition(info.position)).getSubject();
 
         if (subject == null)
             return subject;

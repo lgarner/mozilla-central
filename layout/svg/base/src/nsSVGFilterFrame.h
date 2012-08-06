@@ -41,6 +41,13 @@ protected:
 public:
   NS_DECL_FRAMEARENA_HELPERS
 
+  // nsIFrame methods:
+  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                              const nsRect&           aDirtyRect,
+                              const nsDisplayListSet& aLists) {
+    return NS_OK;
+  }
+
   NS_IMETHOD AttributeChanged(PRInt32         aNameSpaceID,
                               nsIAtom*        aAttribute,
                               PRInt32         aModType);
@@ -83,8 +90,8 @@ public:
    *   aFilteredFrame, if non-null.
    */
   nsRect GetPostFilterBounds(nsIFrame *aFilteredFrame,
-                             const gfxRect *aOverrideBBox = nsnull,
-                             const nsRect *aPreFilterBounds = nsnull);
+                             const gfxRect *aOverrideBBox = nullptr,
+                             const nsRect *aPreFilterBounds = nullptr);
 
 #ifdef DEBUG
   NS_IMETHOD Init(nsIContent*      aContent,

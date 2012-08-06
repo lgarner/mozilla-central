@@ -22,7 +22,7 @@ public:
   RecentBadCert()
   {
     mDERCert.len = 0;
-    mDERCert.data = nsnull;
+    mDERCert.data = nullptr;
     isDomainMismatch = false;
     isNotValidAtThisTime = false;
     isUntrusted = false;
@@ -39,7 +39,7 @@ public:
     if (mDERCert.len)
       nsMemory::Free(mDERCert.data);
     mDERCert.len = 0;
-    mDERCert.data = nsnull;
+    mDERCert.data = nullptr;
   }
 
   nsString mHostWithPort;
@@ -53,7 +53,7 @@ private:
   RecentBadCert &operator=(const RecentBadCert &other) MOZ_DELETE;
 };
 
-class nsRecentBadCertsService : public nsIRecentBadCertsService
+class nsRecentBadCertsService MOZ_FINAL : public nsIRecentBadCertsService
 {
 public:
   NS_DECL_ISUPPORTS

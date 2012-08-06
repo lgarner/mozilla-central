@@ -417,7 +417,7 @@ GetClosestInterestingAccessible(id anObject)
                "Does not support nsIAccessibleText when it should");
 #endif
 
-#define ROLE(geckoRole, stringRole, atkRole, macRole, msaaRole, ia2Role) \
+#define ROLE(geckoRole, stringRole, atkRole, macRole, msaaRole, ia2Role, nameRule) \
   case roles::geckoRole: \
     return macRole;
 
@@ -684,7 +684,7 @@ GetClosestInterestingAccessible(id anObject)
 
   [self invalidateChildren];
 
-  mGeckoAccessible = nsnull;
+  mGeckoAccessible = nullptr;
   
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }

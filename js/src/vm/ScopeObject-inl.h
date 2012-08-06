@@ -10,6 +10,8 @@
 
 #include "ScopeObject.h"
 
+#include "jsscriptinlines.h"
+
 namespace js {
 
 inline
@@ -72,14 +74,14 @@ CallObject::callee() const
 }
 
 inline const Value &
-CallObject::arg(unsigned i, MaybeCheckAliasing checkAliasing) const
+CallObject::formal(unsigned i, MaybeCheckAliasing checkAliasing) const
 {
     JS_ASSERT_IF(checkAliasing, callee().script()->formalLivesInCallObject(i));
     return getSlot(RESERVED_SLOTS + i);
 }
 
 inline void
-CallObject::setArg(unsigned i, const Value &v, MaybeCheckAliasing checkAliasing)
+CallObject::setFormal(unsigned i, const Value &v, MaybeCheckAliasing checkAliasing)
 {
     JS_ASSERT_IF(checkAliasing, callee().script()->formalLivesInCallObject(i));
     setSlot(RESERVED_SLOTS + i, v);
@@ -192,17 +194,17 @@ StaticBlockObject::setStackDepth(uint32_t depth)
 }
 
 inline void
-StaticBlockObject::setDefinitionParseNode(unsigned i, Definition *def)
+StaticBlockObject::setDefinitionParseNode(unsigned i, frontend::Definition *def)
 {
     JS_ASSERT(slotValue(i).isUndefined());
     setSlotValue(i, PrivateValue(def));
 }
 
-inline Definition *
+inline frontend::Definition *
 StaticBlockObject::maybeDefinitionParseNode(unsigned i)
 {
     Value v = slotValue(i);
-    return v.isUndefined() ? NULL : reinterpret_cast<Definition *>(v.toPrivate());
+    return v.isUndefined() ? NULL : reinterpret_cast<frontend::Definition *>(v.toPrivate());
 }
 
 inline void

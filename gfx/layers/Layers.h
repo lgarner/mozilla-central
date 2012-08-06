@@ -18,7 +18,9 @@
 #include "gfxPattern.h"
 #include "nsTArray.h"
 #include "nsThreadUtils.h"
-
+#include "nsStyleAnimation.h"
+#include "LayersTypes.h"
+#include "FrameMetrics.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/TimeStamp.h"
 
@@ -43,8 +45,14 @@ namespace gl {
 class GLContext;
 }
 
+namespace css {
+class ComputedTimingFunction;
+}
+
 namespace layers {
 
+class Animation;
+class CommonLayerAttributes;
 class Layer;
 class ThebesLayer;
 class ContainerLayer;
@@ -54,80 +62,12 @@ class ImageContainer;
 class CanvasLayer;
 class ReadbackLayer;
 class ReadbackProcessor;
+class RefLayer;
 class ShadowLayer;
 class ShadowableLayer;
 class ShadowLayerForwarder;
 class ShadowLayerManager;
 class SpecificLayerAttributes;
-
-/**
- * The viewport and displayport metrics for the painted frame at the
- * time of a layer-tree transaction.  These metrics are especially
- * useful for shadow layers, because the metrics values are updated
- * atomically with new pixels.
- */
-struct THEBES_API FrameMetrics {
-public:
-  // We use IDs to identify frames across processes.
-  typedef PRUint64 ViewID;
-  static const ViewID NULL_SCROLL_ID;   // This container layer does not scroll.
-  static const ViewID ROOT_SCROLL_ID;   // This is the root scroll frame.
-  static const ViewID START_SCROLL_ID;  // This is the ID that scrolling subframes
-                                        // will begin at.
-
-  FrameMetrics()
-    : mViewport(0, 0, 0, 0)
-    , mContentRect(0, 0, 0, 0)
-    , mViewportScrollOffset(0, 0)
-    , mScrollId(NULL_SCROLL_ID)
-    , mCSSContentRect(0, 0, 0, 0)
-    , mResolution(1, 1)
-  {}
-
-  // Default copy ctor and operator= are fine
-
-  bool operator==(const FrameMetrics& aOther) const
-  {
-    return (mViewport.IsEqualEdges(aOther.mViewport) &&
-            mViewportScrollOffset == aOther.mViewportScrollOffset &&
-            mDisplayPort.IsEqualEdges(aOther.mDisplayPort) &&
-            mScrollId == aOther.mScrollId);
-  }
-  bool operator!=(const FrameMetrics& aOther) const
-  { 
-    return !operator==(aOther);
-  }
-
-  bool IsDefault() const
-  {
-    return (FrameMetrics() == *this);
-  }
-
-  bool IsRootScrollable() const
-  {
-    return mScrollId == ROOT_SCROLL_ID;
-  }
-
-  bool IsScrollable() const
-  {
-    return mScrollId != NULL_SCROLL_ID;
-  }
-
-  // These are all in layer coordinate space.
-  nsIntRect mViewport;
-  nsIntRect mContentRect;
-  nsIntPoint mViewportScrollOffset;
-  nsIntRect mDisplayPort;
-  ViewID mScrollId;
-
-  // Consumers often want to know the origin/size before scaling to pixels
-  // so we record this as well.
-  gfx::Rect mCSSContentRect;
-
-  // This represents the resolution at which the associated layer
-  // will been rendered.
-  gfxSize mResolution;
-};
 
 #define MOZ_LAYER_DECL_NAME(n, e)                           \
   virtual const char* Name() const { return n; }            \
@@ -167,60 +107,10 @@ public:
  * BasicLayerManager for such an implementation.
  */
 
-/**
- * Helper class to manage user data for layers and LayerManagers.
- */
-class THEBES_API LayerUserDataSet {
-public:
-  LayerUserDataSet() : mKey(nsnull) {}
-
-  void Set(void* aKey, LayerUserData* aValue)
-  {
-    NS_ASSERTION(!mKey || mKey == aKey,
-                 "Multiple LayerUserData objects not supported");
-    mKey = aKey;
-    mValue = aValue;
-  }
-  /**
-   * This can be used anytime. Ownership passes to the caller!
-   */
-  LayerUserData* Remove(void* aKey)
-  {
-    if (mKey == aKey) {
-      mKey = nsnull;
-      LayerUserData* d = mValue.forget();
-      return d;
-    }
-    return nsnull;
-  }
-  /**
-   * This getter can be used anytime.
-   */
-  bool Has(void* aKey)
-  {
-    return mKey == aKey;
-  }
-  /**
-   * This getter can be used anytime. Ownership is retained by this object.
-   */
-  LayerUserData* Get(void* aKey)
-  {
-    return mKey == aKey ? mValue.get() : nsnull;
-  }
-
-  /**
-   * Clear out current user data.
-   */
-  void Clear()
-  {
-    mKey = nsnull;
-    mValue = nsnull;
-  }
-
-private:
-  void* mKey;
-  nsAutoPtr<LayerUserData> mValue;
-};
+static void LayerManagerUserDataDestroy(void *data)
+{
+  delete static_cast<LayerUserData*>(data);
+}
 
 /**
  * A LayerManager controls a tree of layers. All layers in the tree
@@ -249,16 +139,7 @@ class THEBES_API LayerManager {
   NS_INLINE_DECL_REFCOUNTING(LayerManager)
 
 public:
-  enum LayersBackend {
-    LAYERS_NONE = 0,
-    LAYERS_BASIC,
-    LAYERS_OPENGL,
-    LAYERS_D3D9,
-    LAYERS_D3D10,
-    LAYERS_LAST
-  };
-
-  LayerManager() : mDestroyed(false), mSnapEffectiveTransforms(true)
+  LayerManager() : mDestroyed(false), mSnapEffectiveTransforms(true), mId(0)
   {
     InitLog();
   }
@@ -270,14 +151,20 @@ public:
    * for its widget going away.  After this call, only user data calls
    * are valid on the layer manager.
    */
-  virtual void Destroy() { mDestroyed = true; mUserData.Clear(); }
+  virtual void Destroy() { mDestroyed = true; mUserData.Destroy(); }
   bool IsDestroyed() { return mDestroyed; }
 
   virtual ShadowLayerForwarder* AsShadowForwarder()
-  { return nsnull; }
+  { return nullptr; }
 
   virtual ShadowLayerManager* AsShadowManager()
-  { return nsnull; }
+  { return nullptr; }
+
+  /**
+   * Returns true if this LayerManager is owned by an nsIWidget,
+   * and is used for drawing into the widget.
+   */
+  virtual bool IsWidgetLayerManager() { return true; }
 
   /**
    * Start a new transaction. Nested transactions are not allowed so
@@ -354,6 +241,13 @@ public:
 
   bool IsSnappingEffectiveTransforms() { return mSnapEffectiveTransforms; } 
 
+  /** 
+   * Returns true if this LayerManager can properly support layers with
+   * SURFACE_COMPONENT_ALPHA. This can include disabling component
+   * alpha if required.
+   */
+  virtual bool AreComponentAlphaLayersEnabled() { return true; }
+
   /**
    * CONSTRUCTION PHASE ONLY
    * Set the root layer. The root layer is initially null. If there is
@@ -407,7 +301,13 @@ public:
    * CONSTRUCTION PHASE ONLY
    * Create a ReadbackLayer for this manager's layer tree.
    */
-  virtual already_AddRefed<ReadbackLayer> CreateReadbackLayer() { return nsnull; }
+  virtual already_AddRefed<ReadbackLayer> CreateReadbackLayer() { return nullptr; }
+  /**
+   * CONSTRUCTION PHASE ONLY
+   * Create a RefLayer for this manager's layer tree.
+   */
+  virtual already_AddRefed<RefLayer> CreateRefLayer() { return nullptr; }
+
 
   /**
    * Can be called anytime, from any thread.
@@ -477,23 +377,32 @@ public:
    * initially null. Ownership pases to the layer manager.
    */
   void SetUserData(void* aKey, LayerUserData* aData)
-  { mUserData.Set(aKey, aData); }
+  {
+    mUserData.Add(static_cast<gfx::UserDataKey*>(aKey), aData, LayerManagerUserDataDestroy);
+  }
   /**
    * This can be used anytime. Ownership passes to the caller!
    */
   nsAutoPtr<LayerUserData> RemoveUserData(void* aKey)
-  { nsAutoPtr<LayerUserData> d(mUserData.Remove(aKey)); return d; }
+  { 
+    nsAutoPtr<LayerUserData> d(static_cast<LayerUserData*>(mUserData.Remove(static_cast<gfx::UserDataKey*>(aKey)))); 
+    return d;
+  }
   /**
    * This getter can be used anytime.
    */
   bool HasUserData(void* aKey)
-  { return mUserData.Has(aKey); }
+  {
+    return mUserData.Has(static_cast<gfx::UserDataKey*>(aKey));
+  }
   /**
    * This getter can be used anytime. Ownership is retained by the layer
    * manager.
    */
   LayerUserData* GetUserData(void* aKey)
-  { return mUserData.Get(aKey); }
+  { 
+    return static_cast<LayerUserData*>(mUserData.Get(static_cast<gfx::UserDataKey*>(aKey)));
+  }
 
   /**
    * Flag the next paint as the first for a document.
@@ -536,14 +445,14 @@ public:
   static bool IsLogEnabled();
   static PRLogModuleInfo* GetLog() { return sLog; }
 
-  bool IsCompositingCheap(LayerManager::LayersBackend aBackend)
+  bool IsCompositingCheap(LayersBackend aBackend)
   { return LAYERS_BASIC != aBackend; }
 
   virtual bool IsCompositingCheap() { return true; }
 
 protected:
   nsRefPtr<Layer> mRoot;
-  LayerUserDataSet mUserData;
+  gfx::UserData mUserData;
   bool mDestroyed;
   bool mSnapEffectiveTransforms;
 
@@ -553,12 +462,20 @@ protected:
 
   static void InitLog();
   static PRLogModuleInfo* sLog;
+  uint64_t mId;
 private:
   TimeStamp mLastFrameTime;
   nsTArray<float> mFrameTimes;
 };
 
 class ThebesLayer;
+typedef InfallibleTArray<Animation> AnimationArray;
+
+struct AnimData {
+  InfallibleTArray<nsStyleAnimation::Value> mStartValues;
+  InfallibleTArray<nsStyleAnimation::Value> mEndValues;
+  InfallibleTArray<mozilla::css::ComputedTimingFunction*> mFunctions;
+};
 
 /**
  * A Layer represents anything that can be rendered onto a destination
@@ -575,11 +492,12 @@ public:
     TYPE_CONTAINER,
     TYPE_IMAGE,
     TYPE_READBACK,
+    TYPE_REF,
     TYPE_SHADOW,
     TYPE_THEBES
   };
 
-  virtual ~Layer() {}
+  virtual ~Layer();
 
   /**
    * Returns the LayerManager this Layer belongs to. Note that the layer
@@ -666,7 +584,7 @@ public:
    */
   void SetClipRect(const nsIntRect* aRect)
   {
-    mUseClipRect = aRect != nsnull;
+    mUseClipRect = aRect != nullptr;
     if (aRect) {
       mClipRect = *aRect;
     }
@@ -730,9 +648,16 @@ public:
    * XXX Currently only transformations corresponding to 2D affine transforms
    * are supported.
    */
-  void SetTransform(const gfx3DMatrix& aMatrix)
+  void SetBaseTransform(const gfx3DMatrix& aMatrix)
   {
     mTransform = aMatrix;
+    Mutated();
+  }
+
+  void SetPostScale(float aXScale, float aYScale)
+  {
+    mPostXScale = aXScale;
+    mPostYScale = aYScale;
     Mutated();
   }
 
@@ -743,6 +668,14 @@ public:
    * with a displayport, but the layer does not move when that displayport scrolls.
    */
   void SetIsFixedPosition(bool aFixedPosition) { mIsFixedPosition = aFixedPosition; }
+
+  // Call AddAnimation to add an animation to this layer from layout code.
+  void AddAnimation(const Animation& aAnimation);
+  // ClearAnimations clears animations on this layer.
+  void ClearAnimations();
+  // This is only called when the layer tree is updated. Do not call this from
+  // layout code.  To add an animation to this layer, use AddAnimation.
+  void SetAnimations(const AnimationArray& aAnimations);
 
   /**
    * CONSTRUCTION PHASE ONLY
@@ -755,19 +688,24 @@ public:
 
   // These getters can be used anytime.
   float GetOpacity() { return mOpacity; }
-  const nsIntRect* GetClipRect() { return mUseClipRect ? &mClipRect : nsnull; }
+  const nsIntRect* GetClipRect() { return mUseClipRect ? &mClipRect : nullptr; }
   PRUint32 GetContentFlags() { return mContentFlags; }
   const nsIntRegion& GetVisibleRegion() { return mVisibleRegion; }
   ContainerLayer* GetParent() { return mParent; }
   Layer* GetNextSibling() { return mNextSibling; }
   Layer* GetPrevSibling() { return mPrevSibling; }
-  virtual Layer* GetFirstChild() { return nsnull; }
-  virtual Layer* GetLastChild() { return nsnull; }
-  const gfx3DMatrix& GetTransform() { return mTransform; }
+  virtual Layer* GetFirstChild() { return nullptr; }
+  virtual Layer* GetLastChild() { return nullptr; }
+  const gfx3DMatrix GetTransform();
+  const gfx3DMatrix& GetBaseTransform() { return mTransform; }
+  float GetPostXScale() { return mPostXScale; }
+  float GetPostYScale() { return mPostYScale; }
   bool GetIsFixedPosition() { return mIsFixedPosition; }
   gfxPoint GetFixedPositionAnchor() { return mAnchor; }
   Layer* GetMaskLayer() { return mMaskLayer; }
 
+  AnimationArray& GetAnimations() { return mAnimations; }
+  InfallibleTArray<AnimData>& GetAnimationData() { return mAnimationData; }
   /**
    * DRAWING PHASE ONLY
    *
@@ -802,23 +740,32 @@ public:
    * initially null. Ownership pases to the layer manager.
    */
   void SetUserData(void* aKey, LayerUserData* aData)
-  { mUserData.Set(aKey, aData); }
+  { 
+    mUserData.Add(static_cast<gfx::UserDataKey*>(aKey), aData, LayerManagerUserDataDestroy);
+  }
   /**
    * This can be used anytime. Ownership passes to the caller!
    */
   nsAutoPtr<LayerUserData> RemoveUserData(void* aKey)
-  { nsAutoPtr<LayerUserData> d(mUserData.Remove(aKey)); return d; }
+  { 
+    nsAutoPtr<LayerUserData> d(static_cast<LayerUserData*>(mUserData.Remove(static_cast<gfx::UserDataKey*>(aKey)))); 
+    return d;
+  }
   /**
    * This getter can be used anytime.
    */
   bool HasUserData(void* aKey)
-  { return mUserData.Has(aKey); }
+  {
+    return mUserData.Has(static_cast<gfx::UserDataKey*>(aKey));
+  }
   /**
    * This getter can be used anytime. Ownership is retained by the layer
    * manager.
    */
   LayerUserData* GetUserData(void* aKey)
-  { return mUserData.Get(aKey); }
+  { 
+    return static_cast<LayerUserData*>(mUserData.Get(static_cast<gfx::UserDataKey*>(aKey)));
+  }
 
   /**
    * |Disconnect()| is used by layers hooked up over IPC.  It may be
@@ -835,25 +782,31 @@ public:
    * Dynamic downcast to a Thebes layer. Returns null if this is not
    * a ThebesLayer.
    */
-  virtual ThebesLayer* AsThebesLayer() { return nsnull; }
+  virtual ThebesLayer* AsThebesLayer() { return nullptr; }
 
   /**
    * Dynamic cast to a ContainerLayer. Returns null if this is not
    * a ContainerLayer.
    */
-  virtual ContainerLayer* AsContainerLayer() { return nsnull; }
+  virtual ContainerLayer* AsContainerLayer() { return nullptr; }
+
+   /**
+    * Dynamic cast to a RefLayer. Returns null if this is not a
+    * RefLayer.
+    */
+  virtual RefLayer* AsRefLayer() { return nullptr; }
 
   /**
    * Dynamic cast to a ShadowLayer.  Return null if this is not a
    * ShadowLayer.  Can be used anytime.
    */
-  virtual ShadowLayer* AsShadowLayer() { return nsnull; }
+  virtual ShadowLayer* AsShadowLayer() { return nullptr; }
 
   /**
    * Dynamic cast to a ShadowableLayer.  Return null if this is not a
    * ShadowableLayer.  Can be used anytime.
    */
-  virtual ShadowableLayer* AsShadowableLayer() { return nsnull; }
+  virtual ShadowableLayer* AsShadowableLayer() { return nullptr; }
 
   // These getters can be used anytime.  They return the effective
   // values that should be used when drawing this layer to screen,
@@ -953,20 +906,7 @@ public:
 #endif
 
 protected:
-  Layer(LayerManager* aManager, void* aImplData) :
-    mManager(aManager),
-    mParent(nsnull),
-    mNextSibling(nsnull),
-    mPrevSibling(nsnull),
-    mImplData(aImplData),
-    mMaskLayer(nsnull),
-    mOpacity(1.0),
-    mContentFlags(0),
-    mUseClipRect(false),
-    mUseTileSourceRect(false),
-    mIsFixedPosition(false),
-    mDebugColorIndex(0)
-    {}
+  Layer(LayerManager* aManager, void* aImplData);
 
   void Mutated() { mManager->Mutated(this); }
 
@@ -981,7 +921,13 @@ protected:
    * Returns the local transform for this layer: either mTransform or,
    * for shadow layers, GetShadowTransform()
    */
-  const gfx3DMatrix& GetLocalTransform();
+  const gfx3DMatrix GetLocalTransform();
+
+  /**
+   * Returns the local opacity for this layer: either mOpacity or,
+   * for shadow layers, GetShadowOpacity()
+   */
+  const float GetLocalOpacity();
 
   /**
    * Computes a tweaked version of aTransform that snaps a point or a rectangle
@@ -1004,10 +950,14 @@ protected:
   Layer* mPrevSibling;
   void* mImplData;
   nsRefPtr<Layer> mMaskLayer;
-  LayerUserDataSet mUserData;
+  gfx::UserData mUserData;
   nsIntRegion mVisibleRegion;
   gfx3DMatrix mTransform;
+  float mPostXScale;
+  float mPostYScale;
   gfx3DMatrix mEffectiveTransform;
+  AnimationArray mAnimations;
+  InfallibleTArray<AnimData> mAnimationData;
   float mOpacity;
   nsIntRect mClipRect;
   nsIntRect mTileSourceRect;
@@ -1068,7 +1018,7 @@ public:
     gfx3DMatrix idealTransform = GetLocalTransform()*aTransformToSurface;
     gfxMatrix residual;
     mEffectiveTransform = SnapTransform(idealTransform, gfxRect(0, 0, 0, 0),
-        mAllowResidualTranslation ? &residual : nsnull);
+        mAllowResidualTranslation ? &residual : nullptr);
     // The residual can only be a translation because ThebesLayer snapping
     // only aligns a single point with the pixel grid; scale factors are always
     // preserved exactly
@@ -1158,6 +1108,13 @@ public:
     Mutated();
   }
 
+  void SetPreScale(float aXScale, float aYScale)
+  {
+    mPreXScale = aXScale;
+    mPreYScale = aYScale;
+    Mutated();
+  }
+
   virtual void FillSpecificAttributes(SpecificLayerAttributes& aAttrs);
 
   void SortChildrenBy3DZOrder(nsTArray<Layer*>& aArray);
@@ -1169,6 +1126,8 @@ public:
   virtual Layer* GetFirstChild() { return mFirstChild; }
   virtual Layer* GetLastChild() { return mLastChild; }
   const FrameMetrics& GetFrameMetrics() { return mFrameMetrics; }
+  float GetPreXScale() { return mPreXScale; }
+  float GetPreYScale() { return mPreYScale; }
 
   MOZ_LAYER_DECL_NAME("ContainerLayer", TYPE_CONTAINER)
 
@@ -1217,8 +1176,10 @@ protected:
 
   ContainerLayer(LayerManager* aManager, void* aImplData)
     : Layer(aManager, aImplData),
-      mFirstChild(nsnull),
-      mLastChild(nsnull),
+      mFirstChild(nullptr),
+      mLastChild(nullptr),
+      mPreXScale(1.0f),
+      mPreYScale(1.0f),
       mUseIntermediateSurface(false),
       mSupportsComponentAlphaChildren(false),
       mMayHaveReadbackChild(false)
@@ -1242,6 +1203,8 @@ protected:
   Layer* mFirstChild;
   Layer* mLastChild;
   FrameMetrics mFrameMetrics;
+  float mPreXScale;
+  float mPreYScale;
   bool mUseIntermediateSurface;
   bool mSupportsComponentAlphaChildren;
   bool mMayHaveReadbackChild;
@@ -1272,7 +1235,7 @@ public:
   {
     // Snap 0,0 to pixel boundaries, no extra internal transform.
     gfx3DMatrix idealTransform = GetLocalTransform()*aTransformToSurface;
-    mEffectiveTransform = SnapTransform(idealTransform, gfxRect(0, 0, 0, 0), nsnull);
+    mEffectiveTransform = SnapTransform(idealTransform, gfxRect(0, 0, 0, 0), nullptr);
     ComputeEffectiveTransformForMaskLayer(aTransformToSurface);
   }
 
@@ -1301,8 +1264,8 @@ class THEBES_API CanvasLayer : public Layer {
 public:
   struct Data {
     Data()
-      : mSurface(nsnull), mGLContext(nsnull)
-      , mDrawTarget(nsnull), mGLBufferIsPremultiplied(false)
+      : mSurface(nullptr), mGLContext(nullptr)
+      , mDrawTarget(nullptr), mGLBufferIsPremultiplied(false)
     { }
 
     /* One of these two must be specified, but never both */
@@ -1362,15 +1325,15 @@ public:
     // transform, then we'd snap again when compositing the ThebesLayer).
     mEffectiveTransform =
         SnapTransform(GetLocalTransform(), gfxRect(0, 0, mBounds.width, mBounds.height),
-                      nsnull)*
-        SnapTransform(aTransformToSurface, gfxRect(0, 0, 0, 0), nsnull);
+                      nullptr)*
+        SnapTransform(aTransformToSurface, gfxRect(0, 0, 0, 0), nullptr);
     ComputeEffectiveTransformForMaskLayer(aTransformToSurface);
   }
 
 protected:
   CanvasLayer(LayerManager* aManager, void* aImplData)
     : Layer(aManager, aImplData),
-      mCallback(nsnull), mCallbackData(nsnull), mFilter(gfxPattern::FILTER_GOOD),
+      mCallback(nullptr), mCallbackData(nullptr), mFilter(gfxPattern::FILTER_GOOD),
       mDirty(false) {}
 
   virtual nsACString& PrintInfo(nsACString& aTo, const char* aPrefix);
@@ -1393,6 +1356,96 @@ protected:
    * Set to true in Updated(), cleared during a transaction.
    */
   bool mDirty;
+};
+
+/**
+ * ContainerLayer that refers to a "foreign" layer tree, through an
+ * ID.  Usage of RefLayer looks like
+ *
+ * Construction phase:
+ *   allocate ID for layer subtree
+ *   create RefLayer, SetReferentId(ID)
+ *
+ * Composition:
+ *   look up subtree for GetReferentId()
+ *   ConnectReferentLayer(subtree)
+ *   compose
+ *   ClearReferentLayer()
+ *
+ * Clients will usually want to Connect/Clear() on each transaction to
+ * avoid difficulties managing memory across multiple layer subtrees.
+ */
+class THEBES_API RefLayer : public ContainerLayer {
+  friend class LayerManager;
+
+private:
+  virtual void InsertAfter(Layer* aChild, Layer* aAfter)
+  { MOZ_NOT_REACHED("no"); }
+
+  virtual void RemoveChild(Layer* aChild)
+  { MOZ_NOT_REACHED("no"); }
+
+  using ContainerLayer::SetFrameMetrics;
+
+public:
+  /**
+   * CONSTRUCTION PHASE ONLY
+   * Set the ID of the layer's referent.
+   */
+  void SetReferentId(uint64_t aId)
+  {
+    MOZ_ASSERT(aId != 0);
+    mId = aId;
+  }
+  /**
+   * CONSTRUCTION PHASE ONLY
+   * Connect this ref layer to its referent, temporarily.
+   * ClearReferentLayer() must be called after composition.
+   */
+  void ConnectReferentLayer(Layer* aLayer)
+  {
+    MOZ_ASSERT(!mFirstChild && !mLastChild);
+    MOZ_ASSERT(!aLayer->GetParent());
+
+    mFirstChild = mLastChild = aLayer;
+    aLayer->SetParent(this);
+  }
+
+  /**
+   * DRAWING PHASE ONLY
+   * |aLayer| is the same as the argument to ConnectReferentLayer().
+   */
+  void DetachReferentLayer(Layer* aLayer)
+  {
+    MOZ_ASSERT(aLayer == mFirstChild && mFirstChild == mLastChild);
+    MOZ_ASSERT(aLayer->GetParent() == this);
+
+    mFirstChild = mLastChild = nullptr;
+    aLayer->SetParent(nullptr);
+  }
+
+  // These getters can be used anytime.
+  virtual RefLayer* AsRefLayer() { return this; }
+
+  virtual int64_t GetReferentId() { return mId; }
+
+  /**
+   * DRAWING PHASE ONLY
+   */
+  virtual void FillSpecificAttributes(SpecificLayerAttributes& aAttrs);
+
+  MOZ_LAYER_DECL_NAME("RefLayer", TYPE_REF)
+
+protected:
+  RefLayer(LayerManager* aManager, void* aImplData)
+    : ContainerLayer(aManager, aImplData) , mId(0)
+  {}
+
+  virtual nsACString& PrintInfo(nsACString& aTo, const char* aPrefix);
+
+  Layer* mTempReferent;
+  // 0 is a special value that means "no ID".
+  uint64_t mId;
 };
 
 #ifdef MOZ_DUMP_PAINTING

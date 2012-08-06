@@ -13,7 +13,6 @@
 #ifndef nsBoxLayoutState_h___
 #define nsBoxLayoutState_h___
 
-#include "nsIFrame.h"
 #include "nsCOMPtr.h"
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
@@ -21,6 +20,7 @@
 class nsRenderingContext;
 class nsCalculatedBoxInfo;
 struct nsHTMLReflowMetrics;
+struct nsHTMLReflowState;
 class nsString;
 class nsHTMLReflowCommand;
 
@@ -28,9 +28,9 @@ class NS_STACK_CLASS nsBoxLayoutState
 {
 public:
   nsBoxLayoutState(nsPresContext* aPresContext,
-                   nsRenderingContext* aRenderingContext = nsnull,
+                   nsRenderingContext* aRenderingContext = nullptr,
                    // see OuterReflowState() below
-                   const nsHTMLReflowState* aOuterReflowState = nsnull,
+                   const nsHTMLReflowState* aOuterReflowState = nullptr,
                    PRUint16 aReflowDepth = 0) NS_HIDDEN;
   nsBoxLayoutState(const nsBoxLayoutState& aState) NS_HIDDEN;
 

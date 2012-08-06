@@ -184,7 +184,7 @@ ClearClassPolicyEntry(PLDHashTable *table, PLDHashEntryHdr *entry)
     if (cp->key)
     {
         PL_strfree(cp->key);
-        cp->key = nsnull;
+        cp->key = nullptr;
     }
     PL_DHashTableDestroy(cp->mPolicy);
 }
@@ -214,15 +214,15 @@ InitClassPolicyEntry(PLDHashTable *table,
     };
 
     ClassPolicy* cp = (ClassPolicy*)entry;
-    cp->mDomainWeAreWildcardFor = nsnull;
+    cp->mDomainWeAreWildcardFor = nullptr;
     cp->key = PL_strdup((const char*)key);
     if (!cp->key)
         return false;
-    cp->mPolicy = PL_NewDHashTable(&classPolicyOps, nsnull,
+    cp->mPolicy = PL_NewDHashTable(&classPolicyOps, nullptr,
                                    sizeof(PropertyPolicy), 16);
     if (!cp->mPolicy) {
         PL_strfree(cp->key);
-        cp->key = nsnull;
+        cp->key = nullptr;
         return false;
     }
     return true;
@@ -232,7 +232,7 @@ InitClassPolicyEntry(PLDHashTable *table,
 class DomainPolicy : public PLDHashTable
 {
 public:
-    DomainPolicy() : mWildcardPolicy(nsnull),
+    DomainPolicy() : mWildcardPolicy(nullptr),
                      mRefCount(0)
     {
         mGeneration = sGeneration;
@@ -258,7 +258,7 @@ public:
             InitClassPolicyEntry
         };
 
-        return PL_DHashTableInit(this, &domainPolicyOps, nsnull,
+        return PL_DHashTableInit(this, &domainPolicyOps, nullptr,
                                  sizeof(ClassPolicy), 16);
     }
 
@@ -418,7 +418,7 @@ private:
     CheckPropertyAccessImpl(PRUint32 aAction,
                             nsAXPCNativeCallContext* aCallContext,
                             JSContext* cx, JSObject* aJSObject,
-                            nsISupports* aObj, nsIURI* aTargetURI,
+                            nsISupports* aObj,
                             nsIClassInfo* aClassInfo,
                             const char* aClassName, jsid aProperty,
                             void** aCachedClassPolicy);
@@ -436,7 +436,13 @@ private:
                  SecurityLevel* result);
 
     nsresult
-    CreateCodebasePrincipal(nsIURI* aURI, nsIPrincipal** result);
+    GetCodebasePrincipalInternal(nsIURI* aURI, PRUint32 aAppId,
+                                 bool aInMozBrowser,
+                                 nsIPrincipal** result);
+
+    nsresult
+    CreateCodebasePrincipal(nsIURI* aURI, PRUint32 aAppId, bool aInMozBrowser,
+                            nsIPrincipal** result);
 
     // This is just like the API method, but it doesn't check that the subject
     // name is non-empty or aCertificate is non-null, and it doesn't change the
@@ -595,5 +601,14 @@ public:
 
     NS_IMETHOD InitializeNameSet(nsIScriptContext* aScriptContext);
 };
+
+namespace mozilla {
+
+void
+GetExtendedOrigin(nsIURI* aURI, PRUint32 aAppid,
+                  bool aInMozBrowser,
+                  nsACString& aExtendedOrigin);
+
+} // namespace mozilla
 
 #endif // nsScriptSecurityManager_h__

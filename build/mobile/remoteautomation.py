@@ -62,7 +62,7 @@ class RemoteAutomation(Automation):
 
         return env
 
-    def waitForFinish(self, proc, utilityPath, timeout, maxTime, startTime, debuggerInfo, symbolsDir, logger):
+    def waitForFinish(self, proc, utilityPath, timeout, maxTime, startTime, debuggerInfo, symbolsDir):
         # maxTime is used to override the default timeout, we should honor that
         status = proc.wait(timeout = maxTime)
 
@@ -129,6 +129,27 @@ class RemoteAutomation(Automation):
             exepath = cmd[0]
             name = exepath.split('/')[-1]
             self.procName = name
+            # Hack for Robocop: Derive the actual process name from the command line.
+            # We expect something like:
+            #  ['am', 'instrument', '-w', '-e', 'class', 'org.mozilla.fennec.tests.testBookmark', 'org.mozilla.roboexample.test/android.test.InstrumentationTestRunner']
+            # and want to derive 'org.mozilla.fennec'.
+            if cmd[0] == 'am' and cmd[1] == "instrument":
+              try:
+                i = cmd.index("class")
+              except ValueError:
+                # no "class" argument -- maybe this isn't robocop?
+                i = -1
+              if (i > 0):
+                classname = cmd[i+1]
+                parts = classname.split('.')
+                try:
+                  i = parts.index("tests")
+                except ValueError:
+                  # no "tests" component -- maybe this isn't robocop?
+                  i = -1
+                if (i > 0):
+                  self.procName = '.'.join(parts[0:i])
+                  print "Robocop derived process name: "+self.procName
 
             # Setting timeout at 1 hour since on a remote device this takes much longer
             self.timeout = 3600

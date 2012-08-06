@@ -87,7 +87,7 @@ nsMIMEHeaderParamImpl::DoGetParameter(const nsACString& aHeaderVal,
     // if necessary.
     
     nsCAutoString str1;
-    rv = DecodeParameter(med, charset.get(), nsnull, false, str1);
+    rv = DecodeParameter(med, charset.get(), nullptr, false, str1);
     NS_ENSURE_SUCCESS(rv, rv);
 
     if (!aFallbackCharset.IsEmpty())
@@ -98,7 +98,7 @@ nsMIMEHeaderParamImpl::DoGetParameter(const nsACString& aHeaderVal,
         if (cvtUTF8 &&
             NS_SUCCEEDED(cvtUTF8->ConvertStringToUTF8(str1, 
                 PromiseFlatCString(aFallbackCharset).get(), false, true,
-                                   str2))) {
+                                   1, str2))) {
           CopyUTF8toUTF16(str2, aResult);
           return NS_OK;
         }
@@ -292,7 +292,7 @@ bool IsValidOctetSequenceForCharset(nsACString& aCharset, const char *aOctets)
 
   nsresult rv = cvtUTF8->ConvertStringToUTF8(tmpRaw,
                                              PromiseFlatCString(aCharset).get(),
-                                             false, false, tmpDecoded);
+                                             false, false, 1, tmpDecoded);
 
   if (rv != NS_OK) {
     // we can't decode; charset may be unsupported, or the octet sequence
@@ -335,10 +335,10 @@ nsMIMEHeaderParamImpl::DoParameterInternal(const char *aHeaderValue,
   if (!aHeaderValue ||  !*aHeaderValue || !aResult)
     return NS_ERROR_INVALID_ARG;
 
-  *aResult = nsnull;
+  *aResult = nullptr;
 
-  if (aCharset) *aCharset = nsnull;
-  if (aLang) *aLang = nsnull;
+  if (aCharset) *aCharset = nullptr;
+  if (aLang) *aLang = nullptr;
 
   nsCAutoString charset;
 
@@ -522,7 +522,7 @@ nsMIMEHeaderParamImpl::DoParameterInternal(const char *aHeaderValue,
       if (caseB || (caseCStart && acceptContinuations)) {
         // look for single quotation mark(')
         const char *sQuote1 = PL_strchr(valueStart, 0x27);
-        const char *sQuote2 = sQuote1 ? PL_strchr(sQuote1 + 1, 0x27) : nsnull;
+        const char *sQuote2 = sQuote1 ? PL_strchr(sQuote1 + 1, 0x27) : nullptr;
 
         // Two single quotation marks must be present even in
         // absence of charset and lang. 
@@ -852,7 +852,7 @@ nsMIMEHeaderParamImpl::DecodeRFC5987Param(const nsACString& aParamVal,
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCAutoString utf8;
-  rv = cvtUTF8->ConvertStringToUTF8(value, charset.get(), true, false, utf8);
+  rv = cvtUTF8->ConvertStringToUTF8(value, charset.get(), true, false, 1, utf8);
   NS_ENSURE_SUCCESS(rv, rv);
 
   CopyUTF8toUTF16(utf8, aResult);
@@ -874,7 +874,7 @@ nsMIMEHeaderParamImpl::DecodeParameter(const nsACString& aParamValue,
     nsCOMPtr<nsIUTF8ConverterService> cvtUTF8(do_GetService(NS_UTF8CONVERTERSERVICE_CONTRACTID));
     if (cvtUTF8)
       return cvtUTF8->ConvertStringToUTF8(aParamValue, aCharset,
-          true, true, aResult);
+          true, true, 1, aResult);
   }
 
   const nsAFlatCString& param = PromiseFlatCString(aParamValue);
@@ -923,8 +923,8 @@ char *DecodeQ(const char *in, PRUint32 length)
   char *out, *dest = 0;
 
   out = dest = (char *)PR_Calloc(length + 1, sizeof(char));
-  if (dest == nsnull)
-    return nsnull;
+  if (dest == nullptr)
+    return nullptr;
   while (length > 0) {
     PRUintn c = 0;
     switch (*in) {
@@ -961,7 +961,7 @@ char *DecodeQ(const char *in, PRUint32 length)
 
  badsyntax:
   PR_Free(dest);
-  return nsnull;
+  return nullptr;
 }
 
 // check if input is HZ (a 7bit encoding for simplified Chinese : RFC 1842)) 
@@ -1054,7 +1054,8 @@ void CopyRawHeader(const char *aInput, PRUint32 aLen,
   if (cvtUTF8 &&
       NS_SUCCEEDED(
       cvtUTF8->ConvertStringToUTF8(Substring(aInput, aInput + aLen), 
-      aDefaultCharset, skipCheck, true, utf8Text))) {
+                                   aDefaultCharset, skipCheck, true, 1,
+                                   utf8Text))) {
     aOutput.Append(utf8Text);
   } else { // replace each octet with Unicode replacement char in UTF-8.
     for (PRUint32 i = 0; i < aLen; i++) {
@@ -1078,7 +1079,7 @@ static const char especials[] = "()<>@,;:\\\"/[]?.=";
 nsresult DecodeRFC2047Str(const char *aHeader, const char *aDefaultCharset, 
                           bool aOverrideCharset, nsACString &aResult)
 {
-  const char *p, *q = nsnull, *r;
+  const char *p, *q = nullptr, *r;
   char *decodedText;
   const char *begin; // tracking pointer for where we are in the input buffer
   PRInt32 isLastEncodedWord = 0;
@@ -1165,10 +1166,10 @@ nsresult DecodeRFC2047Str(const char *aHeader, const char *aDefaultCharset,
       // (# of characters in B-encoded part has to be a multiple of 4)
       PRInt32 n = r - (q + 2);
       n -= (n % 4 == 1 && !PL_strncmp(r - 3, "===", 3)) ? 1 : 0;
-      decodedText = PL_Base64Decode(q + 2, n, nsnull);
+      decodedText = PL_Base64Decode(q + 2, n, nullptr);
     }
 
-    if (decodedText == nsnull)
+    if (decodedText == nullptr)
       goto badsyntax;
 
     // Override charset if requested.  Never override labeled UTF-8.
@@ -1187,7 +1188,9 @@ nsresult DecodeRFC2047Str(const char *aHeader, const char *aDefaultCharset,
       if (cvtUTF8 &&
           NS_SUCCEEDED(
             cvtUTF8->ConvertStringToUTF8(nsDependentCString(decodedText),
-            charset, IS_7BIT_NON_ASCII_CHARSET(charset), true, utf8Text))) {
+                                         charset,
+                                         IS_7BIT_NON_ASCII_CHARSET(charset),
+                                         true, 1, utf8Text))) {
         aResult.Append(utf8Text);
       } else {
         aResult.Append(REPLACEMENT_CHAR);

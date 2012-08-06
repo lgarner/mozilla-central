@@ -82,7 +82,6 @@ public:
   NS_DECL_QUERYFRAME
   NS_DECL_FRAMEARENA_HELPERS
 
-  // nsIBox
   NS_IMETHOD DoLayout(nsBoxLayoutState& aBoxLayoutState);
   virtual nsSize GetMinSize(nsBoxLayoutState& aBoxLayoutState);
   virtual nsSize GetPrefSize(nsBoxLayoutState& aBoxLayoutState);
@@ -211,7 +210,7 @@ protected:
 
   /**
    * Get the popup frame list from the frame property.
-   * @return the property value if it exists, nsnull otherwise.
+   * @return the property value if it exists, nullptr otherwise.
    */
   nsFrameList* GetPopupList() const;
 

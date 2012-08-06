@@ -8,6 +8,7 @@
 #include "ScaledFontMac.h"
 #include "Tools.h"
 #include <vector>
+#include "QuartzSupport.h"
 
 //CG_EXTERN void CGContextSetCompositeOperation (CGContextRef, PrivateCGCompositeMode);
 
@@ -92,11 +93,27 @@ DrawTargetCG::~DrawTargetCG()
   free(mData);
 }
 
+BackendType
+DrawTargetCG::GetType() const
+{
+  // It may be worth spliting Bitmap and IOSurface DrawTarget
+  // into seperate classes.
+  if (GetContextType(mCg) == CG_CONTEXT_TYPE_IOSURFACE) {
+    return BACKEND_COREGRAPHICS_ACCELERATED;
+  } else {
+    return BACKEND_COREGRAPHICS;
+  }
+}
+
 TemporaryRef<SourceSurface>
 DrawTargetCG::Snapshot()
 {
   if (!mSnapshot) {
-    mSnapshot = new SourceSurfaceCGBitmapContext(this);
+    if (GetContextType(mCg) == CG_CONTEXT_TYPE_IOSURFACE) {
+      return new SourceSurfaceCGIOSurfaceContext(this);
+    } else {
+      mSnapshot = new SourceSurfaceCGBitmapContext(this);
+    }
   }
 
   return mSnapshot;
@@ -108,7 +125,7 @@ DrawTargetCG::CreateSimilarDrawTarget(const IntSize &aSize, SurfaceFormat aForma
   // XXX: in thebes we use CGLayers to do this kind of thing. It probably makes sense
   // to add that in somehow, but at a higher level
   RefPtr<DrawTargetCG> newTarget = new DrawTargetCG();
-  if (newTarget->Init(aSize, aFormat)) {
+  if (newTarget->Init(GetType(), aSize, aFormat)) {
     return newTarget;
   } else {
     return NULL;
@@ -136,7 +153,7 @@ GetImageFromSourceSurface(SourceSurface *aSurface)
   if (aSurface->GetType() == SURFACE_COREGRAPHICS_IMAGE)
     return static_cast<SourceSurfaceCG*>(aSurface)->GetImage();
   else if (aSurface->GetType() == SURFACE_COREGRAPHICS_CGCONTEXT)
-    return static_cast<SourceSurfaceCGBitmapContext*>(aSurface)->GetImage();
+    return static_cast<SourceSurfaceCGContext*>(aSurface)->GetImage();
   else if (aSurface->GetType() == SURFACE_DATA)
     return static_cast<DataSourceSurfaceCG*>(aSurface)->GetImage();
   abort();
@@ -277,6 +294,8 @@ class GradientStopsCG : public GradientStops
   virtual ~GradientStopsCG() {
     CGGradientRelease(mGradient);
   }
+  // Will always report BACKEND_COREGRAPHICS, but it is compatible
+  // with BACKEND_COREGRAPHICS_ACCELERATED
   BackendType GetBackendType() const { return BACKEND_COREGRAPHICS; }
   CGGradientRef mGradient;
 };
@@ -799,6 +818,99 @@ DrawTargetCG::DrawSurfaceWithShadow(SourceSurface *aSurface, const Point &aDest,
 }
 
 bool
+DrawTargetCG::Init(BackendType aType,
+                   unsigned char* aData,
+                   const IntSize &aSize,
+                   int32_t aStride,
+                   SurfaceFormat aFormat)
+{
+  // XXX: we should come up with some consistent semantics for dealing
+  // with zero area drawtargets
+  if (aSize.width <= 0 || aSize.height <= 0 ||
+      // 32767 is the maximum size supported by cairo
+      // we clamp to that to make it easier to interoperate
+      aSize.width > 32767 || aSize.height > 32767) {
+    mColorSpace = NULL;
+    mCg = NULL;
+    mData = NULL;
+    return false;
+  }
+
+  //XXX: handle SurfaceFormat
+
+  //XXX: we'd be better off reusing the Colorspace across draw targets
+  mColorSpace = CGColorSpaceCreateDeviceRGB();
+
+  if (aData == NULL && aType != BACKEND_COREGRAPHICS_ACCELERATED) {
+    // XXX: Currently, Init implicitly clears, that can often be a waste of time
+    mData = calloc(aSize.height * aStride, 1);
+    aData = static_cast<unsigned char*>(mData);  
+  } else {
+    // mData == NULL means DrawTargetCG doesn't own the image data and will not
+    // delete it in the destructor
+    mData = NULL;
+  }
+
+  mSize = aSize;
+
+  if (aType == BACKEND_COREGRAPHICS_ACCELERATED) {
+    RefPtr<MacIOSurface> ioSurface = MacIOSurface::CreateIOSurface(aSize.width, aSize.height);
+    mCg = ioSurface->CreateIOSurfaceContext();
+    // If we don't have the symbol for 'CreateIOSurfaceContext' mCg will be null
+    // and we will fallback to software below
+    mData = NULL;
+  }
+
+  if (!mCg || aType == BACKEND_COREGRAPHICS) {
+    int bitsPerComponent = 8;
+
+    CGBitmapInfo bitinfo;
+    bitinfo = kCGBitmapByteOrder32Host | kCGImageAlphaPremultipliedFirst;
+
+    // XXX: what should we do if this fails?
+    mCg = CGBitmapContextCreate (aData,
+                                 mSize.width,
+                                 mSize.height,
+                                 bitsPerComponent,
+                                 aStride,
+                                 mColorSpace,
+                                 bitinfo);
+  }
+
+  assert(mCg);
+  // CGContext's default to have the origin at the bottom left
+  // so flip it to the top left
+  CGContextTranslateCTM(mCg, 0, mSize.height);
+  CGContextScaleCTM(mCg, 1, -1);
+  // See Bug 722164 for performance details
+  // Medium or higher quality lead to expensive interpolation
+  // for canvas we want to use low quality interpolation
+  // to have competitive performance with other canvas
+  // implementation.
+  // XXX: Create input parameter to control interpolation and
+  //      use the default for content.
+  CGContextSetInterpolationQuality(mCg, kCGInterpolationLow);
+
+  // XXX: set correct format
+  mFormat = FORMAT_B8G8R8A8;
+
+  if (aType == BACKEND_COREGRAPHICS_ACCELERATED) {
+    // The bitmap backend uses callac to clear, we can't do that without
+    // reading back the surface. This should trigger something equivilent
+    // to glClear.
+    ClearRect(Rect(0, 0, mSize.width, mSize.height));
+  }
+
+  return true;
+}
+
+void
+DrawTargetCG::Flush()
+{
+  CGContextFlush(mCg);
+}
+
+bool
 DrawTargetCG::Init(CGContextRef cgContext, const IntSize &aSize)
 {
   // XXX: we should come up with some consistent semantics for dealing
@@ -834,66 +946,12 @@ DrawTargetCG::Init(CGContextRef cgContext, const IntSize &aSize)
 }
 
 bool
-DrawTargetCG::Init(const IntSize &aSize, SurfaceFormat &)
+DrawTargetCG::Init(BackendType aType, const IntSize &aSize, SurfaceFormat &aFormat)
 {
-  // XXX: we should come up with some consistent semantics for dealing
-  // with zero area drawtargets
-  if (aSize.width <= 0 || aSize.height <= 0 ||
-      // 32767 is the maximum size supported by cairo
-      // we clamp to that to make it easier to interoperate
-      aSize.width > 32767 || aSize.height > 32767) {
-    mColorSpace = NULL;
-    mCg = NULL;
-    mData = NULL;
-    return false;
-  }
-
-  //XXX: handle SurfaceFormat
-
-  //XXX: we'd be better off reusing the Colorspace across draw targets
-  mColorSpace = CGColorSpaceCreateDeviceRGB();
-
-  mSize = aSize;
-
-  int bitsPerComponent = 8;
-  int stride = mSize.width*4;
-
-  CGBitmapInfo bitinfo;
-
-  bitinfo = kCGBitmapByteOrder32Host | kCGImageAlphaPremultipliedFirst;
-
-  // XXX: currently we allocate ourselves so that we can easily return a gfxImageSurface
-  // we might not need to later if once we don't need to support gfxImageSurface
-  //XXX: currently Init implicitly clears, that can often be a waste of time
-  mData = calloc(mSize.height * stride, 1);
-  // XXX: what should we do if this fails?
-  mCg = CGBitmapContextCreate (mData,
-                               mSize.width,
-                               mSize.height,
-                               bitsPerComponent,
-                               stride,
-                               mColorSpace,
-                               bitinfo);
-
-
-  assert(mCg);
-  // CGContext's default to have the origin at the bottom left
-  // so flip it to the top left
-  CGContextTranslateCTM(mCg, 0, mSize.height);
-  CGContextScaleCTM(mCg, 1, -1);
-  // See Bug 722164 for performance details
-  // Medium or higher quality lead to expensive interpolation
-  // for canvas we want to use low quality interpolation
-  // to have competitive performance with other canvas
-  // implementation.
-  // XXX: Create input parameter to control interpolation and
-  //      use the default for content.
-  CGContextSetInterpolationQuality(mCg, kCGInterpolationLow);
-
-  //XXX: set correct format
-  mFormat = FORMAT_B8G8R8A8;
-
-  return true;
+  int stride = aSize.width*4;
+  
+  // Calling Init with aData == NULL will allocate.
+  return Init(aType, NULL, aSize, stride, aFormat);
 }
 
 TemporaryRef<PathBuilder>
@@ -906,7 +964,8 @@ DrawTargetCG::CreatePathBuilder(FillRule aFillRule) const
 void*
 DrawTargetCG::GetNativeSurface(NativeSurfaceType aType)
 {
-  if (aType == NATIVE_SURFACE_CGCONTEXT) {
+  if (aType == NATIVE_SURFACE_CGCONTEXT && GetContextType(mCg) == CG_CONTEXT_TYPE_BITMAP ||
+      aType == NATIVE_SURFACE_CGCONTEXT_ACCELERATED && GetContextType(mCg) == CG_CONTEXT_TYPE_IOSURFACE) {
     return mCg;
   } else {
     return NULL;

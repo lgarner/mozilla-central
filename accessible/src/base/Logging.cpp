@@ -19,6 +19,7 @@
 #include "nsTraceRefcntImpl.h"
 #include "nsIWebProgress.h"
 #include "prenv.h"
+#include "nsIDocShellTreeItem.h"
 
 using namespace mozilla;
 using namespace mozilla::a11y;
@@ -138,7 +139,7 @@ LogDocShellTree(nsIDocument* aDocumentNode)
 static void
 LogDocState(nsIDocument* aDocumentNode)
 {
-  const char* docState = nsnull;
+  const char* docState = nullptr;
   nsIDocument::ReadyState docStateFlag = aDocumentNode->GetReadyStateEnum();
   switch (docStateFlag) {
     case nsIDocument::READYSTATE_UNINITIALIZED:
@@ -168,7 +169,7 @@ LogPresShell(nsIDocument* aDocumentNode)
   nsIPresShell* ps = aDocumentNode->GetShell();
   printf("presshell: %p", static_cast<void*>(ps));
   nsIScrollableFrame *sf = ps ?
-    ps->GetRootScrollFrameAsScrollableExternal() : nsnull;
+    ps->GetRootScrollFrameAsScrollableExternal() : nullptr;
   printf(", root scroll frame: %p", static_cast<void*>(sf));
 }
 

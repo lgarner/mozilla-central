@@ -61,7 +61,7 @@ const nsDynamicFunctionLoad kXULFuncs[] = {
   { "XRE_CreateAppData", (NSFuncPtr*) &XRE_CreateAppData },
   { "XRE_FreeAppData", (NSFuncPtr*) &XRE_FreeAppData },
   { "XRE_main", (NSFuncPtr*) &XRE_main },
-  { nsnull, nsnull }
+  { nullptr, nullptr }
 };
 
 nsresult
@@ -351,7 +351,7 @@ NSString
   }
 
   NSLog(@"unable to find a valid webrt path");
-  @throw MakeException(@"This App requires that Firefox version 15 or above is installed.", @"Firefox 15+ has not been detected.");
+  @throw MakeException(@"This App requires that Firefox version 16 or above is installed.", @"Firefox 16+ has not been detected.");
 
   return nil;
 }

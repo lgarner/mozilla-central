@@ -43,7 +43,7 @@ private:
 };
 
 
-nsDeleteDir * nsDeleteDir::gInstance = nsnull;
+nsDeleteDir * nsDeleteDir::gInstance = nullptr;
 
 nsDeleteDir::nsDeleteDir()
   : mLock("nsDeleteDir.mLock"),
@@ -51,12 +51,12 @@ nsDeleteDir::nsDeleteDir()
     mShutdownPending(false),
     mStopDeleting(false)
 {
-  NS_ASSERTION(gInstance==nsnull, "multiple nsCacheService instances!");
+  NS_ASSERTION(gInstance==nullptr, "multiple nsCacheService instances!");
 }
 
 nsDeleteDir::~nsDeleteDir()
 {
-  gInstance = nsnull;
+  gInstance = nullptr;
 }
 
 nsresult
@@ -156,7 +156,7 @@ nsDeleteDir::DestroyThread()
     return;
 
   NS_DispatchToMainThread(new nsDestroyThreadEvent(mThread));
-  mThread = nsnull;
+  mThread = nullptr;
 }
 
 void
@@ -179,8 +179,16 @@ nsDeleteDir::TimerCallback(nsITimer *aTimer, void *arg)
   dirList = static_cast<nsCOMArray<nsIFile> *>(arg);
 
   bool shuttingDown = false;
-  for (PRInt32 i = 0; i < dirList->Count() && !shuttingDown; i++) {
-    gInstance->RemoveDir((*dirList)[i], &shuttingDown);
+
+  // Intentional extra braces to control variable sope.
+  {
+    // Low IO priority can only be set when running in the context of the
+    // current thread.  So this shouldn't be moved to where we set the priority
+    // of the Cache deleter thread using the nsThread's NSPR priority constants.
+    nsAutoLowPriorityIO autoLowPriority;
+    for (PRInt32 i = 0; i < dirList->Count() && !shuttingDown; i++) {
+      gInstance->RemoveDir((*dirList)[i], &shuttingDown);
+    }
   }
 
   {
@@ -247,7 +255,7 @@ nsDeleteDir::DeleteDir(nsIFile *dirIn, bool moveToTrash, PRUint32 delay)
     // Important: must rename directory w/o changing parent directory: else on
     // NTFS we'll wait (with cache lock) while nsIFile's ACL reset walks file
     // tree: was hanging GUI for *minutes* on large cache dirs.
-    rv = dir->MoveToNative(nsnull, leaf);
+    rv = dir->MoveToNative(nullptr, leaf);
 #endif
     if (NS_FAILED(rv))
       return rv;

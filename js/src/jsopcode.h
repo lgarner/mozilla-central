@@ -497,6 +497,8 @@ class PCCounts
     double *counts;
 #ifdef DEBUG
     size_t capacity;
+#elif JS_BITS_PER_WORD == 32
+    void *padding;
 #endif
 
  public:
@@ -615,21 +617,24 @@ class PCCounts
     }
 };
 
+/* Necessary for alignment with the script. */
+JS_STATIC_ASSERT(sizeof(PCCounts) % sizeof(Value) == 0);
+
 } /* namespace js */
 
 #if defined(DEBUG)
 /*
  * Disassemblers, for debugging only.
  */
-extern JS_FRIEND_API(JSBool)
-js_Disassemble(JSContext *cx, JSScript *script, JSBool lines, js::Sprinter *sp);
+JSBool
+js_Disassemble(JSContext *cx, JS::Handle<JSScript*> script, JSBool lines, js::Sprinter *sp);
 
-extern JS_FRIEND_API(unsigned)
-js_Disassemble1(JSContext *cx, JSScript *script, jsbytecode *pc, unsigned loc,
+unsigned
+js_Disassemble1(JSContext *cx, JS::Handle<JSScript*> script, jsbytecode *pc, unsigned loc,
                 JSBool lines, js::Sprinter *sp);
 
-extern JS_FRIEND_API(void)
-js_DumpPCCounts(JSContext *cx, JSScript *script, js::Sprinter *sp);
+void
+js_DumpPCCounts(JSContext *cx, JS::Handle<JSScript*> script, js::Sprinter *sp);
 #endif
 
 #endif /* jsopcode_h___ */

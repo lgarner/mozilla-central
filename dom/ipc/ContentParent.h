@@ -12,6 +12,8 @@
 #include "mozilla/dom/PContentParent.h"
 #include "mozilla/dom/PMemoryReportRequestParent.h"
 #include "mozilla/ipc/GeckoChildProcessHost.h"
+#include "mozilla/dom/ipc/Blob.h"
+#include "mozilla/Attributes.h"
 
 #include "nsIObserver.h"
 #include "nsIThreadInternal.h"
@@ -21,18 +23,27 @@
 #include "nsIMemoryReporter.h"
 #include "nsCOMArray.h"
 #include "nsDataHashtable.h"
+#include "nsInterfaceHashtable.h"
+#include "nsHashKeys.h"
 
 class nsFrameMessageManager;
+class nsIDOMBlob;
+
 namespace mozilla {
 
 namespace ipc {
 class TestShellParent;
 }
 
+namespace layers {
+class PCompositorParent;
+}
+
 namespace dom {
 
 class TabParent;
 class PStorageParent;
+class ClonedMessageData;
 
 class ContentParent : public PContentParent
                     , public nsIObserver
@@ -42,6 +53,8 @@ class ContentParent : public PContentParent
 private:
     typedef mozilla::ipc::GeckoChildProcessHost GeckoChildProcessHost;
     typedef mozilla::ipc::TestShellParent TestShellParent;
+    typedef mozilla::layers::PCompositorParent PCompositorParent;
+    typedef mozilla::dom::ClonedMessageData ClonedMessageData;
 
 public:
     static ContentParent* GetNewOrUsed();
@@ -64,10 +77,13 @@ public:
     /**
      * Create a new tab.
      *
-     * |aIsBrowserFrame| indicates whether this tab is part of an
+     * |aIsBrowserElement| indicates whether this tab is part of an
      * <iframe mozbrowser>.
+     * |aAppId| indicates which app the tab belongs to.
      */
-    TabParent* CreateTab(PRUint32 aChromeFlags, bool aIsBrowserFrame);
+    TabParent* CreateTab(PRUint32 aChromeFlags, bool aIsBrowserElement, PRUint32 aAppId);
+    /** Notify that a tab was destroyed during normal operation. */
+    void NotifyTabDestroyed(PBrowserParent* aTab);
 
     TestShellParent* CreateTestShell();
     bool DestroyTestShell(TestShellParent* aTestShell);
@@ -77,6 +93,7 @@ public:
     bool RequestRunToCompletion();
 
     bool IsAlive();
+    bool IsForApp();
 
     void SetChildMemoryReporters(const InfallibleTArray<MemoryReport>& report);
 
@@ -87,6 +104,8 @@ public:
     bool NeedsPermissionsUpdate() {
         return mSendPermissionUpdates;
     }
+
+    BlobParent* GetOrCreateActorForBlob(nsIDOMBlob* aBlob);
 
 protected:
     void OnChannelConnected(int32 pid);
@@ -107,11 +126,31 @@ private:
 
     void Init();
 
-    virtual PBrowserParent* AllocPBrowser(const PRUint32& aChromeFlags, const bool& aIsBrowserFrame);
+    /**
+     * Mark this ContentParent as dead for the purposes of Get*().
+     * This method is idempotent.
+     */
+    void MarkAsDead();
+
+    /**
+     * Exit the subprocess and vamoose.  After this call IsAlive()
+     * will return false and this ContentParent will not be returned
+     * by the Get*() funtions.  However, the shutdown sequence itself
+     * may be asynchronous.
+     */
+    void ShutDown();
+
+    PCompositorParent* AllocPCompositor(mozilla::ipc::Transport* aTransport,
+                                        base::ProcessId aOtherProcess) MOZ_OVERRIDE;
+
+    virtual PBrowserParent* AllocPBrowser(const PRUint32& aChromeFlags, const bool& aIsBrowserElement, const PRUint32& aAppId);
     virtual bool DeallocPBrowser(PBrowserParent* frame);
 
     virtual PDeviceStorageRequestParent* AllocPDeviceStorageRequest(const DeviceStorageParams&);
     virtual bool DeallocPDeviceStorageRequest(PDeviceStorageRequestParent*);
+
+    virtual PBlobParent* AllocPBlob(const BlobConstructorParams& aParams);
+    virtual bool DeallocPBlob(PBlobParent*);
 
     virtual PCrashReporterParent* AllocPCrashReporter(const NativeThreadId& tid,
                                                       const PRUint32& processType);
@@ -120,8 +159,8 @@ private:
                                                const NativeThreadId& tid,
                                                const PRUint32& processType);
 
-    NS_OVERRIDE virtual PHalParent* AllocPHal();
-    NS_OVERRIDE virtual bool DeallocPHal(PHalParent*);
+    virtual PHalParent* AllocPHal() MOZ_OVERRIDE;
+    virtual bool DeallocPHal(PHalParent*) MOZ_OVERRIDE;
 
     virtual PIndexedDBParent* AllocPIndexedDB();
 
@@ -200,9 +239,11 @@ private:
 
     virtual bool RecvLoadURIExternal(const IPC::URI& uri);
 
-    virtual bool RecvSyncMessage(const nsString& aMsg, const nsString& aJSON,
+    virtual bool RecvSyncMessage(const nsString& aMsg,
+                                 const ClonedMessageData& aData,
                                  InfallibleTArray<nsString>* aRetvals);
-    virtual bool RecvAsyncMessage(const nsString& aMsg, const nsString& aJSON);
+    virtual bool RecvAsyncMessage(const nsString& aMsg,
+                                  const ClonedMessageData& aData);
 
     virtual bool RecvAddGeolocationListener();
     virtual bool RecvRemoveGeolocationListener();
@@ -217,6 +258,10 @@ private:
                                  const nsCString& aCategory);
 
     virtual bool RecvPrivateDocShellsExist(const bool& aExist);
+
+    virtual bool RecvAddFileWatch(const nsString& root);
+    virtual bool RecvRemoveFileWatch(const nsString& root);
+
     GeckoChildProcessHost* mSubprocess;
 
     PRInt32 mGeolocationWatchID;
@@ -234,6 +279,34 @@ private:
 
     const nsString mAppManifestURL;
     nsRefPtr<nsFrameMessageManager> mMessageManager;
+
+    class WatchedFile MOZ_FINAL : public nsIFileUpdateListener {
+      public:
+        WatchedFile(ContentParent* aParent, const nsString& aPath)
+          : mParent(aParent)
+          , mUsageCount(1)
+        {
+          NS_NewLocalFile(aPath, false, getter_AddRefs(mFile));
+        }
+
+        NS_DECL_ISUPPORTS
+        NS_DECL_NSIFILEUPDATELISTENER
+
+        void Watch() {
+          mFile->Watch(this);
+        }
+
+        void Unwatch() {
+          mFile->Watch(this);
+        }
+
+        nsRefPtr<ContentParent> mParent;
+        PRInt32 mUsageCount;
+        nsCOMPtr<nsIFile> mFile;
+    };
+
+    // This is a cache of all of the registered file watchers.
+    nsInterfaceHashtable<nsStringHashKey, WatchedFile> mFileWatchers;
 
     friend class CrashReporterParent;
 };

@@ -4,102 +4,104 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "base/basictypes.h"
+
 #include "ContentParent.h"
 
-#include "TabParent.h"
+#if defined(ANDROID) || defined(LINUX)
+# include <sys/time.h>
+# include <sys/resource.h>
+#endif
+
 #include "CrashReporterParent.h"
 #include "History.h"
-#include "mozilla/ipc/TestShellParent.h"
-#include "mozilla/net/NeckoParent.h"
+#include "IDBFactory.h"
+#include "IndexedDBParent.h"
+#include "IndexedDatabaseManager.h"
 #include "mozilla/Preferences.h"
-#include "nsHashPropertyBag.h"
-#include "nsIFilePicker.h"
-#include "nsIWindowWatcher.h"
-#include "nsIDOMWindow.h"
-#include "nsIObserverService.h"
-#include "nsAutoPtr.h"
-#include "nsCOMPtr.h"
-#include "nsServiceManagerUtils.h"
-#include "nsThreadUtils.h"
-#include "nsChromeRegistryChrome.h"
-#include "nsExternalHelperAppService.h"
-#include "nsCExternalHandlerService.h"
-#include "nsFrameMessageManager.h"
-#include "nsIPresShell.h"
-#include "nsIAlertsService.h"
-#include "nsToolkitCompsCID.h"
-#include "nsIDOMGeoGeolocation.h"
-#include "nsIConsoleService.h"
-#include "nsIScriptError.h"
-#include "nsConsoleMessage.h"
+#include "mozilla/Preferences.h"
+#include "mozilla/Services.h"
+#include "mozilla/Util.h"
+#include "mozilla/dom/ExternalHelperAppParent.h"
+#include "mozilla/dom/PMemoryReportRequestParent.h"
+#include "mozilla/dom/StorageParent.h"
+#include "mozilla/dom/devicestorage/DeviceStorageRequestParent.h"
+#include "mozilla/dom/sms/SmsParent.h"
+#include "mozilla/hal_sandbox/PHalParent.h"
+#include "mozilla/ipc/TestShellParent.h"
+#include "mozilla/layers/CompositorParent.h"
+#include "mozilla/net/NeckoParent.h"
+#include "mozilla/unused.h"
+#include "nsAppDirectoryServiceDefs.h"
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsAppRunner.h"
-#if defined(MOZ_SYDNEYAUDIO)
-#include "AudioParent.h"
-#endif
-#include "SandboxHal.h"
-
-#if defined(ANDROID) || defined(LINUX)
-#include <sys/time.h>
-#include <sys/resource.h>
+#include "nsAutoPtr.h"
+#include "nsCExternalHandlerService.h"
+#include "nsCOMPtr.h"
+#include "nsChromeRegistryChrome.h"
+#include "nsConsoleMessage.h"
+#include "nsDebugImpl.h"
+#include "nsDirectoryServiceDefs.h"
+#include "nsDOMFile.h"
+#include "nsExternalHelperAppService.h"
+#include "nsFrameMessageManager.h"
+#include "nsHashPropertyBag.h"
+#include "nsIAlertsService.h"
+#include "nsIClipboard.h"
+#include "nsIConsoleService.h"
+#include "nsIDOMGeoGeolocation.h"
+#include "nsIDOMWindow.h"
+#include "nsIFilePicker.h"
+#include "nsIMemoryReporter.h"
+#include "nsIObserverService.h"
+#include "nsIPresShell.h"
+#include "nsIRemoteBlob.h"
+#include "nsIScriptError.h"
+#include "nsISupportsPrimitives.h"
+#include "nsIWindowWatcher.h"
+#include "nsMemoryReporterManager.h"
+#include "nsServiceManagerUtils.h"
 #include "nsSystemInfo.h"
-#endif
+#include "nsThreadUtils.h"
+#include "nsToolkitCompsCID.h"
+#include "nsWidgetsCID.h"
+#include "SandboxHal.h"
+#include "StructuredCloneUtils.h"
+#include "TabParent.h"
 
-#ifdef MOZ_PERMISSIONS
-#include "nsPermissionManager.h"
+#ifdef ANDROID
+# include "gfxAndroidPlatform.h"
 #endif
 
 #ifdef MOZ_CRASHREPORTER
-#include "nsICrashReporter.h"
-#include "nsExceptionHandler.h"
+# include "nsExceptionHandler.h"
+# include "nsICrashReporter.h"
 #endif
 
-#include "mozilla/dom/ExternalHelperAppParent.h"
-#include "mozilla/dom/StorageParent.h"
-#include "mozilla/hal_sandbox/PHalParent.h"
-#include "mozilla/Services.h"
-#include "mozilla/unused.h"
-#include "mozilla/Util.h"
-
-#include "nsIMemoryReporter.h"
-#include "nsMemoryReporterManager.h"
-#include "mozilla/dom/PMemoryReportRequestParent.h"
-
-#ifdef ANDROID
-#include "gfxAndroidPlatform.h"
+#ifdef MOZ_PERMISSIONS
+# include "nsPermissionManager.h"
 #endif
+
+#ifdef MOZ_SYDNEYAUDIO
+# include "AudioParent.h"
+#endif
+
 #ifdef MOZ_WIDGET_ANDROID
-#include "AndroidBridge.h"
+# include "AndroidBridge.h"
 #endif
-
-#include "nsIClipboard.h"
-#include "nsWidgetsCID.h"
-#include "nsISupportsPrimitives.h"
-#include "mozilla/dom/sms/SmsParent.h"
-#include "mozilla/dom/devicestorage/DeviceStorageRequestParent.h"
-#include "nsDebugImpl.h"
-
-#include "nsAppDirectoryServiceDefs.h"
-#include "nsDirectoryServiceDefs.h"
-#include "mozilla/Preferences.h"
-
-#include "IDBFactory.h"
-#include "IndexedDatabaseManager.h"
-#include "IndexedDBParent.h"
 
 static NS_DEFINE_CID(kCClipboardCID, NS_CLIPBOARD_CID);
 static const char* sClipboardTextFlavors[] = { kUnicodeMime };
 
-using mozilla::Preferences;
-using namespace mozilla::ipc;
-using namespace mozilla::hal_sandbox;
-using namespace mozilla::net;
-using namespace mozilla::places;
-using mozilla::unused; // heh
 using base::KillProcess;
 using namespace mozilla::dom::devicestorage;
 using namespace mozilla::dom::sms;
 using namespace mozilla::dom::indexedDB;
+using namespace mozilla::hal_sandbox;
+using namespace mozilla::ipc;
+using namespace mozilla::layers;
+using namespace mozilla::net;
+using namespace mozilla::places;
 
 namespace mozilla {
 namespace dom {
@@ -239,7 +241,7 @@ ContentParent::Init()
         threadInt->AddObserver(this);
     }
     if (obs) {
-        obs->NotifyObservers(static_cast<nsIObserver*>(this), "ipc:content-created", nsnull);
+        obs->NotifyObservers(static_cast<nsIObserver*>(this), "ipc:content-created", nullptr);
     }
 
 #ifdef ACCESSIBILITY
@@ -249,6 +251,49 @@ ContentParent::Init()
         unused << SendActivateA11y();
     }
 #endif
+}
+
+void
+ContentParent::ShutDown()
+{
+    if (mIsAlive) {
+        // Close() can only be called once.  It kicks off the
+        // destruction sequence.
+        Close();
+    }
+    // NB: must MarkAsDead() here so that this isn't accidentally
+    // returned from Get*() while in the midst of shutdown.
+    MarkAsDead();
+}
+
+void
+ContentParent::MarkAsDead()
+{
+    if (!mAppManifestURL.IsEmpty()) {
+        if (gAppContentParents) {
+            gAppContentParents->Remove(mAppManifestURL);
+            if (!gAppContentParents->Count()) {
+                delete gAppContentParents;
+                gAppContentParents = NULL;
+            }
+        }
+    } else if (gNonAppContentParents) {
+        gNonAppContentParents->RemoveElement(this);
+        if (!gNonAppContentParents->Length()) {
+            delete gNonAppContentParents;
+            gNonAppContentParents = NULL;
+        }
+    }
+
+    if (gPrivateContent) {
+        gPrivateContent->RemoveElement(this);
+        if (!gPrivateContent->Length()) {
+            delete gPrivateContent;
+            gPrivateContent = NULL;
+        }
+    }
+
+    mIsAlive = false;
 }
 
 void
@@ -349,29 +394,7 @@ ContentParent::ActorDestroy(ActorDestroyReason why)
     if (mRunToCompletionDepth)
         mRunToCompletionDepth = 0;
 
-    if (!mAppManifestURL.IsEmpty()) {
-        gAppContentParents->Remove(mAppManifestURL);
-        if (!gAppContentParents->Count()) {
-            delete gAppContentParents;
-            gAppContentParents = NULL;
-        }
-    } else {
-        gNonAppContentParents->RemoveElement(this);
-        if (!gNonAppContentParents->Length()) {
-            delete gNonAppContentParents;
-            gNonAppContentParents = NULL;
-        }
-    }
-
-    if (gPrivateContent) {
-        gPrivateContent->RemoveElement(this);
-        if (!gPrivateContent->Length()) {
-            delete gPrivateContent;
-            gPrivateContent = NULL;
-        }
-    }
-
-    mIsAlive = false;
+    MarkAsDead();
 
     if (obs) {
         nsRefPtr<nsHashPropertyBag> props = new nsHashPropertyBag();
@@ -391,7 +414,7 @@ ContentParent::ActorDestroy(ActorDestroyReason why)
             props->SetPropertyAsAString(NS_LITERAL_STRING("dumpID"), dumpID);
 #endif
 
-            obs->NotifyObservers((nsIPropertyBag2*) props, "ipc:content-shutdown", nsnull);
+            obs->NotifyObservers((nsIPropertyBag2*) props, "ipc:content-shutdown", nullptr);
         }
     }
 
@@ -411,9 +434,22 @@ ContentParent::ActorDestroy(ActorDestroyReason why)
 }
 
 TabParent*
-ContentParent::CreateTab(PRUint32 aChromeFlags, bool aIsBrowserFrame)
+ContentParent::CreateTab(PRUint32 aChromeFlags, bool aIsBrowserElement, PRUint32 aAppId)
 {
-  return static_cast<TabParent*>(SendPBrowserConstructor(aChromeFlags, aIsBrowserFrame));
+  return static_cast<TabParent*>(SendPBrowserConstructor(aChromeFlags, aIsBrowserElement, aAppId));
+}
+
+void
+ContentParent::NotifyTabDestroyed(PBrowserParent* aTab)
+{
+    // There can be more than one PBrowser for a given app process
+    // because of popup windows.  When the last one closes, shut
+    // us down.
+    if (IsForApp() && ManagedPBrowserParent().Length() == 1) {
+        MessageLoop::current()->PostTask(
+            FROM_HERE,
+            NewRunnableMethod(this, &ContentParent::ShutDown));
+    }
 }
 
 TestShellParent*
@@ -432,7 +468,7 @@ TestShellParent*
 ContentParent::GetTestShellSingleton()
 {
     if (!ManagedPTestShellParent().Length())
-        return nsnull;
+        return nullptr;
     return static_cast<TestShellParent*>(ManagedPTestShellParent()[0]);
 }
 
@@ -450,9 +486,34 @@ ContentParent::ContentParent(const nsAString& aAppManifestURL)
 
     NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
     mSubprocess = new GeckoChildProcessHost(GeckoProcessType_Content);
-    mSubprocess->AsyncLaunch();
+
+    bool useOffMainThreadCompositing = !!CompositorParent::CompositorLoop();
+    if (useOffMainThreadCompositing) {
+        // FIXME.  Oh please fixme.  Somehow.
+        //
+        // We need the child process's ProcessHandle to do
+        // PCompositor::Open() below (on win32 ... sigh).  We don't
+        // get that until onconnect, but that's too late to open the
+        // compositor channel below.
+        mSubprocess->SyncLaunch();
+    } else {
+        mSubprocess->AsyncLaunch();
+    }
     Open(mSubprocess->GetChannel(), mSubprocess->GetChildProcessHandle());
     unused << SendSetID(gContentChildID++);
+
+    // NB: internally, this will send an IPC message to the child
+    // process to get it to create the CompositorChild.  This
+    // message goes through the regular IPC queue for this
+    // channel, so delivery will happen-before any other messages
+    // we send.  The CompositorChild must be created before any
+    // PBrowsers are created, because they rely on the Compositor
+    // already being around.  (Creation is async, so can't happen
+    // on demand.)
+    if (useOffMainThreadCompositing) {
+        DebugOnly<bool> opened = PCompositor::Open(this);
+        MOZ_ASSERT(opened);
+    }
 
     nsCOMPtr<nsIChromeRegistry> registrySvc = nsChromeRegistry::GetService();
     nsChromeRegistryChrome* chromeRegistry =
@@ -465,8 +526,10 @@ ContentParent::ContentParent(const nsAString& aAppManifestURL)
         nsCString buildID(gAppData->buildID);
 
         //Sending all information to content process
-        SendAppInfo(version, buildID);
+        unused << SendAppInfo(version, buildID);
     }
+
+    mFileWatchers.Init();
 }
 
 ContentParent::~ContentParent()
@@ -491,6 +554,12 @@ bool
 ContentParent::IsAlive()
 {
     return mIsAlive;
+}
+
+bool
+ContentParent::IsForApp()
+{
+    return !mAppManifestURL.IsEmpty();
 }
 
 bool
@@ -571,7 +640,7 @@ ContentParent::RecvSetClipboardText(const nsString& text, const PRInt32& whichCl
     
     nsCOMPtr<nsITransferable> trans = do_CreateInstance("@mozilla.org/widget/transferable;1", &rv);
     NS_ENSURE_SUCCESS(rv, true);
-    trans->Init(nsnull);
+    trans->Init(nullptr);
     
     // If our data flavor has already been added, this will fail. But we don't care
     trans->AddDataFlavor(kUnicodeMime);
@@ -596,7 +665,7 @@ ContentParent::RecvGetClipboardText(const PRInt32& whichClipboard, nsString* tex
 
     nsCOMPtr<nsITransferable> trans = do_CreateInstance("@mozilla.org/widget/transferable;1", &rv);
     NS_ENSURE_SUCCESS(rv, true);
-    trans->Init(nsnull);
+    trans->Init(nullptr);
     
     clipboard->GetData(trans, whichClipboard);
     nsCOMPtr<nsISupports> tmp;
@@ -641,8 +710,8 @@ bool
 ContentParent::RecvGetSystemColors(const PRUint32& colorsCount, InfallibleTArray<PRUint32>* colors)
 {
 #ifdef MOZ_WIDGET_ANDROID
-    NS_ASSERTION(AndroidBridge::Bridge() != nsnull, "AndroidBridge is not available");
-    if (AndroidBridge::Bridge() == nsnull) {
+    NS_ASSERTION(AndroidBridge::Bridge() != nullptr, "AndroidBridge is not available");
+    if (AndroidBridge::Bridge() == nullptr) {
         // Do not fail - the colors won't be right, but it's not critical
         return true;
     }
@@ -660,8 +729,8 @@ bool
 ContentParent::RecvGetIconForExtension(const nsCString& aFileExt, const PRUint32& aIconSize, InfallibleTArray<PRUint8>* bits)
 {
 #ifdef MOZ_WIDGET_ANDROID
-    NS_ASSERTION(AndroidBridge::Bridge() != nsnull, "AndroidBridge is not available");
-    if (AndroidBridge::Bridge() == nsnull) {
+    NS_ASSERTION(AndroidBridge::Bridge() != nullptr, "AndroidBridge is not available");
+    if (AndroidBridge::Bridge() == nullptr) {
         // Do not fail - just no icon will be shown
         return true;
     }
@@ -679,8 +748,8 @@ ContentParent::RecvGetShowPasswordSetting(bool* showPassword)
     // default behavior is to show the last password character
     *showPassword = true;
 #ifdef MOZ_WIDGET_ANDROID
-    NS_ASSERTION(AndroidBridge::Bridge() != nsnull, "AndroidBridge is not available");
-    if (AndroidBridge::Bridge() != nsnull)
+    NS_ASSERTION(AndroidBridge::Bridge() != nullptr, "AndroidBridge is not available");
+    if (AndroidBridge::Bridge() != nullptr)
         *showPassword = AndroidBridge::Bridge()->GetShowPasswordSetting();
 #endif
     return true;
@@ -697,6 +766,9 @@ ContentParent::Observe(nsISupports* aSubject,
                        const PRUnichar* aData)
 {
     if (!strcmp(aTopic, "xpcom-shutdown") && mSubprocess) {
+
+        mFileWatchers.Clear();
+
         Close();
         NS_ASSERTION(!mSubprocess, "Close should have nulled mSubprocess");
     }
@@ -743,10 +815,10 @@ ContentParent::Observe(nsISupports* aSubject,
         unused << SendPMemoryReportRequestConstructor();
     }
     else if (!strcmp(aTopic, "child-gc-request")){
-        SendGarbageCollect();
+        unused << SendGarbageCollect();
     }
     else if (!strcmp(aTopic, "child-cc-request")){
-        SendCycleCollect();
+        unused << SendCycleCollect();
     }
     else if (!strcmp(aTopic, "last-pb-context-exited")) {
         unused << SendLastPrivateDocShellDestroyed();
@@ -763,8 +835,17 @@ ContentParent::Observe(nsISupports* aSubject,
     return NS_OK;
 }
 
+PCompositorParent*
+ContentParent::AllocPCompositor(mozilla::ipc::Transport* aTransport,
+                                base::ProcessId aOtherProcess)
+{
+    return CompositorParent::Create(aTransport, aOtherProcess);
+}
+
 PBrowserParent*
-ContentParent::AllocPBrowser(const PRUint32& aChromeFlags, const bool& aIsBrowserFrame)
+ContentParent::AllocPBrowser(const PRUint32& aChromeFlags,
+                             const bool& aIsBrowserElement,
+                             const PRUint32& aAppId)
 {
   TabParent* parent = new TabParent();
   if (parent){
@@ -794,6 +875,85 @@ ContentParent::DeallocPDeviceStorageRequest(PDeviceStorageRequestParent* doomed)
   return true;
 }
 
+PBlobParent*
+ContentParent::AllocPBlob(const BlobConstructorParams& aParams)
+{
+  return BlobParent::Create(aParams);
+}
+
+bool
+ContentParent::DeallocPBlob(PBlobParent* aActor)
+{
+  delete aActor;
+  return true;
+}
+
+BlobParent*
+ContentParent::GetOrCreateActorForBlob(nsIDOMBlob* aBlob)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+  NS_ASSERTION(aBlob, "Null pointer!");
+
+  nsCOMPtr<nsIRemoteBlob> remoteBlob = do_QueryInterface(aBlob);
+  if (remoteBlob) {
+    BlobParent* actor =
+      static_cast<BlobParent*>(
+        static_cast<PBlobParent*>(remoteBlob->GetPBlob()));
+    NS_ASSERTION(actor, "Null actor?!");
+
+    return actor;
+  }
+
+  // XXX This is only safe so long as all blob implementations in our tree
+  //     inherit nsDOMFileBase. If that ever changes then this will need to grow
+  //     a real interface or something.
+  const nsDOMFileBase* blob = static_cast<nsDOMFileBase*>(aBlob);
+
+  BlobConstructorParams params;
+
+  if (blob->IsSizeUnknown()) {
+    // We don't want to call GetSize yet since that may stat a file on the main
+    // thread here. Instead we'll learn the size lazily from the other process.
+    params = MysteryBlobConstructorParams();
+  }
+  else {
+    nsString contentType;
+    nsresult rv = aBlob->GetType(contentType);
+    NS_ENSURE_SUCCESS(rv, nullptr);
+
+    PRUint64 length;
+    rv = aBlob->GetSize(&length);
+    NS_ENSURE_SUCCESS(rv, nullptr);
+
+    nsCOMPtr<nsIDOMFile> file = do_QueryInterface(aBlob);
+    if (file) {
+      FileBlobConstructorParams fileParams;
+
+      rv = file->GetName(fileParams.name());
+      NS_ENSURE_SUCCESS(rv, nullptr);
+
+      fileParams.contentType() = contentType;
+      fileParams.length() = length;
+
+      params = fileParams;
+    } else {
+      NormalBlobConstructorParams blobParams;
+      blobParams.contentType() = contentType;
+      blobParams.length() = length;
+      params = blobParams;
+    }
+  }
+
+  BlobParent* actor = BlobParent::Create(aBlob);
+  NS_ENSURE_TRUE(actor, nullptr);
+
+  if (!SendPBlobConstructor(actor, params)) {
+    return nullptr;
+  }
+
+  return actor;
+}
+
 PCrashReporterParent*
 ContentParent::AllocPCrashReporter(const NativeThreadId& tid,
                                    const PRUint32& processType)
@@ -801,7 +961,7 @@ ContentParent::AllocPCrashReporter(const NativeThreadId& tid,
 #ifdef MOZ_CRASHREPORTER
   return new CrashReporterParent();
 #else
-  return nsnull;
+  return nullptr;
 #endif
 }
 
@@ -858,7 +1018,7 @@ ContentParent::RecvPIndexedDBConstructor(PIndexedDBParent* aActor)
   }
 
   nsRefPtr<IDBFactory> factory;
-  nsresult rv = IDBFactory::Create(getter_AddRefs(factory));
+  nsresult rv = IDBFactory::Create(this, getter_AddRefs(factory));
   NS_ENSURE_SUCCESS(rv, false);
 
   NS_ASSERTION(factory, "This should never be null!");
@@ -910,7 +1070,7 @@ ContentParent::SetChildMemoryReporters(const InfallibleTArray<MemoryReport>& rep
     nsCOMPtr<nsIObserverService> obs =
         do_GetService("@mozilla.org/observer-service;1");
     if (obs)
-        obs->NotifyObservers(nsnull, "child-memory-reporter-update", nsnull);
+        obs->NotifyObservers(nullptr, "child-memory-reporter-update", nullptr);
 }
 
 PTestShellParent*
@@ -936,7 +1096,7 @@ ContentParent::AllocPAudio(const PRInt32& numChannels,
     NS_ADDREF(parent);
     return parent;
 #else
-    return nsnull;
+    return nullptr;
 #endif
 }
 
@@ -1044,7 +1204,7 @@ ContentParent::RecvStartVisitedQuery(const IPC::URI& aURI)
     nsCOMPtr<IHistory> history = services::GetHistoryService();
     NS_ABORT_IF_FALSE(history, "History must exist at this point.");
     if (history) {
-      history->RegisterVisitedCallback(newURI, nsnull);
+      history->RegisterVisitedCallback(newURI, nullptr);
     }
     return true;
 }
@@ -1161,7 +1321,7 @@ ContentParent::RecvLoadURIExternal(const IPC::URI& uri)
     if (!extProtService)
         return true;
     nsCOMPtr<nsIURI> ourURI(uri);
-    extProtService->LoadURI(ourURI, nsnull);
+    extProtService->LoadURI(ourURI, nullptr);
     return true;
 }
 
@@ -1219,24 +1379,59 @@ ContentParent::RecvShowAlertNotification(const nsString& aImageUrl, const nsStri
 }
 
 bool
-ContentParent::RecvSyncMessage(const nsString& aMsg, const nsString& aJSON,
+ContentParent::RecvSyncMessage(const nsString& aMsg,
+                               const ClonedMessageData& aData,
                                InfallibleTArray<nsString>* aRetvals)
 {
   nsRefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
+    const SerializedStructuredCloneBuffer& buffer = aData.data();
+    const InfallibleTArray<PBlobParent*>& blobParents = aData.blobsParent();
+    StructuredCloneData cloneData;
+    cloneData.mData = buffer.data;
+    cloneData.mDataLength = buffer.dataLength;
+    if (!blobParents.IsEmpty()) {
+      PRUint32 length = blobParents.Length();
+      cloneData.mClosure.mBlobs.SetCapacity(length);
+      for (PRUint32 index = 0; index < length; index++) {
+        BlobParent* blobParent = static_cast<BlobParent*>(blobParents[index]);
+        MOZ_ASSERT(blobParent);
+        nsCOMPtr<nsIDOMBlob> blob = blobParent->GetBlob();
+        MOZ_ASSERT(blob);
+        cloneData.mClosure.mBlobs.AppendElement(blob);
+  }
+    }
     ppm->ReceiveMessage(static_cast<nsIContentFrameMessageManager*>(ppm.get()),
-                        aMsg,true, aJSON, nsnull, aRetvals);
+                        aMsg, true, &cloneData, nullptr, aRetvals);
   }
   return true;
 }
 
 bool
-ContentParent::RecvAsyncMessage(const nsString& aMsg, const nsString& aJSON)
+ContentParent::RecvAsyncMessage(const nsString& aMsg,
+                                      const ClonedMessageData& aData)
 {
   nsRefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
+    const SerializedStructuredCloneBuffer& buffer = aData.data();
+    const InfallibleTArray<PBlobParent*>& blobParents = aData.blobsParent();
+    StructuredCloneData cloneData;
+    cloneData.mData = buffer.data;
+    cloneData.mDataLength = buffer.dataLength;
+    if (!blobParents.IsEmpty()) {
+      PRUint32 length = blobParents.Length();
+      cloneData.mClosure.mBlobs.SetCapacity(length);
+      for (PRUint32 index = 0; index < length; index++) {
+        BlobParent* blobParent = static_cast<BlobParent*>(blobParents[index]);
+        MOZ_ASSERT(blobParent);
+        nsCOMPtr<nsIDOMBlob> blob = blobParent->GetBlob();
+        MOZ_ASSERT(blob);
+        cloneData.mClosure.mBlobs.AppendElement(blob);
+      }
+    }
+
     ppm->ReceiveMessage(static_cast<nsIContentFrameMessageManager*>(ppm.get()),
-                        aMsg, false, aJSON, nsnull, nsnull);
+                        aMsg, false, &cloneData, nullptr, nullptr);
   }
   return true;
 }
@@ -1250,7 +1445,7 @@ ContentParent::RecvAddGeolocationListener()
       return true;
     }
     jsval dummy = JSVAL_VOID;
-    geo->WatchPosition(this, nsnull, dummy, nsnull, &mGeolocationWatchID);
+    geo->WatchPosition(this, nullptr, dummy, nullptr, &mGeolocationWatchID);
   }
   return true;
 }
@@ -1322,12 +1517,71 @@ ContentParent::RecvPrivateDocShellsExist(const bool& aExist)
     gPrivateContent->RemoveElement(this);
     if (!gPrivateContent->Length()) {
       nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
-      obs->NotifyObservers(nsnull, "last-pb-context-exited", nsnull);
+      obs->NotifyObservers(nullptr, "last-pb-context-exited", nullptr);
       delete gPrivateContent;
       gPrivateContent = NULL;
     }
   }
   return true;
+}
+
+bool
+ContentParent::RecvAddFileWatch(const nsString& root)
+{
+  nsRefPtr<WatchedFile> f;
+  if (mFileWatchers.Get(root, getter_AddRefs(f))) {
+    f->mUsageCount++;
+    return true;
+  }
+  
+  f = new WatchedFile(this, root);
+  mFileWatchers.Put(root, f);
+
+  f->Watch();
+  return true;
+}
+
+bool
+ContentParent::RecvRemoveFileWatch(const nsString& root)
+{
+  nsRefPtr<WatchedFile> f;
+  bool result = mFileWatchers.Get(root, getter_AddRefs(f));
+  if (!result) {
+    return true;
+  }
+
+  if (!f)
+    return true;
+
+  f->mUsageCount--;
+
+  if (f->mUsageCount > 0) {
+    return true;
+  }
+
+  f->Unwatch();
+  mFileWatchers.Remove(root);
+  return true;
+}
+
+NS_IMPL_ISUPPORTS1(ContentParent::WatchedFile, nsIFileUpdateListener)
+
+nsresult
+ContentParent::WatchedFile::Update(const char* aReason, nsIFile* aFile)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+
+  nsString path;
+  aFile->GetPath(path);
+
+  unused << mParent->SendFilePathUpdate(path, nsDependentCString(aReason));
+
+#ifdef DEBUG
+  nsCString cpath;
+  aFile->GetNativePath(cpath);
+  printf("ContentParent::WatchedFile::Update: %s  -- %s\n", cpath.get(), aReason);
+#endif
+  return NS_OK;
 }
 
 } // namespace dom
