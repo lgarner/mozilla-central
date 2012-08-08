@@ -64,14 +64,14 @@ let Nfc = {
   },
 
   directMessage: function directMessage(message) {
-    postNFCMessage(message.content);
+    postNfcMessage(message.content);
   },
 
   writeNdefTag: function writeNdefTag(message) {
     //TODO implement communication with nfcd and writing back success/error to DOM
     //See how SMS does this
     debug("XXXXXXXXXXXXXX writeNdefTag Posting! XXXXXXXXXXXXX");
-    postNFCMessage(message.content);
+    postNfcMessage(message.content);
   },
 
   /**

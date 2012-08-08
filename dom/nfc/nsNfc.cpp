@@ -226,7 +226,6 @@ nsNfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aD
     }
   }
 
-  // Call to NFC.js
   req = request.get();
   if (req) {
     mNfc->WriteNdefTag(aRecords, req);
