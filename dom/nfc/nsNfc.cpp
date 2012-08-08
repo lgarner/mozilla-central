@@ -207,34 +207,23 @@ nsNfc::ValidateNdefTag(const jsval& aRecords, JSContext* aCx, bool* result)
 
 // TODO, we want to take well formed object arrays.
 NS_IMETHODIMP
-nsNfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aDomRequest_ret_val)
+nsNfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aRequest)
 {
-  nsresult rv;
   bool isValid;
-  nsCOMPtr<nsIDOMRequestService> rs = do_GetService("@mozilla.org/dom/dom-request-service;1");
-  nsIDOMDOMRequest *req;
-
-  nsCOMPtr<nsIDOMDOMRequest> request;
-  rv = rs->CreateRequest(GetOwner(), getter_AddRefs(request));
-  NS_ENSURE_SUCCESS(rv, rv);
 
   // First parameter needs to be an array, and of type MozNdefRecord
   if (ValidateNdefTag(aRecords, aCx, &isValid) != NS_OK) {
     if (!isValid) {
-      LOG("error: WriteNdefTag requires an MozNdefRecord array type.");
+      LOG("Error: WriteNdefTag requires an MozNdefRecord array type.");
       return NS_ERROR_INVALID_ARG;
     }
   }
 
-  req = request.get();
-  if (req) {
-    mNfc->WriteNdefTag(aRecords, req);
-    NS_ASSERTION(aDomRequest_ret_val, "Null pointer?!");
-    request.forget(aDomRequest_ret_val);
-  } else {
-    return NS_ERROR_FAILURE;
-  }
-
+  // Call to NfcContentHelper.js
+  *aRequest = nullptr;
+  LOG("Calling WriteNdefTag");
+  nsresult rv = mNfc->WriteNdefTag(GetOwner(), aRecords, aRequest);
+  NS_ENSURE_SUCCESS(rv, rv);
   return NS_OK;
 }
 

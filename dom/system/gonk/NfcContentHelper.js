@@ -57,20 +57,31 @@ NfcContentHelper.prototype = {
     cpmm.sendAsyncMessage("NFC:SendToNfcd", message);
   },
 
-  writeNdefTag: function writeNdefTag(arrayRecords, aDomRequest) {
-    // Get ID:
-    if (typeof this.requestMap === 'undefined') {
-      debug("Error: Undefined requestMap XXX");
+  writeNdefTag: function writeNdefTag(window, records) {
+    if (window == null) {
+      throw Components.Exception("Can't get window object",
+                                  Cr.NS_ERROR_UNEXPECTED);
     }
-    var rid = this.requestMap.length;
-    debug("XXXXXXXXXXXXXXXX request id: " + rid + " XXX");
-    if (typeof aDomRequest === 'undefined') {
-      debug("XXXX New req is undefined!!!");
-    } else {
-      this.requestMap[rid] = aDomRequest;
+
+    let request = Services.DOMRequest.createRequest(window);
+    let requestId = btoa(this.getRequestId(request));
+
+    var encodedRecords = new Array();
+    for(var i=0; i < records.length; i++) {
+      var record = records[i];
+      encodedRecords.push({ 
+        tnf: record.tnf,
+        type: btoa(record.type),
+        id: btoa(record.id),
+        payload: btoa(record.payload),
+      });
     }
-    debug("XXXXXXXXXXXXXXXX assigned map idx: requestMap[" + rid +"] = " + this.requestMap[rid]);
-    cpmm.sendAsyncMessage("NFC:WriteNdefTag", arrayRecords);
+
+    cpmm.sendAsyncMessage("NFC:WriteNdefTag", {
+      requestId: requestId,
+      records: encodedRecords
+    });
+    return request;
   },
  
   _callbacks: null,
@@ -109,7 +120,7 @@ NfcContentHelper.prototype = {
         this.handleTagLost(message.json);
         break;
       case "NFC:NdefWriteStatus":
-        this.handleNdefDiscovered(message.json);
+        this.handleNdefWriteStatus(message.json);
         break;
     }
   },
@@ -133,25 +144,47 @@ NfcContentHelper.prototype = {
   handleNdefWriteStatus: function handleNdefWriteStatus(message) {
     let response = message.content; // Subfields of content: requestId, status, optional message
     debug("handleNdefWriteStatus (" + response.requestId + ", " + response.status + ")");
-    var idx = response.requestId;
-    debug("requestMap size: " + this.requestMap.length + " Index: " + idx);
-    var domrequest = this.requestMap[idx];
-    debug("Found request: " + domrequest);
+    let requestId = atob(response.requestId);
     if (response.status == "OK") {
-      Services.DOMRequest.fireSuccess(domrequest, response);
+      this.fireRequestSuccess(requestId, response);
     } else {
-      Services.DOMRequest.fireError(domrequest, response);
+      this.fireRequestError(requestId, response);
     }
 
-    // Locate and remove:
-    if (domrequest) {
-      for (var i = 0; i < this.requestMap.length; i++) {
-        if (this.requestMap[i] == domrequest) {
-          this.requestMap.splice(i, 1);
-          break;
-        }
+  },
+
+  fireRequestSuccess: function fireRequestSuccess(requestId, result) {
+    let request = this.takeRequest(requestId);
+    if (!request) {
+      if (DEBUG) {
+        debug("not firing success for id: " + requestId +
+              ", result: " + JSON.stringify(result));
       }
+      return;
     }
+
+    if (DEBUG) {
+      debug("fire request success, id: " + requestId +
+            ", result: " + JSON.stringify(result));
+    }
+    Services.DOMRequest.fireSuccess(request, result);
+  },
+
+  fireRequestError: function fireRequestError(requestId, error) {
+    let request = this.takeRequest(requestId);
+    if (!request) {
+      if (DEBUG) {
+        debug("not firing error for id: " + requestId +
+              ", error: " + JSON.stringify(error));
+      }
+      return;
+    }
+
+    if (DEBUG) {
+      debug("fire request error, id: " + requestId +
+            ", result: " + JSON.stringify(error));
+    }
+    Services.DOMRequest.fireError(request, error);
   },
  
   _deliverCallback: function _deliverCallback(name, args) {

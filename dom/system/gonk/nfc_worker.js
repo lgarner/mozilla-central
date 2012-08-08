@@ -68,10 +68,7 @@ let Nfc = {
   },
 
   writeNdefTag: function writeNdefTag(message) {
-    //TODO implement communication with nfcd and writing back success/error to DOM
-    //See how SMS does this
-    debug("XXXXXXXXXXXXXX writeNdefTag Posting! XXXXXXXXXXXXX");
-    postNfcMessage(message.content);
+    postNfcMessage(JSON.stringify(message.content));
   },
 
   /**
