@@ -94,32 +94,17 @@ Nfc.prototype = {
     this.worker.postMessage({type: "directMessage", content: message});
   },
 
-  writeNdefTag: function writeNdefTag(arrayRecords) {
-    var jsonStr;
-    var type;
-    var id;
-    var payload;
-    var i;
+  writeNdefTag: function writeNdefTag(message) {
+    var records = message.records;
+    var rid = message.requestId;
 
-    // Begin Hack: XPCOM object MozNdefRecord doesn't Stringify. Encode and JSONify an XPCOM object by parts...
-    jsonStr = "[";
-    debug("----  Record " + arrayRecords + " Length: " + arrayRecords.length + "----");
-    for (i = 0; i < arrayRecords.length; i++) {
-      type = btoa(arrayRecords[i].type);
-      id = btoa(arrayRecords[i].id);
-      payload = btoa(arrayRecords[i].payload);
-      jsonStr += '{' + ' "tnf": "' + arrayRecords[i].tnf + '", "type": "' + type + '", "id": "' + id + '", "payload" :"' + payload + '"}';
-      if (i+1 != arrayRecords.length) {
-        jsonStr += ", ";
+    var outMessage = {
+      type: "ndefWriteRequest",
+      requestId: rid,
+      content: {
+        records: records
       }
-      debug("----  item [" + i + "]   ----");
-    }
-    jsonStr += "]";
-    var prefix = '{ "type": "ndefWriteRequest", "requestId": ' + rid + ', "content": { "records": ';
-    var suffix = " }}";
-    var outMessage = prefix + jsonStr + suffix;
-    debug("Outgoing NDef post message done here" + outMessage);
-    // End hack
+    };
 
     this.worker.postMessage({type: "writeNdefTag", content: outMessage});
   },

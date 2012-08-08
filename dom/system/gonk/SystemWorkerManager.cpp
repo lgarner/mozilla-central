@@ -110,7 +110,7 @@ PostToNfc(JSContext *cx, unsigned argc, jsval *vp)
 bool
 ConnectWorkerToNfc::RunTask(JSContext *aCx)
 {
-  // Set up the postNFCMessage on the function for worker -> NFC thread
+  // Set up the postNfcMessage on the function for worker -> NFC thread
   // communication.
   NS_ASSERTION(!NS_IsMainThread(), "Expecting to be on the worker thread");
   NS_ASSERTION(!JS_IsRunning(aCx), "Are we being called somehow?");
