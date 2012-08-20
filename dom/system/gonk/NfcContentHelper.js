@@ -29,7 +29,7 @@ const NFCCONTENTHELPER_CID =
 const NFC_IPC_MSG_NAMES = [
   "NFC:NdefDiscovered",
   "NFC:TagLost",
-  "NFC:NdefWriteStatus"
+  "NFC:RequestStatus"
 ];
  
 XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
@@ -57,6 +57,39 @@ NfcContentHelper.prototype = {
     cpmm.sendAsyncMessage("NFC:SendToNfcd", message);
   },
 
+  encodeNdefRecords: function encodeNdefRecords(records) {
+    var encodedRecords = new Array();
+    for(var i=0; i < records.length; i++) {
+      var record = records[i];
+      encodedRecords.push({
+        tnf: record.tnf,
+        type: btoa(record.type),
+        id: btoa(record.id),
+        payload: btoa(record.payload),
+      });
+    }
+    return encodedRecords;
+  },
+
+  ndefPush: function ndefPush(window, records) {
+    debug("ndefPush");
+    if (window == null) {
+      throw Components.Exception("Can't get window object",
+                                  Cr.NS_ERROR_UNEXPECTED);
+    }
+
+    let request = Services.DOMRequest.createRequest(window);
+    let requestId = btoa(this.getRequestId(request));
+
+    let encodedRecords = this.encodeNdefRecords(records);
+
+    cpmm.sendAsyncMessage("NFC:NdefPush", {
+      requestId: requestId,
+      records: encodedRecords
+    });
+    return request;
+  },
+
   writeNdefTag: function writeNdefTag(window, records) {
     if (window == null) {
       throw Components.Exception("Can't get window object",
@@ -66,16 +99,7 @@ NfcContentHelper.prototype = {
     let request = Services.DOMRequest.createRequest(window);
     let requestId = btoa(this.getRequestId(request));
 
-    var encodedRecords = new Array();
-    for(var i=0; i < records.length; i++) {
-      var record = records[i];
-      encodedRecords.push({ 
-        tnf: record.tnf,
-        type: btoa(record.type),
-        id: btoa(record.id),
-        payload: btoa(record.payload),
-      });
-    }
+    let encodedRecords = this.encodeNdefRecords(records);
 
     cpmm.sendAsyncMessage("NFC:WriteNdefTag", {
       requestId: requestId,
@@ -119,8 +143,8 @@ NfcContentHelper.prototype = {
       case "NFC:TagLost":
         this.handleTagLost(message.json);
         break;
-      case "NFC:NdefWriteStatus":
-        this.handleNdefWriteStatus(message.json);
+      case "NFC:RequestStatus":
+        this.handleRequestStatus(message.json);
         break;
     }
   },
@@ -141,16 +165,15 @@ NfcContentHelper.prototype = {
 
   requestMap: null,
 
-  handleNdefWriteStatus: function handleNdefWriteStatus(message) {
+  handleRequestStatus: function handleRequestStatus(message) {
     let response = message.content; // Subfields of content: requestId, status, optional message
-    debug("handleNdefWriteStatus (" + response.requestId + ", " + response.status + ")");
     let requestId = atob(response.requestId);
+    debug("handleRequestStatus (" + response.requestId + ", " + response.status + ")");
     if (response.status == "OK") {
       this.fireRequestSuccess(requestId, response);
     } else {
       this.fireRequestError(requestId, response);
     }
-
   },
 
   fireRequestSuccess: function fireRequestSuccess(requestId, result) {

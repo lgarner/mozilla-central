@@ -14,5 +14,6 @@ interface nsINfcContentHelper : nsISupports
   void unregisterCallback(in nsINfcCallback callback);
  
   nsIDOMDOMRequest writeNdefTag(in nsIDOMWindow window, in jsval records);
+  nsIDOMDOMRequest ndefPush(in nsIDOMWindow window, in jsval records);
   void sendToNfcd(in DOMString message);
 };

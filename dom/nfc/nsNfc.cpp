@@ -205,7 +205,6 @@ nsNfc::ValidateNdefTag(const jsval& aRecords, JSContext* aCx, bool* result)
   return NS_OK;
 }
 
-// TODO, we want to take well formed object arrays.
 NS_IMETHODIMP
 nsNfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aRequest)
 {
@@ -223,6 +222,27 @@ nsNfc::WriteNdefTag(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aR
   *aRequest = nullptr;
   LOG("Calling WriteNdefTag");
   nsresult rv = mNfc->WriteNdefTag(GetOwner(), aRecords, aRequest);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsNfc::NdefPush(const jsval& aRecords, JSContext* aCx, nsIDOMDOMRequest** aRequest)
+{
+  bool isValid;
+
+  // First parameter needs to be an array, and of type MozNdefRecord
+  if (ValidateNdefTag(aRecords, aCx, &isValid) != NS_OK) {
+    if (!isValid) {
+      LOG("Error: WriteNdefTag requires an MozNdefRecord array type.");
+      return NS_ERROR_INVALID_ARG;
+    }
+  }
+
+  // Call to NfcContentHelper.js
+  *aRequest = nullptr;
+  LOG("Calling NdefPush");
+  nsresult rv = mNfc->NdefPush(GetOwner(), aRecords, aRequest);
   NS_ENSURE_SUCCESS(rv, rv);
   return NS_OK;
 }

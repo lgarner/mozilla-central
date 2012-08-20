@@ -19,6 +19,10 @@ interface nsIDOMNfc : nsIDOMEventTarget {
   [implicit_jscontext]
   nsIDOMDOMRequest writeNdefTag(in jsval records);
 
+  // records is an array of 1 or more records
+  [implicit_jscontext]
+  nsIDOMDOMRequest ndefPush(in jsval records);
+
   // Only for debug/development purposes to send a unfiltered
   // message to the nfcd socket
   void sendToNfcd(in DOMString message);

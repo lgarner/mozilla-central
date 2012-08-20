@@ -27,7 +27,8 @@ const NFC_CID =
 
 const NFC_IPC_MSG_NAMES = [
   "NFC:SendToNfcd",
-  "NFC:WriteNdefTag"
+  "NFC:WriteNdefTag",
+  "NFC:NdefPush"
 ];
  
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
@@ -35,8 +36,6 @@ XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "nsIFrameMessageManager");
 
 function Nfc() {
-  this.requestMap = new Array();
-  this.requestMap[0] = "dummyEntry"; 
   this.worker = new ChromeWorker("resource://gre/modules/nfc_worker.js");
   this.worker.onerror = this.onerror.bind(this);
   this.worker.onmessage = this.onmessage.bind(this);
@@ -78,8 +77,8 @@ Nfc.prototype = {
       case "tagLost":
         ppmm.sendAsyncMessage("NFC:TagLost", message);
         break;
-      case "ndefWriteStatus":
-        ppmm.sendAsyncMessage("NFC:NdefWriteStatus", message);
+      case "requestStatus":
+        ppmm.sendAsyncMessage("NFC:RequestStatus", message);
         break;
       default:
         throw new Error("Don't know about this message type: " + message.type);
@@ -110,6 +109,21 @@ Nfc.prototype = {
   },
 
 
+  ndefPush: function ndefPush(message) {
+    var records = message.records;
+    var rid = message.requestId;
+
+    var outMessage = {
+      type: "ndefPushRequest",
+      requestId: rid,
+      content: {
+        records: records
+      }
+    };
+
+    this.worker.postMessage({type: "ndefPush", content: outMessage});
+  },
+
   /**
    * Process the incoming message from a content process (NfcContentHelper.js)
    */
@@ -117,12 +131,13 @@ Nfc.prototype = {
     debug("Received '" + message.name + "' message from content process");
     switch (message.name) {
       case "NFC:SendToNfcd":
-        // This message is sync.
         this.sendToNfcd(message.json);
         break;
       case "NFC:WriteNdefTag":
-        // This message is sync.
         this.writeNdefTag(message.json);
+        break;
+      case "NFC:NdefPush":
+        this.ndefPush(message.json);
         break;
     }
   },

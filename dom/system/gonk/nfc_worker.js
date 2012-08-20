@@ -71,6 +71,10 @@ let Nfc = {
     postNfcMessage(JSON.stringify(message.content));
   },
 
+  ndefPush: function ndefPush(message) {
+    postNfcMessage(JSON.stringify(message.content));
+  },
+
   /**
    * Send messages to the main UI thread.
    */
