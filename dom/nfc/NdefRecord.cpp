@@ -13,16 +13,15 @@
 #define LOG(args...) 
 #endif
 
-DOMCI_DATA(MozNdefRecord, mozilla::dom::nfc::NdefRecord)
 
-namespace mozilla {
-namespace dom {
-namespace nfc {
+using namespace mozilla::dom::nfc;
 
-// For Query interface to find the mapped interface.
+DOMCI_DATA(MozNdefRecord, NdefRecord)
+
 NS_INTERFACE_MAP_BEGIN(NdefRecord)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMMozNdefRecord)
   NS_INTERFACE_MAP_ENTRY(nsIDOMMozNdefRecord)
-  NS_INTERFACE_MAP_ENTRY(nsISupports) 
+  NS_INTERFACE_MAP_ENTRY(nsIJSNativeInitializer)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(MozNdefRecord)
 NS_INTERFACE_MAP_END
 
@@ -35,17 +34,75 @@ NS_IMPL_RELEASE(NdefRecord)
 
 NdefRecord::NdefRecord()
 {
-  LOG("DOM NdefRecord: No parameter instantiation");
   tnf = 0;
   payload = JSVAL_NULL;
 }
 
-nsresult NdefRecord::NewNdefRecord(nsISupports* *aNewObject)
+/* static */
+nsresult NdefRecord::NewNdefRecord(nsISupports** aRecord)
 {
-  LOG("DOM nsNdefRecord: No parameter instantiation");
-  NS_ADDREF(*aNewObject = new NdefRecord());
+  nsCOMPtr<nsISupports> rec = do_QueryObject(new NdefRecord());
+  rec.forget(aRecord);
   return NS_OK;
 }
+
+NS_IMETHODIMP
+NdefRecord::Initialize(nsISupports* aOwner,
+                     JSContext* aContext,
+                     JSObject* aObject,
+                     PRUint32 aArgc,
+                     JS::Value* aArgv)
+{
+  JSString* jsstr;
+  size_t length;
+
+  if (aArgc != 4) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  if (!JSVAL_IS_INT(aArgv[0])) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  // Tnf: (char)
+  tnf = (char)JSVAL_TO_INT(aArgv[0]);
+
+  // Type (DOMString)
+  if ((aArgv[1] != JSVAL_NULL) && JSVAL_IS_STRING(aArgv[1])) {
+    jsstr = JSVAL_TO_STRING(aArgv[1]);
+    const jschar *typechars = JS_GetStringCharsAndLength(aContext, jsstr, &length);
+    if (!typechars) {
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+    type.Assign(typechars, length);
+  } else if (aArgv[1] == JSVAL_NULL) {
+    // keep type unassigned/as-is.
+  } else {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  // Id (DOMString)
+  if (JSVAL_IS_STRING(aArgv[2])) {
+    jsstr = JSVAL_TO_STRING(aArgv[2]);
+    const jschar *idchars = JS_GetStringCharsAndLength(aContext, jsstr, &length);
+    if (!idchars) {
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+    id.Assign(idchars, length);
+  } else if (aArgv[2] == JSVAL_NULL) {
+    // keep id unassigned/as-is.
+  } else {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  // Payload (jsval), is already a JSVAL
+  payload = aArgv[3];
+
+  return NS_OK;
+}
+
+
+
 
 /************************************
  * NS_METHODIMPs (Getter and Setter)
@@ -59,26 +116,10 @@ NdefRecord::GetTnf(char* aTnf)
 }
 
 NS_IMETHODIMP
-NdefRecord::SetTnf(const char aTnf)
-{
-  LOG("DOM NdefRecord.SetTnf");
-  tnf = aTnf;
-  return NS_OK; 
-}
-
-NS_IMETHODIMP
 NdefRecord::GetType(nsAString& aType)
 {
   LOG("DOM NdefRecord.GetType");
   aType = type;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-NdefRecord::SetType(const nsAString & aType)
-{
-  LOG("DOM NdefRecord.SetType");
-  type = aType;
   return NS_OK;
 }
 
@@ -91,29 +132,9 @@ NdefRecord::GetId(nsAString& aId)
 }
 
 NS_IMETHODIMP
-NdefRecord::SetId(const nsAString& aId)
-{
-  LOG("DOM NdefRecord.SetId");
-  id = aId;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 NdefRecord::GetPayload(JS::Value* aPayload)
 {
   LOG("DOM NdefRecord.GetPayload");
   *aPayload = payload;
   return NS_OK;
 }
-
-NS_IMETHODIMP
-NdefRecord::SetPayload(const JS::Value& aPlayload)
-{
-  LOG("DOM NdefRecord.SetPayload");
-  payload = aPlayload;
-  return NS_OK;
-}
-
-} // namespace nfc
-} // namespace dom
-} // namespace mozilla

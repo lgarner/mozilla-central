@@ -10,6 +10,7 @@
 #include "nsString.h"
 #include "jsapi.h"
 #include "nsIDOMMozNdefRecord.h"
+#include "nsIJSNativeInitializer.h"
 
 namespace mozilla {
 namespace dom {
@@ -18,7 +19,8 @@ namespace nfc {
 /**
  *
  */
-class NdefRecord MOZ_FINAL : public nsIDOMMozNdefRecord
+class NdefRecord MOZ_FINAL : public nsIDOMMozNdefRecord,
+                             public nsIJSNativeInitializer
 {
 public:
   NS_DECL_ISUPPORTS
@@ -26,12 +28,12 @@ public:
 
   NdefRecord();
   static nsresult NewNdefRecord(nsISupports* *aNewRecord);
-#if 0
-  NdefRecord(const char tnf, const nsAString& type, const nsAString& id, const jsval& payload);
-  static nsresult Create(const char tnf, const nsAString& type, const nsAString& id, const jsval& payload,
-                         JSContext*aCx, nsIDOMMozNdefRecord** aRecord);
-#endif
- 
+  NS_IMETHOD Initialize(nsISupports* aOwner,
+                     JSContext* aContext,
+                     JSObject* aObject,
+                     PRUint32 aArgc,
+                     JS::Value* aArgv);
+
   virtual ~NdefRecord() {}
 
   char tnf;
