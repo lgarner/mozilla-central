@@ -45,6 +45,8 @@
 <!ENTITY history_week_section "7 days ago">
 <!ENTITY history_older_section "Older than 7 days">
 
+<!ENTITY go "Go">
+<!ENTITY search "Search">
 <!ENTITY reload "Reload">
 <!ENTITY forward "Forward">
 <!ENTITY menu "Menu">
@@ -149,7 +151,7 @@ size. -->
 <!ENTITY bookmark_edit_location "Location">
 <!ENTITY bookmark_edit_keyword "Keyword">
 
-<!ENTITY site_settings_title        "Clear Site Settings">
+<!ENTITY site_settings_title2       "Site Settings…">
 <!ENTITY site_settings_cancel       "Cancel">
 <!ENTITY site_settings_clear        "Clear">
 <!ENTITY site_settings_no_settings  "There are no settings to clear.">

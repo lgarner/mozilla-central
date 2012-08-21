@@ -82,7 +82,8 @@ public:
   already_AddRefed<Layer> BuildLayer(nsDisplayListBuilder* aBuilder,
                                      nsIFrame* aFrame,
                                      LayerManager* aManager,
-                                     const nsIntRect& aVisibleRect);
+                                     const nsIntRect& aVisibleRect,
+                                     nsDisplayItem* aItem);
 
   void OwnerContentChanged(nsIContent* aContent);
 
@@ -93,10 +94,16 @@ public:
 
   void NotifyDimensionsChanged(int width, int height);
 
+  void NotifyDOMTouchListenerAdded();
+
+  void ZoomToRect(const gfxRect& aRect);
+
 protected:
   void ActorDestroy(ActorDestroyReason why) MOZ_OVERRIDE;
 
   virtual bool RecvNotifyCompositorTransaction() MOZ_OVERRIDE;
+
+  virtual bool RecvCancelDefaultPanZoom() MOZ_OVERRIDE;
 
   virtual PLayersParent* AllocPLayers() MOZ_OVERRIDE;
   virtual bool DeallocPLayers(PLayersParent* aLayers) MOZ_OVERRIDE;

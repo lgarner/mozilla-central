@@ -9,13 +9,14 @@
 #include "IPC/IPCMessageUtils.h"
 #include "nsStringGlue.h"
 #include "nsIURI.h"
-#include "nsIIPCSerializable.h"
+#include "nsIIPCSerializableObsolete.h"
 #include "nsIClassInfo.h"
 #include "nsComponentManagerUtils.h"
 #include "nsNetUtil.h"
 #include "nsStringStream.h"
 #include "prio.h"
 #include "mozilla/Util.h" // for DebugOnly
+#include "SerializedLoadContext.h"
 
 namespace IPC {
 
@@ -50,7 +51,8 @@ struct ParamTraits<URI>
     if (isNull)
       return;
     
-    nsCOMPtr<nsIIPCSerializable> serializable = do_QueryInterface(aParam.mURI);
+    nsCOMPtr<nsIIPCSerializableObsolete> serializable =
+      do_QueryInterface(aParam.mURI);
     if (!serializable) {
       nsCString scheme;
       aParam.mURI->GetScheme(scheme);
@@ -119,7 +121,7 @@ struct ParamTraits<URI>
     nsCOMPtr<nsIURI> uri = do_CreateInstance(cid);
     if (!uri)
       return false;
-    nsCOMPtr<nsIIPCSerializable> serializable = do_QueryInterface(uri);
+    nsCOMPtr<nsIIPCSerializableObsolete> serializable = do_QueryInterface(uri);
     if (!serializable || !serializable->Read(aMsg, aIter))
       return false;
 
@@ -169,20 +171,25 @@ struct ParamTraits<InputStream>
     if (isNull)
       return;
 
-    nsCOMPtr<nsIIPCSerializable> serializable = do_QueryInterface(aParam.mStream);
+    nsCOMPtr<nsIIPCSerializableObsolete> serializable =
+      do_QueryInterface(aParam.mStream);
     bool isSerializable = !!serializable;
     WriteParam(aMsg, isSerializable);
 
     if (!serializable) {
-      NS_WARNING("nsIInputStream implementation doesn't support nsIIPCSerializable; falling back to copying data");
+      NS_WARNING("nsIInputStream implementation doesn't support "
+                 "nsIIPCSerializableObsolete; falling back to copying data");
 
       nsCString streamString;
-      PRUint32 bytes;
+      PRUint64 bytes;
 
-      aParam.mStream->Available(&bytes);
-      if (bytes > 0) {
+      nsresult rv = aParam.mStream->Available(&bytes);
+      if (NS_SUCCEEDED(rv) && bytes > 0) {
+        // Also, on 64-bit system, for an interoperability for 32-bit process
+        // and 64-bit process, we shouldn't handle over 4GB message.
+        NS_ABORT_IF_FALSE(bytes < PR_UINT32_MAX, "nsIInputStream has over 4GB data");
         mozilla::DebugOnly<nsresult> rv =
-          NS_ReadInputStreamToString(aParam.mStream, streamString, bytes);
+          NS_ReadInputStreamToString(aParam.mStream, streamString, (PRUint32)bytes);
         NS_ABORT_IF_FALSE(NS_SUCCEEDED(rv), "Can't read input stream into a string!");
       }
 
@@ -237,7 +244,8 @@ struct ParamTraits<InputStream>
       stream = do_CreateInstance(cid);
       if (!stream)
         return false;
-      nsCOMPtr<nsIIPCSerializable> serializable = do_QueryInterface(stream);
+      nsCOMPtr<nsIIPCSerializableObsolete> serializable =
+        do_QueryInterface(stream);
       if (!serializable || !serializable->Read(aMsg, aIter))
         return false;
     }

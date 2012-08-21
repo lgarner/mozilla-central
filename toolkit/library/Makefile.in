@@ -41,11 +41,8 @@ ifeq ($(OS_ARCH),OS2)
 CPPSRCS += dlldeps-xul.cpp
 endif
 
-ifneq (,$(MOZ_ENABLE_GTK2))
-DEFINES += -DMOZ_ENABLE_GTK2
-endif
-
 SHARED_LIBRARY_LIBS += \
+  $(DEPTH)/toolkit/components/osfile/$(LIB_PREFIX)osfile_s.$(LIB_SUFFIX) \
   $(DEPTH)/toolkit/xre/$(LIB_PREFIX)xulapp_s.$(LIB_SUFFIX) \
   $(NULL)
 
@@ -381,6 +378,12 @@ EXTRA_DSO_LDOPTS += $(call EXPAND_LIBNAME_PATH,gkmedias,$(DIST)/lib)
 ifdef MOZ_SYDNEYAUDIO
 ifeq ($(OS_ARCH),Linux)
 EXTRA_DSO_LDOPTS += $(MOZ_ALSA_LIBS)
+endif
+endif
+
+ifdef MOZ_PULSEAUDIO
+ifdef MOZ_CUBEB
+EXTRA_DSO_LDOPTS += $(MOZ_PULSEAUDIO_LIBS)
 endif
 endif
 

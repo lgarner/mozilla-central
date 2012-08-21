@@ -213,6 +213,8 @@ nsTableCellFrame::AttributeChanged(PRInt32         aNameSpaceID,
 /* virtual */ void
 nsTableCellFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
 {
+  nsContainerFrame::DidSetStyleContext(aOldStyleContext);
+
   if (!aOldStyleContext) //avoid this on init
     return;
 
@@ -494,10 +496,10 @@ nsTableCellFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   return BuildDisplayListForChild(aBuilder, kid, aDirtyRect, aLists);
 }
 
-PRIntn
+int
 nsTableCellFrame::GetSkipSides() const
 {
-  PRIntn skip = 0;
+  int skip = 0;
   if (nullptr != GetPrevInFlow()) {
     skip |= 1 << NS_SIDE_TOP;
   }

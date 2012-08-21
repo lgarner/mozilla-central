@@ -123,7 +123,7 @@ static PLHashNumber PR_CALLBACK certHashtable_keyHash(const void *key)
   return hash;
 }
 
-static PRIntn PR_CALLBACK certHashtable_keyCompare(const void *k1, const void *k2)
+static int PR_CALLBACK certHashtable_keyCompare(const void *k1, const void *k2)
 {
   // return type is a bool, answering the question "are the keys equal?"
 
@@ -150,7 +150,7 @@ static PRIntn PR_CALLBACK certHashtable_keyCompare(const void *k1, const void *k
   return true;
 }
 
-static PRIntn PR_CALLBACK certHashtable_valueCompare(const void *v1, const void *v2)
+static int PR_CALLBACK certHashtable_valueCompare(const void *v1, const void *v2)
 {
   // two values are identical if their keys are identical
   
@@ -163,7 +163,7 @@ static PRIntn PR_CALLBACK certHashtable_valueCompare(const void *v1, const void 
   return certHashtable_keyCompare(&cert1->certKey, &cert2->certKey);
 }
 
-static PRIntn PR_CALLBACK certHashtable_clearEntry(PLHashEntry *he, PRIntn /*index*/, void * /*userdata*/)
+static int PR_CALLBACK certHashtable_clearEntry(PLHashEntry *he, int /*index*/, void * /*userdata*/)
 {
   if (he && he->value) {
     CERT_DestroyCertificate((CERTCertificate*)he->value);
@@ -1657,14 +1657,9 @@ nsNSSComponent::InitializeNSS(bool showWarningBox)
     else
     {
 
-  // XP_MAC == CFM
   // XP_MACOSX == MachO
 
-  #if defined(XP_MAC) && defined(XP_MACOSX)
-  #error "This code assumes XP_MAC and XP_MACOSX will never be defined at the same time"
-  #endif
-
-  #if defined(XP_MAC) || defined(XP_MACOSX)
+  #if defined(XP_MACOSX)
     // On Mac CFM we place all NSS DBs in the Security
     // Folder in the profile directory.
     nsCOMPtr<nsIFile> cfmSecurityPath;
@@ -1672,11 +1667,7 @@ nsNSSComponent::InitializeNSS(bool showWarningBox)
     cfmSecurityPath->AppendNative(NS_LITERAL_CSTRING("Security"));
   #endif
 
-  #if defined(XP_MAC)
-    // on CFM, cfmSecurityPath and profilePath point to the same oject
-    profilePath->Create(nsIFile::DIRECTORY_TYPE, 0); //This is for Mac, don't worry about
-                                                     //permissions.
-  #elif defined(XP_MACOSX)
+  #if defined(XP_MACOSX)
     // On MachO, we need to access both directories,
     // and therefore need separate nsIFile instances.
     // Keep cfmSecurityPath instance, obtain new instance for MachO profilePath.
@@ -2775,7 +2766,7 @@ nsCryptoHash::Update(const PRUint8 *data, PRUint32 len)
 }
 
 NS_IMETHODIMP
-nsCryptoHash::UpdateFromStream(nsIInputStream *data, PRUint32 len)
+nsCryptoHash::UpdateFromStream(nsIInputStream *data, PRUint32 aLen)
 {
   if (!mInitialized)
     return NS_ERROR_NOT_INITIALIZED;
@@ -2783,7 +2774,7 @@ nsCryptoHash::UpdateFromStream(nsIInputStream *data, PRUint32 len)
   if (!data)
     return NS_ERROR_INVALID_ARG;
 
-  PRUint32 n;
+  PRUint64 n;
   nsresult rv = data->Available(&n);
   if (NS_FAILED(rv))
     return rv;
@@ -2791,7 +2782,8 @@ nsCryptoHash::UpdateFromStream(nsIInputStream *data, PRUint32 len)
   // if the user has passed PR_UINT32_MAX, then read
   // everything in the stream
 
-  if (len == PR_UINT32_MAX)
+  PRUint64 len = aLen;
+  if (aLen == PR_UINT32_MAX)
     len = n;
 
   // So, if the stream has NO data available for the hash,
@@ -2809,7 +2801,7 @@ nsCryptoHash::UpdateFromStream(nsIInputStream *data, PRUint32 len)
   
   while(NS_SUCCEEDED(rv) && len>0)
   {
-    readLimit = NS_MIN(PRUint32(NS_CRYPTO_HASH_BUFFER_SIZE), len);
+    readLimit = (PRUint32)NS_MIN<PRUint64>(NS_CRYPTO_HASH_BUFFER_SIZE, len);
     
     rv = data->Read(buffer, readLimit, &read);
     
@@ -2975,7 +2967,7 @@ NS_IMETHODIMP nsCryptoHMAC::UpdateFromStream(nsIInputStream *aStream, PRUint32 a
   if (!aStream)
     return NS_ERROR_INVALID_ARG;
 
-  PRUint32 n;
+  PRUint64 n;
   nsresult rv = aStream->Available(&n);
   if (NS_FAILED(rv))
     return rv;
@@ -2983,8 +2975,9 @@ NS_IMETHODIMP nsCryptoHMAC::UpdateFromStream(nsIInputStream *aStream, PRUint32 a
   // if the user has passed PR_UINT32_MAX, then read
   // everything in the stream
 
+  PRUint64 len = aLen;
   if (aLen == PR_UINT32_MAX)
-    aLen = n;
+    len = n;
 
   // So, if the stream has NO data available for the hash,
   // or if the data available is less then what the caller
@@ -2993,15 +2986,15 @@ NS_IMETHODIMP nsCryptoHMAC::UpdateFromStream(nsIInputStream *aStream, PRUint32 a
   // that there is not enough data in the stream to satisify
   // the request.
 
-  if (n == 0 || n < aLen)
+  if (n == 0 || n < len)
     return NS_ERROR_NOT_AVAILABLE;
   
   char buffer[NS_CRYPTO_HASH_BUFFER_SIZE];
   PRUint32 read, readLimit;
   
-  while(NS_SUCCEEDED(rv) && aLen > 0)
+  while(NS_SUCCEEDED(rv) && len > 0)
   {
-    readLimit = NS_MIN(PRUint32(NS_CRYPTO_HASH_BUFFER_SIZE), aLen);
+    readLimit = (PRUint32)NS_MIN<PRUint64>(NS_CRYPTO_HASH_BUFFER_SIZE, len);
     
     rv = aStream->Read(buffer, readLimit, &read);
     if (read == 0)
@@ -3010,7 +3003,7 @@ NS_IMETHODIMP nsCryptoHMAC::UpdateFromStream(nsIInputStream *aStream, PRUint32 a
     if (NS_SUCCEEDED(rv))
       rv = Update((const PRUint8*)buffer, read);
     
-    aLen -= read;
+    len -= read;
   }
   
   return rv;

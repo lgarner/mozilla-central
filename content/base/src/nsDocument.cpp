@@ -26,6 +26,7 @@
 #include "nsIObserver.h"
 #include "nsIBaseWindow.h"
 #include "mozilla/css/Loader.h"
+#include "mozilla/css/ImageLoader.h"
 #include "nsIDocShell.h"
 #include "nsIDocShellTreeItem.h"
 #include "nsIScriptRuntime.h"
@@ -61,7 +62,7 @@
 #include "nsIServiceManager.h"
 
 #include "nsContentCID.h"
-#include "nsDOMError.h"
+#include "nsError.h"
 #include "nsIPresShell.h"
 #include "nsPresContext.h"
 #include "nsIJSON.h"
@@ -91,6 +92,7 @@
 #include "nsXMLEventsManager.h"
 
 #include "nsBidiUtils.h"
+#include "mozilla/dom/DirectionalityUtils.h"
 
 #include "nsIDOMUserDataHandler.h"
 #include "nsIDOMXPathEvaluator.h"
@@ -128,7 +130,6 @@
 #include "nsIDocumentLoaderFactory.h"
 #include "nsIContentViewer.h"
 #include "nsIXMLContentSink.h"
-#include "nsContentErrors.h"
 #include "nsIXULDocument.h"
 #include "nsIPrompt.h"
 #include "nsIPropertyBag2.h"
@@ -167,9 +168,11 @@
 
 #include "imgILoader.h"
 #include "nsWrapperCacheInlines.h"
+#include "nsSandboxFlags.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
+using namespace mozilla::directionality;
 
 typedef nsTArray<Link*> LinkArray;
 
@@ -1062,18 +1065,12 @@ nsExternalResourceMap::PendingLoad::StartLoad(nsIURI* aURI,
                               nsIScriptSecurityManager::STANDARD);
   NS_ENSURE_SUCCESS(rv, rv);
   
-  // Allow data URIs (let them skip the CheckMayLoad call), since we want
+  // Allow data URIs and other URI's that inherit their principal by passing
+  // true as the 3rd argument of CheckMayLoad, since we want
   // to allow external resources from data URIs regardless of the difference
   // in URI scheme.
-  bool doesInheritSecurityContext;
-  rv =
-    NS_URIChainHasFlags(aURI,
-                        nsIProtocolHandler::URI_INHERITS_SECURITY_CONTEXT,
-                        &doesInheritSecurityContext);
-  if (NS_FAILED(rv) || !doesInheritSecurityContext) {
-    rv = requestingPrincipal->CheckMayLoad(aURI, true);
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
+  rv = requestingPrincipal->CheckMayLoad(aURI, true, true);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
   rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_OTHER,
@@ -1510,6 +1507,7 @@ nsIDocument::nsIDocument()
     mAllowDNSPrefetch(true),
     mIsBeingUsedAsImage(false),
     mHasLinksToUpdate(false),
+    mDirectionality(eDir_LTR),
     mPartID(0)
 {
   SetInDocument();
@@ -1641,6 +1639,11 @@ nsDocument::~nsDocument()
   if (mCSSLoader) {
     // Could be null here if Init() failed
     mCSSLoader->DropDocumentReference();
+  }
+
+  if (mStyleImageLoader) {
+    mStyleImageLoader->DropDocumentReference();
+    NS_RELEASE(mStyleImageLoader);
   }
 
   delete mHeaderData;
@@ -1973,7 +1976,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 nsresult
 nsDocument::Init()
 {
-  if (mCSSLoader || mNodeInfoManager || mScriptLoader) {
+  if (mCSSLoader || mStyleImageLoader || mNodeInfoManager || mScriptLoader) {
     return NS_ERROR_ALREADY_INITIALIZED;
   }
 
@@ -1997,8 +2000,11 @@ nsDocument::Init()
   // Assume we're not quirky, until we know otherwise
   mCSSLoader->SetCompatibilityMode(eCompatibility_FullStandards);
 
+  mStyleImageLoader = new mozilla::css::ImageLoader(this);
+  NS_ADDREF(mStyleImageLoader);
+
   mNodeInfoManager = new nsNodeInfoManager();
-  nsresult  rv = mNodeInfoManager->Init(this);
+  nsresult rv = mNodeInfoManager->Init(this);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // mNodeInfo keeps NodeInfoManager alive!
@@ -2401,6 +2407,15 @@ nsDocument::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
 
   mChannel = aChannel;
 
+  // If this document is being loaded by a docshell, copy its sandbox flags
+  // to the document. These are immutable after being set here.
+  nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(aContainer);
+
+  if (docShell) {
+    nsresult rv = docShell->GetSandboxFlags(&mSandboxFlags);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
   nsresult rv = InitCSP();
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -2707,6 +2722,24 @@ nsDocument::SetContentType(const nsAString& aContentType)
                "Do you really want to change the content-type?");
 
   SetContentTypeInternal(NS_ConvertUTF16toUTF8(aContentType));
+}
+
+nsresult
+nsDocument::GetAllowPlugins(bool * aAllowPlugins)
+{
+  // First, we ask our docshell if it allows plugins.
+  nsCOMPtr<nsIDocShell> docShell = do_QueryReferent(mDocumentContainer);
+
+  if (docShell) {
+    docShell->GetAllowPlugins(aAllowPlugins);
+      
+    // If the docshell allows plugins, we check whether
+    // we are sandboxed and plugins should not be allowed.
+    if (*aAllowPlugins)
+      *aAllowPlugins = !(mSandboxFlags & SANDBOXED_PLUGINS);
+  }
+
+  return NS_OK;
 }
 
 /* Return true if the document is in the focused top-level window, and is an
@@ -5583,6 +5616,15 @@ nsDocument::SetDir(const nsAString& aDirection)
           // No presentation; just set it on ourselves
           SetBidiOptions(options);
         }
+        Directionality dir = elt->mValue == IBMBIDI_TEXTDIRECTION_RTL ?
+                               eDir_RTL : eDir_LTR;
+        SetDocumentDirectionality(dir);
+        // Set the directionality of the root element and its descendants, if any
+        Element* rootElement = GetRootElement();
+        if (rootElement) {
+          rootElement->SetDirectionality(dir, true);
+          SetDirectionalityOnDescendants(rootElement, dir);
+        }
       }
 
       break;
@@ -6395,6 +6437,12 @@ nsDocument::GetXMLDeclaration(nsAString& aVersion, nsAString& aEncoding,
 bool
 nsDocument::IsScriptEnabled()
 {
+  // If this document is sandboxed without 'allow-scripts'
+  // script is not enabled
+  if (mSandboxFlags & SANDBOXED_SCRIPTS) {
+    return false;
+  }
+
   nsCOMPtr<nsIScriptSecurityManager> sm(do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID));
   NS_ENSURE_TRUE(sm, false);
 
@@ -8472,10 +8520,13 @@ DispatchFullScreenChange(nsIDocument* aTarget)
 NS_IMETHODIMP
 nsDocument::MozCancelFullScreen()
 {
-  if (!nsContentUtils::IsRequestFullScreenAllowed()) {
-    return NS_OK;
+  // Only perform fullscreen changes if we're running in a webapp
+  // same-origin to the web app, or if we're in a user generated event
+  // handler.
+  if (NodePrincipal()->GetAppStatus() >= nsIPrincipal::APP_STATUS_INSTALLED ||
+      nsContentUtils::IsRequestFullScreenAllowed()) {
+    RestorePreviousFullScreenState();
   }
-  RestorePreviousFullScreenState();
   return NS_OK;
 }
 
@@ -9104,7 +9155,8 @@ nsDocument::RequestFullScreen(Element* aElement,
   // trusted and so are automatically approved.
   if (!mIsApprovedForFullscreen) {
     mIsApprovedForFullscreen =
-      GetWindow()->IsInAppOrigin() ||
+      !Preferences::GetBool("full-screen-api.approval-required") ||
+      NodePrincipal()->GetAppStatus() >= nsIPrincipal::APP_STATUS_INSTALLED ||
       nsContentUtils::IsSitePermAllow(NodePrincipal(), "fullscreen");
   }
 

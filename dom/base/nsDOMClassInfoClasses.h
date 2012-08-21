@@ -39,10 +39,10 @@ DOMCI_CLASS(MutationEvent)
 DOMCI_CLASS(UIEvent)
 DOMCI_CLASS(MouseEvent)
 DOMCI_CLASS(MouseScrollEvent)
+DOMCI_CLASS(WheelEvent)
 DOMCI_CLASS(DragEvent)
 DOMCI_CLASS(KeyboardEvent)
 DOMCI_CLASS(CompositionEvent)
-DOMCI_CLASS(PopupBlockedEvent)
 #define MOZ_GENERATED_EVENT_LIST
 #define MOZ_GENERATED_EVENT(_event_interface) DOMCI_CLASS(_event_interface)
 #include "GeneratedEvents.h"
@@ -386,6 +386,7 @@ DOMCI_CLASS(MessageEvent)
 
 DOMCI_CLASS(DeviceStorage)
 DOMCI_CLASS(DeviceStorageCursor)
+DOMCI_CLASS(DeviceStorageStat)
 
 // Geolocation
 DOMCI_CLASS(GeoGeolocation)
@@ -461,6 +462,7 @@ DOMCI_CLASS(WebGLExtensionStandardDerivatives)
 DOMCI_CLASS(WebGLExtensionTextureFilterAnisotropic)
 DOMCI_CLASS(WebGLExtensionLoseContext)
 DOMCI_CLASS(WebGLExtensionCompressedTextureS3TC)
+DOMCI_CLASS(WebGLExtensionDepthTexture)
 
 DOMCI_CLASS(PaintRequest)
 DOMCI_CLASS(PaintRequestList)
@@ -521,8 +523,8 @@ DOMCI_CLASS(MozVoicemailEvent)
 DOMCI_CLASS(BluetoothManager)
 DOMCI_CLASS(BluetoothAdapter)
 DOMCI_CLASS(BluetoothDevice)
-DOMCI_CLASS(BluetoothDeviceEvent)
 DOMCI_CLASS(BluetoothPropertyEvent)
+DOMCI_CLASS(BluetoothPairingEvent)
 #endif
 
 #ifdef MOZ_B2G_NFC

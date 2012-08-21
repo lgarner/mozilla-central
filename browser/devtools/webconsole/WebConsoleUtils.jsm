@@ -909,51 +909,66 @@ function JSPropertyProvider(aScope, aInputValue)
     return null;
   }
 
-  let properties = completionPart.split(".");
-  let matchProp;
-  if (properties.length > 1) {
-    matchProp = properties.pop().trimLeft();
-    for (let i = 0; i < properties.length; i++) {
-      let prop = properties[i].trim();
-      if (!prop) {
-        return null;
-      }
+  let matches = null;
+  let matchProp = "";
 
-      // If obj is undefined or null (which is what "== null" does),
-      // then there is no chance to run completion on it. Exit here.
-      if (obj == null) {
-        return null;
-      }
+  let lastDot = completionPart.lastIndexOf(".");
+  if (lastDot > 0 &&
+      (completionPart[0] == "'" || completionPart[0] == '"') &&
+      completionPart[lastDot - 1] == completionPart[0]) {
+    // We are completing a string literal.
+    obj = obj.String.prototype;
+    matchProp = completionPart.slice(lastDot + 1);
 
-      // Check if prop is a getter function on obj. Functions can change other
-      // stuff so we can't execute them to get the next object. Stop here.
-      if (WCU.isNonNativeGetter(obj, prop)) {
-        return null;
-      }
-      try {
-        obj = obj[prop];
-      }
-      catch (ex) {
-        return null;
-      }
-    }
   }
   else {
-    matchProp = properties[0].trimLeft();
+    // We are completing a variable / a property lookup.
+
+    let properties = completionPart.split(".");
+    if (properties.length > 1) {
+      matchProp = properties.pop().trimLeft();
+      for (let i = 0; i < properties.length; i++) {
+        let prop = properties[i].trim();
+        if (!prop) {
+          return null;
+        }
+
+        // If obj is undefined or null (which is what "== null" does),
+        // then there is no chance to run completion on it. Exit here.
+        if (obj == null) {
+          return null;
+        }
+
+        // Check if prop is a getter function on obj. Functions can change other
+        // stuff so we can't execute them to get the next object. Stop here.
+        if (WCU.isNonNativeGetter(obj, prop)) {
+          return null;
+        }
+        try {
+          obj = obj[prop];
+        }
+        catch (ex) {
+          return null;
+        }
+      }
+    }
+    else {
+      matchProp = properties[0].trimLeft();
+    }
+
+    // If obj is undefined or null (which is what "== null" does),
+    // then there is no chance to run completion on it. Exit here.
+    if (obj == null) {
+      return null;
+    }
+
+    // Skip Iterators and Generators.
+    if (WCU.isIteratorOrGenerator(obj)) {
+      return null;
+    }
   }
 
-  // If obj is undefined or null (which is what "== null" does),
-  // then there is no chance to run completion on it. Exit here.
-  if (obj == null) {
-    return null;
-  }
-
-  // Skip Iterators and Generators.
-  if (WCU.isIteratorOrGenerator(obj)) {
-    return null;
-  }
-
-  let matches = Object.keys(getMatchedProps(obj, matchProp));
+  let matches = Object.keys(getMatchedProps(obj, {matchProp:matchProp}));
 
   return {
     matchProp: matchProp,
@@ -962,51 +977,60 @@ function JSPropertyProvider(aScope, aInputValue)
 }
 
 /**
- * Get all accessible properties on this object.
+ * Get all accessible properties on this JS value.
  * Filter those properties by name.
  * Take only a certain number of those.
  *
- * @param object obj
- *        Object whose properties we want to collect.
+ * @param mixed aObj
+ *        JS value whose properties we want to collect.
  *
- * @param string matchProp
- *        Filter for properties that match this one.
- *        Defaults to the empty string (which always matches).
+ * @param object aOptions
+ *        Options that the algorithm takes.
+ *        - matchProp (string): Filter for properties that match this one.
+ *          Defaults to the empty string (which always matches).
  *
  * @return object
  *         Object whose keys are all accessible properties on the object.
  */
-function getMatchedProps(aObj, aMatchProp = "")
+function getMatchedProps(aObj, aOptions = {matchProp: ""})
 {
+  // Argument defaults.
+  aOptions.matchProp = aOptions.matchProp || "";
+
+  if (aObj == null) { return {}; }
+  try {
+    Object.getPrototypeOf(aObj);
+  } catch(e) {
+    aObj = aObj.constructor.prototype;
+  }
   let c = MAX_COMPLETIONS;
   let names = {};   // Using an Object to avoid duplicates.
-  let ownNames = Object.getOwnPropertyNames(aObj);
-  for (let i = 0; i < ownNames.length; i++) {
-    if (ownNames[i].indexOf(aMatchProp) == 0) {
-      if (names[ownNames[i]] != true) {
-        c--;
-        if (c < 0) {
-          return names;
-        }
+
+  // We need to go up the prototype chain.
+  let ownNames = null;
+  while (aObj !== null) {
+    ownNames = Object.getOwnPropertyNames(aObj);
+    for (let i = 0; i < ownNames.length; i++) {
+      // Filtering happens here.
+      // If we already have it in, no need to append it.
+      if (ownNames[i].indexOf(aOptions.matchProp) != 0 ||
+          names[ownNames[i]] == true) {
+        continue;
+      }
+      c--;
+      if (c < 0) {
+        return names;
+      }
+      // If it is an array index, we can't take it.
+      // This uses a trick: converting a string to a number yields NaN if
+      // the operation failed, and NaN is not equal to itself.
+      if (+ownNames[i] != +ownNames[i]) {
         names[ownNames[i]] = true;
       }
     }
+    aObj = Object.getPrototypeOf(aObj);
   }
 
-  // We need to recursively go up the prototype chain.
-  aObj = Object.getPrototypeOf(aObj);
-  if (aObj !== null) {
-    let parentScope = getMatchedProps(aObj, aMatchProp);
-    for (let name in parentScope) {
-      if (names[name] != true) {
-        c--;
-        if (c < 0) {
-          return names;
-        }
-        names[name] = true;
-      }
-    }
-  }
   return names;
 }
 

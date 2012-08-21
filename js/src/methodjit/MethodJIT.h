@@ -595,8 +595,13 @@ struct NativeMapEntry {
 
 /* Per-op counts of performance metrics. */
 struct PCLengthEntry {
-    double          codeLength; /* amount of inline code generated */
-    double          picsLength; /* amount of PIC stub code generated */
+    double          inlineLength; /* amount of inline code generated */
+    double          picsLength;   /* amount of PIC stub code generated */
+    double          stubLength;   /* amount of stubcc code generated */
+    double          codeLengthAugment; /* augment to inlineLength to be added
+                                          at runtime, represents instrumentation
+                                          taken out or common stubcc accounted
+                                          for (instead of just adding inlineLength) */
 };
 
 /*
@@ -661,6 +666,8 @@ struct JITChunk
     typedef Vector<JSC::ExecutablePool *, 0, SystemAllocPolicy> ExecPoolVector;
     ExecPoolVector execPools;
 #endif
+
+    types::RecompileInfo recompileInfo;
 
     // Additional ExecutablePools for native call and getter stubs.
     Vector<NativeCallStub, 0, SystemAllocPolicy> nativeCallStubs;
@@ -995,7 +1002,7 @@ VMFrame::pc()
 inline void *
 JSScript::nativeCodeForPC(bool constructing, jsbytecode *pc)
 {
-    js::mjit::JITScript *jit = getJIT(constructing, compartment()->needsBarrier());
+    js::mjit::JITScript *jit = getJIT(constructing, compartment()->compileBarriers());
     if (!jit)
         return NULL;
     js::mjit::JITChunk *chunk = jit->chunk(pc);

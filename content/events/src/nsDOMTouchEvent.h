@@ -97,7 +97,7 @@ protected:
   bool mPointsInitialized;
 };
 
-class nsDOMTouchList : public nsIDOMTouchList
+class nsDOMTouchList MOZ_FINAL : public nsIDOMTouchList
 {
 public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -114,7 +114,7 @@ public:
 
   nsIDOMTouch* GetItemAt(PRUint32 aIndex)
   {
-    return mPoints.SafeElementAt(aIndex, nsnull);
+    return mPoints.SafeElementAt(aIndex, nullptr);
   }
 
 protected:

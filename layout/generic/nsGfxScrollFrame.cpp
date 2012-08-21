@@ -54,6 +54,7 @@
 #include "nsSVGOuterSVGFrame.h"
 #include "mozilla/Attributes.h"
 #include "ScrollbarActivity.h"
+#include "nsRefreshDriver.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -146,7 +147,7 @@ nsHTMLScrollFrame::GetSplittableType() const
   return NS_FRAME_NOT_SPLITTABLE;
 }
 
-PRIntn
+int
 nsHTMLScrollFrame::GetSkipSides() const
 {
   return 0;
@@ -481,7 +482,7 @@ nsHTMLScrollFrame::ReflowScrolledFrame(ScrollReflowState* aState,
   if (aAssumeHScroll) {
     nsSize hScrollbarPrefSize;
     GetScrollbarMetrics(aState->mBoxState, mInner.mHScrollbarBox,
-                        nsnull, &hScrollbarPrefSize, false);
+                        nullptr, &hScrollbarPrefSize, false);
     if (computedHeight != NS_UNCONSTRAINEDSIZE)
       computedHeight = NS_MAX(0, computedHeight - hScrollbarPrefSize.height);
     computedMinHeight = NS_MAX(0, computedMinHeight - hScrollbarPrefSize.height);
@@ -492,7 +493,7 @@ nsHTMLScrollFrame::ReflowScrolledFrame(ScrollReflowState* aState,
   if (aAssumeVScroll) {
     nsSize vScrollbarPrefSize;
     GetScrollbarMetrics(aState->mBoxState, mInner.mVScrollbarBox,
-                        &vScrollbarPrefSize, nsnull, true);
+                        nullptr, &vScrollbarPrefSize, true);
     availWidth = NS_MAX(0, availWidth - vScrollbarPrefSize.width);
   }
 
@@ -521,7 +522,7 @@ nsHTMLScrollFrame::ReflowScrolledFrame(ScrollReflowState* aState,
   nsReflowStatus status;
   nsresult rv = ReflowChild(mInner.mScrolledFrame, presContext, *aMetrics,
                             kidReflowState, 0, 0,
-                            NS_FRAME_NO_MOVE_FRAME | NS_FRAME_NO_MOVE_VIEW, status);
+                            NS_FRAME_NO_MOVE_FRAME, status);
 
   mInner.mHasHorizontalScrollbar = didHaveHorizontalScrollbar;
   mInner.mHasVerticalScrollbar = didHaveVerticalScrollbar;
@@ -533,7 +534,7 @@ nsHTMLScrollFrame::ReflowScrolledFrame(ScrollReflowState* aState,
   // invalidating the difference will cause unnecessary repainting.
   FinishReflowChild(mInner.mScrolledFrame, presContext,
                     &kidReflowState, *aMetrics, 0, 0,
-                    NS_FRAME_NO_MOVE_FRAME | NS_FRAME_NO_MOVE_VIEW | NS_FRAME_NO_SIZE_VIEW);
+                    NS_FRAME_NO_MOVE_FRAME | NS_FRAME_NO_SIZE_VIEW);
 
   // XXX Some frames (e.g., nsObjectFrame, nsFrameFrame, nsTextFrame) don't bother
   // setting their mOverflowArea. This is wrong because every frame should
@@ -1086,7 +1087,7 @@ nsXULScrollFrame::GetPadding(nsMargin& aMargin)
    return NS_OK;
 }
 
-PRIntn
+int
 nsXULScrollFrame::GetSkipSides() const
 {
   return 0;
@@ -1682,18 +1683,19 @@ void
 nsGfxScrollFrameInner::ScrollToCSSPixels(nsIntPoint aScrollPosition)
 {
   nsPoint current = GetScrollPosition();
+  nsIntPoint currentCSSPixels = GetScrollPositionCSSPixels();
   nsPoint pt(nsPresContext::CSSPixelsToAppUnits(aScrollPosition.x),
              nsPresContext::CSSPixelsToAppUnits(aScrollPosition.y));
   nscoord halfPixel = nsPresContext::CSSPixelsToAppUnits(0.5f);
   nsRect range(pt.x - halfPixel, pt.y - halfPixel, 2*halfPixel - 1, 2*halfPixel - 1);
-  if (nsPresContext::AppUnitsToIntCSSPixels(current.x) == aScrollPosition.x) {
+  if (currentCSSPixels.x == aScrollPosition.x) {
     pt.x = current.x;
     range.x = pt.x;
     range.width = 0;
   } else {
     // current.x must be outside 'range', so we must move in the correct direction.
   }
-  if (nsPresContext::AppUnitsToIntCSSPixels(current.y) == aScrollPosition.y) {
+  if (currentCSSPixels.y == aScrollPosition.y) {
     pt.y = current.y;
     range.y = pt.y;
     range.height = 0;
@@ -1701,6 +1703,14 @@ nsGfxScrollFrameInner::ScrollToCSSPixels(nsIntPoint aScrollPosition)
     // current.y must be outside 'range', so we must move in the correct direction.
   }
   ScrollTo(pt, nsIScrollableFrame::INSTANT, &range);
+}
+
+nsIntPoint
+nsGfxScrollFrameInner::GetScrollPositionCSSPixels()
+{
+  nsPoint pt = GetScrollPosition();
+  return nsIntPoint(nsPresContext::AppUnitsToIntCSSPixels(pt.x),
+                    nsPresContext::AppUnitsToIntCSSPixels(pt.y));
 }
 
 /*
@@ -2538,23 +2548,77 @@ nsGfxScrollFrameInner::GetLineScrollAmount() const
   nsLayoutUtils::GetFontMetricsForFrame(mOuter, getter_AddRefs(fm),
     nsLayoutUtils::FontSizeInflationFor(mOuter));
   NS_ASSERTION(fm, "FontMetrics is null, assuming fontHeight == 1 appunit");
-  nscoord fontHeight = 1;
+  static nscoord sMinLineScrollAmountInPixels = -1;
+  if (sMinLineScrollAmountInPixels < 0) {
+    Preferences::AddIntVarCache(&sMinLineScrollAmountInPixels,
+                                "mousewheel.min_line_scroll_amount", 1);
+  }
+  PRUint32 appUnitsPerDevPixel = mOuter->PresContext()->AppUnitsPerDevPixel();
+  nscoord fontHeight =
+    NS_MAX(1, sMinLineScrollAmountInPixels) * appUnitsPerDevPixel;
   if (fm) {
-    fontHeight = fm->MaxHeight();
+    fontHeight = NS_MAX(fm->MaxHeight(), fontHeight);
   }
 
   return nsSize(fontHeight, fontHeight);
+}
+
+/**
+ * Compute the scrollport size excluding any fixed-pos headers and
+ * footers. A header or footer is an box that spans that entire width
+ * of the viewport and touches the top (or bottom, respectively) of the
+ * viewport. Headers and footers that cover more than a quarter of the
+ * the viewport are ignored since they probably aren't true headers and
+ * footers and we don't want to restrict scrolling too much in such cases.
+ * This is a bit conservative --- some pages use elements as headers or
+ * footers that don't span the entire width of the viewport --- but it
+ * should be a good start.
+ */
+static nsSize
+GetScrollPortSizeExcludingHeadersAndFooters(nsIFrame* aViewportFrame,
+                                            const nsRect& aScrollPort)
+{
+  nsFrameList fixedFrames = aViewportFrame->GetChildList(nsIFrame::kFixedList);
+  nscoord headerBottom = 0;
+  nscoord footerTop = aScrollPort.height;
+  for (nsFrameList::Enumerator iterator(fixedFrames); !iterator.AtEnd();
+       iterator.Next()) {
+    nsIFrame* f = iterator.get();
+    nsRect r = f->GetRect().Intersect(aScrollPort);
+    if (r.x == 0 && r.width == aScrollPort.width &&
+        r.height <= aScrollPort.height/3) {
+      if (r.y == 0) {
+        headerBottom = NS_MAX(headerBottom, r.height);
+      }
+      if (r.YMost() == aScrollPort.height) {
+        footerTop = NS_MIN(footerTop, r.y);
+      }
+    }
+  }
+  return nsSize(aScrollPort.width, footerTop - headerBottom);
 }
 
 nsSize
 nsGfxScrollFrameInner::GetPageScrollAmount() const
 {
   nsSize lineScrollAmount = GetLineScrollAmount();
+  nsSize effectiveScrollPortSize;
+  if (mIsRoot) {
+    // Reduce effective scrollport height by the height of any fixed-pos
+    // headers or footers
+    nsIFrame* root = mOuter->PresContext()->PresShell()->GetRootFrame();
+    effectiveScrollPortSize =
+      GetScrollPortSizeExcludingHeadersAndFooters(root, mScrollPort);
+  } else {
+    effectiveScrollPortSize = mScrollPort.Size();
+  }
   // The page increment is the size of the page, minus the smaller of
   // 10% of the size or 2 lines.
   return nsSize(
-    mScrollPort.width - NS_MIN(mScrollPort.width/10, 2*lineScrollAmount.width),
-    mScrollPort.height - NS_MIN(mScrollPort.height/10, 2*lineScrollAmount.height));
+    effectiveScrollPortSize.width -
+      NS_MIN(effectiveScrollPortSize.width/10, 2*lineScrollAmount.width),
+    effectiveScrollPortSize.height -
+      NS_MIN(effectiveScrollPortSize.height/10, 2*lineScrollAmount.height));
 }
 
   /**
@@ -2860,7 +2924,7 @@ void
 nsGfxScrollFrameInner::Destroy()
 {
   if (mScrollbarActivity) {
-    mScrollbarActivity = nsnull;
+    mScrollbarActivity = nullptr;
   }
 
   // Unbind any content created in CreateAnonymousContent from the tree

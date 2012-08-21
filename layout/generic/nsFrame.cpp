@@ -73,8 +73,7 @@
 #include "imgIRequest.h"
 #include "nsLayoutCID.h"
 #include "nsUnicharUtils.h"
-#include "nsLayoutErrors.h"
-#include "nsContentErrors.h"
+#include "nsError.h"
 #include "nsContainerFrame.h"
 #include "nsBoxLayoutState.h"
 #include "nsBlockFrame.h"
@@ -97,10 +96,12 @@
 
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
+#include "mozilla/css/ImageLoader.h"
 
 using namespace mozilla;
 using namespace mozilla::layers;
 using namespace mozilla::layout;
+using namespace mozilla::css;
 
 // Struct containing cached metrics for box-wrapped frames.
 struct nsBoxLayoutMetrics
@@ -698,27 +699,50 @@ EqualImages(imgIRequest *aOldImage, imgIRequest *aNewImage)
 /* virtual */ void
 nsFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
 {
-  if (aOldStyleContext) {
-    // If the old context had a background image image and new context
-    // does not have the same image, clear the image load notifier
-    // (which keeps the image loading, if it still is) for the frame.
-    // We want to do this conservatively because some frames paint their
-    // backgrounds from some other frame's style data, and we don't want
-    // to clear those notifiers unless we have to.  (They'll be reset
-    // when we paint, although we could miss a notification in that
-    // interval.)
-    const nsStyleBackground *oldBG = aOldStyleContext->GetStyleBackground();
-    const nsStyleBackground *newBG = GetStyleBackground();
+  ImageLoader* imageLoader = PresContext()->Document()->StyleImageLoader();
+
+  // If the old context had a background image image and new context
+  // does not have the same image, clear the image load notifier
+  // (which keeps the image loading, if it still is) for the frame.
+  // We want to do this conservatively because some frames paint their
+  // backgrounds from some other frame's style data, and we don't want
+  // to clear those notifiers unless we have to.  (They'll be reset
+  // when we paint, although we could miss a notification in that
+  // interval.)
+  const nsStyleBackground *oldBG = aOldStyleContext ?
+                                   aOldStyleContext->GetStyleBackground() :
+                                   nullptr;
+  const nsStyleBackground *newBG = GetStyleBackground();
+  if (oldBG) {
     NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT(i, oldBG) {
+      // If there is an image in oldBG that's not in newBG, drop it.
       if (i >= newBG->mImageCount ||
           oldBG->mLayers[i].mImage != newBG->mLayers[i].mImage) {
-        // stop the image loading for the frame, the image has changed
-        PresContext()->SetImageLoaders(this,
-          nsPresContext::BACKGROUND_IMAGE, nullptr);
-        break;
-      }
-    }
+        const nsStyleImage& oldImage = oldBG->mLayers[i].mImage;
+        if (oldImage.GetType() != eStyleImageType_Image) {
+          continue;
+        }
 
+        imageLoader->DisassociateRequestFromFrame(oldImage.GetImageData(),
+                                                  this);
+      }          
+    }
+  }
+
+  NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT(i, newBG) {
+    // If there is an image in newBG that's not in oldBG, add it.
+    if (!oldBG || i >= oldBG->mImageCount ||
+        newBG->mLayers[i].mImage != oldBG->mLayers[i].mImage) {
+      const nsStyleImage& newImage = newBG->mLayers[i].mImage;
+      if (newImage.GetType() != eStyleImageType_Image) {
+        continue;
+      }
+
+      imageLoader->AssociateRequestToFrame(newImage.GetImageData(), this);
+    }          
+  }
+
+  if (aOldStyleContext) {
     // If we detect a change on margin, padding or border, we store the old
     // values on the frame itself between now and reflow, so if someone
     // calls GetUsed(Margin|Border|Padding)() before the next reflow, we
@@ -757,6 +781,7 @@ nsFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
   imgIRequest *oldBorderImage = aOldStyleContext
     ? aOldStyleContext->GetStyleBorder()->GetBorderImage()
     : nullptr;
+  imgIRequest *newBorderImage = GetStyleBorder()->GetBorderImage();
   // FIXME (Bug 759996): The following is no longer true.
   // For border-images, we can't be as conservative (we need to set the
   // new loaders if there has been any change) since the CalcDifference
@@ -771,9 +796,14 @@ nsFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
   // is loaded) and paint.  We also don't really care about any callers
   // who try to paint borders with a different style context, because
   // they won't have the correct size for the border either.
-  if (!EqualImages(oldBorderImage, GetStyleBorder()->GetBorderImage())) {
+  if (!EqualImages(oldBorderImage, newBorderImage)) {
     // stop and restart the image loading/notification
-    PresContext()->SetupBorderImageLoaders(this, GetStyleBorder());
+    if (oldBorderImage) {
+      imageLoader->DisassociateRequestFromFrame(oldBorderImage, this);
+    }
+    if (newBorderImage) {
+      imageLoader->AssociateRequestToFrame(newBorderImage, this);
+    }
   }
 
   // If the page contains markup that overrides text direction, and
@@ -911,7 +941,7 @@ nsIFrame::GetUsedPadding() const
 void
 nsIFrame::ApplySkipSides(nsMargin& aMargin) const
 {
-  PRIntn skipSides = GetSkipSides();
+  int skipSides = GetSkipSides();
   if (skipSides & (1 << NS_SIDE_TOP))
     aMargin.top = 0;
   if (skipSides & (1 << NS_SIDE_RIGHT))
@@ -1041,7 +1071,7 @@ bool
 nsIFrame::ComputeBorderRadii(const nsStyleCorners& aBorderRadius,
                              const nsSize& aFrameSize,
                              const nsSize& aBorderArea,
-                             PRIntn aSkipSides,
+                             int aSkipSides,
                              nscoord aRadii[8])
 {
   // Percentages are relative to whichever side they're on.
@@ -2651,7 +2681,8 @@ nsFrame::HandlePress(nsPresContext* aPresContext,
 
   // On touchables devices, touch the screen is usually a pan action,
   // so let reposition the caret if needed but do not select text
-  if (Preferences::GetBool("browser.ignoreNativeFrameTextSelection", false)) {
+  if (!offsets.content->IsEditable() &&
+      Preferences::GetBool("browser.ignoreNativeFrameTextSelection", false)) {
     return fc->HandleClick(offsets.content, offsets.StartOffset(),
                            offsets.EndOffset(), false, false,
                            offsets.associateWithNext);
@@ -3416,39 +3447,10 @@ static FrameTarget GetSelectionClosestFrame(nsIFrame* aFrame, nsPoint aPoint,
       if (!SelfIsSelectable(kid, aFlags) || kid->IsEmpty())
         continue;
 
-      nsRect rect = kid->GetRect();
-
-      nscoord fromLeft = aPoint.x - rect.x;
-      nscoord fromRight = aPoint.x - rect.XMost();
-
-      nscoord xDistance;
-      if (fromLeft >= 0 && fromRight <= 0) {
-        xDistance = 0;
-      } else {
-        xDistance = NS_MIN(abs(fromLeft), abs(fromRight));
-      }
-
-      if (xDistance <= closestXDistance)
-      {
-        if (xDistance < closestXDistance)
-          closestYDistance = HUGE_DISTANCE;
-
-        nscoord fromTop = aPoint.y - rect.y;
-        nscoord fromBottom = aPoint.y - rect.YMost();
-
-        nscoord yDistance;
-        if (fromTop >= 0 && fromBottom <= 0)
-          yDistance = 0;
-        else
-          yDistance = NS_MIN(abs(fromTop), abs(fromBottom));
-
-        if (yDistance < closestYDistance)
-        {
-          closestXDistance = xDistance;
-          closestYDistance = yDistance;
-          closestFrame = kid;
-        }
-      }
+      if (nsLayoutUtils::PointIsCloserToRect(aPoint, kid->GetRect(),
+                                             closestXDistance,
+                                             closestYDistance))
+        closestFrame = kid;
     }
     if (closestFrame)
       return GetSelectionClosestFrameForChild(closestFrame, aPoint, aFlags);
@@ -3676,10 +3678,7 @@ nsIFrame::InlineMinWidthData::ForceBreak(nsRenderingContext *aRenderingContext)
   currentLine = trailingWhitespace = 0;
 
   for (PRUint32 i = 0, i_end = floats.Length(); i != i_end; ++i) {
-    nsIFrame *floatFrame = floats[i];
-    nscoord float_min =
-      nsLayoutUtils::IntrinsicForContainer(aRenderingContext, floatFrame,
-                                           nsLayoutUtils::MIN_WIDTH);
+    nscoord float_min = floats[i].Width();
     if (float_min > prevLines)
       prevLines = float_min;
   }
@@ -3718,8 +3717,8 @@ nsIFrame::InlinePrefWidthData::ForceBreak(nsRenderingContext *aRenderingContext)
             floats_cur_right = 0;
 
     for (PRUint32 i = 0, i_end = floats.Length(); i != i_end; ++i) {
-      nsIFrame *floatFrame = floats[i];
-      const nsStyleDisplay *floatDisp = floatFrame->GetStyleDisplay();
+      const FloatInfo& floatInfo = floats[i];
+      const nsStyleDisplay *floatDisp = floatInfo.Frame()->GetStyleDisplay();
       if (floatDisp->mBreakType == NS_STYLE_CLEAR_LEFT ||
           floatDisp->mBreakType == NS_STYLE_CLEAR_RIGHT ||
           floatDisp->mBreakType == NS_STYLE_CLEAR_LEFT_AND_RIGHT) {
@@ -3735,10 +3734,7 @@ nsIFrame::InlinePrefWidthData::ForceBreak(nsRenderingContext *aRenderingContext)
 
       nscoord &floats_cur = floatDisp->mFloats == NS_STYLE_FLOAT_LEFT
                               ? floats_cur_left : floats_cur_right;
-      nscoord floatWidth =
-          nsLayoutUtils::IntrinsicForContainer(aRenderingContext,
-                                               floatFrame,
-                                               nsLayoutUtils::PREF_WIDTH);
+      nscoord floatWidth = floatInfo.Width();
       // Negative-width floats don't change the available space so they
       // shouldn't change our intrinsic line width either.
       floats_cur =
@@ -3876,7 +3872,6 @@ nsFrame::ComputeSize(nsRenderingContext *aRenderingContext,
   }
   nscoord boxSizingToMarginEdgeWidth =
     aMargin.width + aBorder.width + aPadding.width - boxSizingAdjust.width;
-
   // Compute width
 
   if (stylePos->mWidth.GetUnit() != eStyleUnit_Auto) {
@@ -3891,40 +3886,38 @@ nsFrame::ComputeSize(nsRenderingContext *aRenderingContext,
       nsLayoutUtils::ComputeWidthValue(aRenderingContext, this,
         aCBSize.width, boxSizingAdjust.width, boxSizingToMarginEdgeWidth,
         stylePos->mMaxWidth);
-    if (maxWidth < result.width)
-      result.width = maxWidth;
+    result.width = NS_MIN(maxWidth, result.width);
   }
 
   nscoord minWidth =
     nsLayoutUtils::ComputeWidthValue(aRenderingContext, this,
       aCBSize.width, boxSizingAdjust.width, boxSizingToMarginEdgeWidth,
       stylePos->mMinWidth);
-  if (minWidth > result.width)
-    result.width = minWidth;
+  result.width = NS_MAX(minWidth, result.width);
 
   // Compute height
-
   if (!nsLayoutUtils::IsAutoHeight(stylePos->mHeight, aCBSize.height)) {
     result.height =
-      nsLayoutUtils::ComputeHeightValue(aCBSize.height, stylePos->mHeight) -
-      boxSizingAdjust.height;
+      nsLayoutUtils::ComputeHeightValue(aCBSize.height, 
+                                        boxSizingAdjust.height,
+                                        stylePos->mHeight);
   }
 
   if (result.height != NS_UNCONSTRAINEDSIZE) {
     if (!nsLayoutUtils::IsAutoHeight(stylePos->mMaxHeight, aCBSize.height)) {
       nscoord maxHeight =
-        nsLayoutUtils::ComputeHeightValue(aCBSize.height, stylePos->mMaxHeight) -
-        boxSizingAdjust.height;
-      if (maxHeight < result.height)
-        result.height = maxHeight;
+        nsLayoutUtils::ComputeHeightValue(aCBSize.height, 
+                                          boxSizingAdjust.height,
+                                          stylePos->mMaxHeight);
+      result.height = NS_MIN(maxHeight, result.height);
     }
 
     if (!nsLayoutUtils::IsAutoHeight(stylePos->mMinHeight, aCBSize.height)) {
       nscoord minHeight =
-        nsLayoutUtils::ComputeHeightValue(aCBSize.height, stylePos->mMinHeight) -
-        boxSizingAdjust.height;
-      if (minHeight > result.height)
-        result.height = minHeight;
+        nsLayoutUtils::ComputeHeightValue(aCBSize.height, 
+                                          boxSizingAdjust.height, 
+                                          stylePos->mMinHeight);
+      result.height = NS_MAX(minHeight, result.height);
     }
   }
 
@@ -3951,11 +3944,8 @@ nsFrame::ComputeSize(nsRenderingContext *aRenderingContext,
       result.width = size.width;
   }
 
-  if (result.width < 0)
-    result.width = 0;
-
-  if (result.height < 0)
-    result.height = 0;
+  result.width = NS_MAX(0, result.width);
+  result.height = NS_MAX(0, result.height);
 
   return result;
 }
@@ -4695,11 +4685,6 @@ nsIFrame::InvalidateInternalAfterResize(const nsRect& aDamageRect, nscoord aX,
 
   if ((mState & NS_FRAME_HAS_CONTAINER_LAYER) &&
       !(aFlags & INVALIDATE_NO_THEBES_LAYERS)) {
-    // XXX for now I'm going to assume this is in the local coordinate space
-    // This only matters for frames with transforms and retained layers,
-    // which can't happen right now since transforms trigger fallback
-    // rendering and the display items that trigger layers are nested inside
-    // the nsDisplayTransform
     // XXX need to set INVALIDATE_NO_THEBES_LAYERS for certain kinds of
     // invalidation, e.g. video update, 'opacity' change
     FrameLayerBuilder::InvalidateThebesLayerContents(this,
@@ -5098,6 +5083,10 @@ nsIFrame::GetPreEffectsVisualOverflowRect() const
 /* virtual */ bool
 nsFrame::UpdateOverflow()
 {
+  MOZ_ASSERT(!(mState & NS_FRAME_SVG_LAYOUT) ||
+             !(mState & NS_STATE_SVG_NONDISPLAY_CHILD),
+             "Non-display SVG do not maintain visual overflow rects");
+
   nsRect rect(nsPoint(0, 0), GetSize());
   nsOverflowAreas overflowAreas(rect, rect);
 
@@ -5398,6 +5387,11 @@ nsFrame::MakeFrameName(const nsAString& aType, nsAString& aResult) const
   if (mContent && !mContent->IsNodeOfType(nsINode::eTEXT)) {
     nsAutoString buf;
     mContent->Tag()->ToString(buf);
+    if (GetType() == nsGkAtoms::subDocumentFrame) {
+      nsAutoString src;
+      mContent->GetAttr(kNameSpaceID_None, nsGkAtoms::src, src);
+      buf.Append(NS_LITERAL_STRING(" src=") + src);
+    }
     aResult.Append(NS_LITERAL_STRING("(") + buf + NS_LITERAL_STRING(")"));
   }
   char buf[40];
@@ -5782,9 +5776,9 @@ nsFrame::GetNextPrevLineFromeBlockFrame(nsPresContext* aPresContext,
       //resultFrame is not a block frame
       result = NS_ERROR_FAILURE;
 
-      PRUint32 flags = FrameIteratorFlags::FLAG_NONE;
+      PRUint32 flags = nsFrameIterator::FLAG_NONE;
       if (aPos->mScrollViewStop) {
-        flags |= FrameIteratorFlags::FLAG_LOCK_SCROLL;
+        flags |= nsFrameIterator::FLAG_LOCK_SCROLL;
       }
       nsFrameIterator frameTraversal(aPresContext, resultFrame,
                                      ePostOrder, flags);
@@ -5873,9 +5867,9 @@ nsFrame::GetNextPrevLineFromeBlockFrame(nsPresContext* aPresContext,
       if (!found){
         resultFrame = storeOldResultFrame;
 
-        PRUint32 flags = FrameIteratorFlags::FLAG_NONE;
+        PRUint32 flags = nsFrameIterator::FLAG_NONE;
         if (aPos->mScrollViewStop) {
-          flags |= FrameIteratorFlags::FLAG_LOCK_SCROLL;
+          flags |= nsFrameIterator::FLAG_LOCK_SCROLL;
         }
         frameTraversal = nsFrameIterator(aPresContext, resultFrame,
                                          eLeaf, flags);
@@ -6634,12 +6628,12 @@ nsIFrame::GetFrameFromDirection(nsDirection aDirection, bool aVisual,
         return NS_ERROR_FAILURE; //we are done. cannot jump lines
     }
 
-    PRUint32 flags = FrameIteratorFlags::FLAG_FOLLOW_OUT_OF_FLOW;
+    PRUint32 flags = nsFrameIterator::FLAG_FOLLOW_OUT_OF_FLOW;
     if (aScrollViewStop) {
-      flags |= FrameIteratorFlags::FLAG_LOCK_SCROLL;
+      flags |= nsFrameIterator::FLAG_LOCK_SCROLL;
     }
     if (aVisual && presContext->BidiEnabled()) {
-      flags |= FrameIteratorFlags::FLAG_VISUAL;
+      flags |= nsFrameIterator::FLAG_VISUAL;
     }
     nsFrameIterator frameTraversal(presContext, traversedFrame,
                                    eLeaf, flags);
@@ -8172,7 +8166,7 @@ nsFrame::GetBoxName(nsAutoString& aName)
 
 #ifdef DEBUG
 static void
-GetTagName(nsFrame* aFrame, nsIContent* aContent, PRIntn aResultSize,
+GetTagName(nsFrame* aFrame, nsIContent* aContent, int aResultSize,
            char* aResult)
 {
   if (aContent) {

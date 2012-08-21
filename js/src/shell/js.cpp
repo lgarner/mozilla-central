@@ -791,6 +791,7 @@ Evaluate(JSContext *cx, unsigned argc, jsval *vp)
     bool noScriptRval = false;
     const char *fileName = "@evaluate";
     JSAutoByteString fileNameBytes;
+    jschar *sourceMapURL = NULL;
     unsigned lineNumber = 1;
     RootedObject global(cx, NULL);
 
@@ -840,6 +841,18 @@ Evaluate(JSContext *cx, unsigned argc, jsval *vp)
             fileName = fileNameBytes.encode(cx, s);
             if (!fileName)
                 return false;
+        }
+
+        if (!JS_GetProperty(cx, options, "sourceMapURL", &v))
+            return false;
+        if (!JSVAL_IS_VOID(v)) {
+            JSString *s = JS_ValueToString(cx, v);
+            if (!s)
+                return false;
+            const jschar* smurl = s->getCharsZ(cx);
+            if (!smurl)
+                return false;
+            sourceMapURL = js_strdup(cx, smurl);
         }
 
         if (!JS_GetProperty(cx, options, "lineNumber", &v))
@@ -896,8 +909,14 @@ Evaluate(JSContext *cx, unsigned argc, jsval *vp)
         JS_SetOptions(cx, options);
 
         JSScript *script = JS_CompileUCScript(cx, global, codeChars, codeLength, fileName, lineNumber);
+        if (!script)
+            return false;
+        if (sourceMapURL && !script->scriptSource()->hasSourceMap()) {
+            if (!script->scriptSource()->setSourceMap(cx, sourceMapURL, script->filename))
+                return false;
+        }
         JS_SetOptions(cx, saved);
-        if (!script || !JS_ExecuteScript(cx, global, script, vp))
+        if (!JS_ExecuteScript(cx, global, script, vp))
             return false;
     }
 
@@ -2534,9 +2553,9 @@ NewSandbox(JSContext *cx, bool lazy)
 static JSBool
 EvalInContext(JSContext *cx, unsigned argc, jsval *vp)
 {
-    JSString *str;
+    RootedString str(cx);
     RootedObject sobj(cx);
-    if (!JS_ConvertArguments(cx, argc, JS_ARGV(cx, vp), "S / o", &str, sobj.address()))
+    if (!JS_ConvertArguments(cx, argc, JS_ARGV(cx, vp), "S / o", str.address(), sobj.address()))
         return false;
 
     size_t srclen;
@@ -3381,6 +3400,30 @@ Wrap(JSContext *cx, unsigned argc, jsval *vp)
 }
 
 static JSBool
+WrapWithProto(JSContext *cx, unsigned argc, jsval *vp)
+{
+    Value obj = JSVAL_VOID, proto = JSVAL_VOID;
+    if (argc == 2) {
+        obj = JS_ARGV(cx, vp)[0];
+        proto = JS_ARGV(cx, vp)[1];
+    }
+    if (!obj.isObject() || !proto.isObjectOrNull()) {
+        JS_ReportErrorNumber(cx, my_GetErrorMessage, NULL, JSSMSG_INVALID_ARGS,
+                             "wrapWithProto");
+        return false;
+    }
+
+    JSObject *wrapped = Wrapper::New(cx, &obj.toObject(), proto.toObjectOrNull(),
+                                     &obj.toObject().global(),
+                                     &DirectWrapper::singletonWithPrototype);
+    if (!wrapped)
+        return false;
+
+    JS_SET_RVAL(cx, vp, OBJECT_TO_JSVAL(wrapped));
+    return true;
+}
+
+static JSBool
 Serialize(JSContext *cx, unsigned argc, jsval *vp)
 {
     jsval v = argc > 0 ? JS_ARGV(cx, vp)[0] : JSVAL_VOID;
@@ -3781,6 +3824,10 @@ static JSFunctionSpecWithHelp shell_functions[] = {
 "wrap(obj)",
 "  Wrap an object into a noop wrapper."),
 
+    JS_FN_HELP("wrapWithProto", WrapWithProto, 2, 0,
+"wrap(obj)",
+"  Wrap an object into a noop wrapper with prototype semantics."),
+
     JS_FN_HELP("serialize", Serialize, 1, 0,
 "serialize(sd)",
 "  Serialize sd using JS_WriteStructuredClone. Returns a TypedArray."),
@@ -3817,7 +3864,7 @@ static JSFunctionSpecWithHelp shell_functions[] = {
 "  rooting hazards. This is helpful to reduce the time taken when interpreting\n"
 "  heavily numeric code."),
 
-    JS_FS_END
+    JS_FS_HELP_END
 };
 #ifdef MOZ_PROFILING
 # define PROFILING_FUNCTION_COUNT 5
@@ -3880,7 +3927,7 @@ Help(JSContext *cx, unsigned argc, jsval *vp)
 
     RootedObject obj(cx);
     if (argc == 0) {
-        RootedObject global(cx, JS_GetGlobalObject(cx));
+        RootedObject global(cx, JS_GetGlobalForScopeChain(cx));
         AutoIdArray ida(cx, JS_Enumerate(cx, global));
         if (!ida)
             return false;
@@ -3889,15 +3936,23 @@ Help(JSContext *cx, unsigned argc, jsval *vp)
             jsval v;
             if (!JS_LookupPropertyById(cx, global, ida[i], &v))
                 return false;
+            if (JSVAL_IS_PRIMITIVE(v)) {
+                JS_ReportError(cx, "primitive arg");
+                return false;
+            }
             obj = JSVAL_TO_OBJECT(v);
-            if (!JSVAL_IS_PRIMITIVE(v) && !PrintHelp(cx, obj))
+            if (!PrintHelp(cx, obj))
                 return false;
         }
     } else {
         jsval *argv = JS_ARGV(cx, vp);
         for (unsigned i = 0; i < argc; i++) {
+            if (JSVAL_IS_PRIMITIVE(argv[i])) {
+                JS_ReportError(cx, "primitive arg");
+                return false;
+            }
             obj = JSVAL_TO_OBJECT(argv[i]);
-            if (!JSVAL_IS_PRIMITIVE(argv[i]) && !PrintHelp(cx, obj))
+            if (!PrintHelp(cx, obj))
                 return false;
         }
     }
@@ -3928,21 +3983,21 @@ static JSBool
 its_set_customNative(JSContext *cx, unsigned argc, jsval *vp);
 
 static JSPropertySpec its_props[] = {
-    {"color",           ITS_COLOR,      JSPROP_ENUMERATE,       NULL, NULL},
-    {"height",          ITS_HEIGHT,     JSPROP_ENUMERATE,       NULL, NULL},
-    {"width",           ITS_WIDTH,      JSPROP_ENUMERATE,       NULL, NULL},
-    {"funny",           ITS_FUNNY,      JSPROP_ENUMERATE,       NULL, NULL},
-    {"array",           ITS_ARRAY,      JSPROP_ENUMERATE,       NULL, NULL},
-    {"rdonly",          ITS_RDONLY,     JSPROP_READONLY,        NULL, NULL},
+    {"color",           ITS_COLOR,      JSPROP_ENUMERATE,       JSOP_NULLWRAPPER, JSOP_NULLWRAPPER},
+    {"height",          ITS_HEIGHT,     JSPROP_ENUMERATE,       JSOP_NULLWRAPPER, JSOP_NULLWRAPPER},
+    {"width",           ITS_WIDTH,      JSPROP_ENUMERATE,       JSOP_NULLWRAPPER, JSOP_NULLWRAPPER},
+    {"funny",           ITS_FUNNY,      JSPROP_ENUMERATE,       JSOP_NULLWRAPPER, JSOP_NULLWRAPPER},
+    {"array",           ITS_ARRAY,      JSPROP_ENUMERATE,       JSOP_NULLWRAPPER, JSOP_NULLWRAPPER},
+    {"rdonly",          ITS_RDONLY,     JSPROP_READONLY,        JSOP_NULLWRAPPER, JSOP_NULLWRAPPER},
     {"custom",          ITS_CUSTOM,     JSPROP_ENUMERATE,
-                        its_getter,     its_setter},
+                        JSOP_WRAPPER(its_getter),     JSOP_WRAPPER(its_setter)},
     {"customRdOnly",    ITS_CUSTOMRDONLY, JSPROP_ENUMERATE | JSPROP_READONLY,
-                        its_getter,     its_setter},
+                        JSOP_WRAPPER(its_getter),     JSOP_WRAPPER(its_setter)},
     {"customNative",    ITS_CUSTOMNATIVE,
                         JSPROP_ENUMERATE | JSPROP_NATIVE_ACCESSORS,
-                        (JSPropertyOp)its_get_customNative,
-                        (JSStrictPropertyOp)its_set_customNative },
-    {NULL,0,0,NULL,NULL}
+                        JSOP_WRAPPER((JSPropertyOp)its_get_customNative),
+                        JSOP_WRAPPER((JSStrictPropertyOp)its_set_customNative)},
+    {NULL,0,0,JSOP_NULLWRAPPER, JSOP_NULLWRAPPER}
 };
 
 static JSBool its_noisy;    /* whether to be noisy when finalizing it */

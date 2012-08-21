@@ -24,6 +24,7 @@
 #include "jsscope.h"
 #include "jsstr.h"
 
+#include "js/HashTable.h"
 #include "js/MemoryMetrics.h"
 
 #include "jsatominlines.h"
@@ -145,7 +146,7 @@ Shape::hashify(JSContext *cx)
 Shape **
 ShapeTable::search(jsid id, bool adding)
 {
-    JSHashNumber hash0, hash1, hash2;
+    js::HashNumber hash0, hash1, hash2;
     int sizeLog2;
     Shape *stored, *shape, **spp, **firstRemoved;
     uint32_t sizeMask;
@@ -1175,12 +1176,10 @@ Shape::setExtensibleParents(JSContext *cx, Shape *shape)
 bool
 Bindings::setExtensibleParents(JSContext *cx)
 {
-    if (!ensureShape(cx))
-        return false;
-    Shape *newShape = Shape::setExtensibleParents(cx, lastBinding);
+    Shape *newShape = Shape::setExtensibleParents(cx, callObjShape_);
     if (!newShape)
         return false;
-    lastBinding = newShape;
+    callObjShape_ = newShape;
     return true;
 }
 

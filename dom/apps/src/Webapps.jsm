@@ -39,6 +39,8 @@ XPCOMUtils.defineLazyGetter(this, "msgmgr", function() {
 
 #ifdef MOZ_WIDGET_GONK
   const DIRECTORY_NAME = "webappsDir";
+#elifdef ANDROID
+  const DIRECTORY_NAME = "webappsDir";
 #else
   // If we're executing in the context of the webapp runtime, the data files
   // are in a different directory (currently the Firefox profile that installed
@@ -57,7 +59,8 @@ let DOMApplicationRegistry = {
                     "Webapps:GetInstalled", "Webapps:GetNotInstalled",
                     "Webapps:Launch", "Webapps:GetAll",
                     "Webapps:InstallPackage", "Webapps:GetBasePath",
-                    "WebApps:GetAppByManifestURL", "WebApps:GetAppLocalIdByManifestURL"];
+                    "WebApps:GetAppByManifestURL", "WebApps:GetAppLocalIdByManifestURL",
+                    "WebApps:GetAppByLocalId", "WebApps:GetManifestURLByLocalId"];
 
     this.messages.forEach((function(msgName) {
       ppmm.addMessageListener(msgName, this);
@@ -113,6 +116,10 @@ let DOMApplicationRegistry = {
     let manifest = new DOMApplicationManifest(aManifest, aApp.origin);
     for (let activity in aManifest.activities) {
       let description = aManifest.activities[activity];
+      if (!description.href) {
+        description.href = manifest.launch_path;
+      }
+      description.href = manifest.resolveFromOrigin(description.href);
       let json = {
         "manifest": aApp.manifestURL,
         "name": activity,
@@ -123,7 +130,7 @@ let DOMApplicationRegistry = {
       cpmm.sendAsyncMessage("Activities:Register", json);
 
       let launchPath =
-        Services.io.newURI(manifest.fullLaunchPath(description.href), null, null);
+        Services.io.newURI(manifest.resolveFromOrigin(description.href), null, null);
       let manifestURL = Services.io.newURI(aApp.manifestURL, null, null);
       msgmgr.registerPage("activity", launchPath, manifestURL);
     }
@@ -220,6 +227,7 @@ let DOMApplicationRegistry = {
         this.getSelf(msg);
         break;
       case "Webapps:Uninstall":
+        Services.obs.notifyObservers(this, "webapps-uninstall", JSON.stringify(msg));
         this.uninstall(msg);
         break;
       case "Webapps:Launch":
@@ -249,6 +257,12 @@ let DOMApplicationRegistry = {
       case "WebApps:GetAppLocalIdByManifestURL":
         return { id: this.getAppLocalIdByManifestURL(msg.url) };
         break;
+      case "WebApps:GetAppByLocalId":
+        return this.getAppByLocalId(msg.id);
+        break;
+      case "WebApps:GetManifestURLByLocalId":
+        return this.getManifestURLByLocalId(msg.id);
+        break;
     }
   },
 
@@ -274,7 +288,7 @@ let DOMApplicationRegistry = {
     let clone = {
       installOrigin: aApp.installOrigin,
       origin: aApp.origin,
-      receipts: aApp.receipts,
+      receipts: aApp.receipts ? JSON.parse(JSON.stringify(aApp.receipts)) : null,
       installTime: aApp.installTime,
       manifestURL: aApp.manifestURL,
       progress: aApp.progress || 0.0,
@@ -502,7 +516,7 @@ let DOMApplicationRegistry = {
         }
         // Build a data structure to call the webapps confirmation dialog :
         // - load the manifest from the zip
-        // - set data.app.(origin, install_origin, manifestURL, manifest, receipts)
+        // - set data.app.(origin, install_origin, manifestURL, manifest, receipts, categories)
         // - call notifyObservers(this, "webapps-ask-install", JSON.stringify(msg));
         let msg = {
           from: aData.from,
@@ -513,7 +527,8 @@ let DOMApplicationRegistry = {
             installOrigin: aData.installOrigin,
             origin: "app://" + id,
             manifestURL: manifestURL,
-            receipts: aData.receipts
+            receipts: aData.receipts,
+            categories: aData.categories
           }
         }
         let zipReader = Cc["@mozilla.org/libjar/zip-reader;1"]
@@ -621,8 +636,7 @@ let DOMApplicationRegistry = {
     let tmp = [];
 
     for (let id in this.webapps) {
-      if (this.webapps[id].installOrigin == aData.origin &&
-          !this._isLaunchable(this.webapps[id].origin)) {
+      if (!this._isLaunchable(this.webapps[id].origin)) {
         aData.apps.push(this._cloneAppObject(this.webapps[id]));
         tmp.push({ id: id });
       }
@@ -690,7 +704,47 @@ let DOMApplicationRegistry = {
     for (let id in this.webapps) {
       let app = this.webapps[id];
       if (app.manifestURL == aManifestURL) {
+        let res = this._cloneAppObject(app);
+        res.hasPermission = function(permission) {
+          let localId = DOMApplicationRegistry.getAppLocalIdByManifestURL(
+            this.manifestURL);
+          let uri = Services.io.newURI(this.manifestURL, null, null);
+          let secMan = Cc["@mozilla.org/scriptsecuritymanager;1"]
+                       .getService(Ci.nsIScriptSecurityManager);
+          // XXX for the purposes of permissions checking, this helper
+          // should always be called on !isBrowser frames, so we
+          // assume false here.
+          let principal = secMan.getAppCodebasePrincipal(uri, localId,
+                                                         /*mozbrowser*/false);
+          let perm = Services.perms.testExactPermissionFromPrincipal(principal,
+                                                                     permission);
+          return (perm === Ci.nsIPermissionManager.ALLOW_ACTION);
+        };
+        res.QueryInterface = XPCOMUtils.generateQI([Ci.mozIDOMApplication,
+                                                    Ci.mozIApplication]);
+        return res;
+      }
+    }
+
+    return null;
+  },
+
+  getAppByLocalId: function(aLocalId) {
+    for (let id in this.webapps) {
+      let app = this.webapps[id];
+      if (app.localId == aLocalId) {
         return this._cloneAppObject(app);
+      }
+    }
+
+    return null;
+  },
+
+  getManifestURLByLocalId: function(aLocalId) {
+    for (let id in this.webapps) {
+      let app = this.webapps[id];
+      if (app.localId == aLocalId) {
+        return app.manifestURL;
       }
     }
 
@@ -927,6 +981,10 @@ DOMApplicationManifest.prototype = {
     return this._localeProp("appcache_path");
   },
 
+  get orientation() {
+    return this._localeProp("orientation");
+  },
+
   iconURLForSize: function(aSize) {
     let icons = this._localeProp("icons");
     if (!icons)
@@ -947,6 +1005,10 @@ DOMApplicationManifest.prototype = {
     let startPoint = aStartPoint || "";
     let launchPath = this._localeProp("launch_path") || "";
     return this._origin.resolve(launchPath + startPoint);
+  },
+
+  resolveFromOrigin: function(aURI) {
+    return this._origin.resolve(aURI);
   },
 
   fullAppcachePath: function() {

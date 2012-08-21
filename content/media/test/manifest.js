@@ -10,6 +10,7 @@ var gSmallTests = [
   { name:"320x240.ogv", type:"video/ogg", width:320, height:240, duration:0.266 },
   { name:"seek.webm", type:"video/webm", width:320, height:240, duration:3.966 },
   { name:"detodos.opus", type:"audio/ogg; codecs=opus", duration:2.9135 },
+  { name:"gizmo.mp4", type:"video/mp4", duration:5.0 },
   { name:"bogus.duh", type:"bogus/duh" }
 ];
 
@@ -21,6 +22,7 @@ var gProgressTests = [
   { name:"seek.ogv", type:"video/ogg", duration:3.966, size:285310 },
   { name:"320x240.ogv", type:"video/ogg", width:320, height:240, duration:0.266, size:28942 },
   { name:"seek.webm", type:"video/webm", duration:3.966, size:215529 },
+  { name:"gizmo.mp4", type:"video/mp4", duration:5.0, size:383631 },
   { name:"bogus.duh", type:"bogus/duh" }
 ];
 
@@ -30,6 +32,7 @@ var gPlayedTests = [
   { name:"sound.ogg", type:"audio/ogg", duration:4.0 },
   { name:"seek.ogv", type:"video/ogg", duration:3.966 },
   { name:"seek.webm", type:"video/webm", duration:3.966 },
+  { name:"gizmo.mp4", type:"video/mp4", duration:5.0 },
 ];
 
 // Used by test_mozLoadFrom.  Need one test file per decoder backend, plus
@@ -147,6 +150,8 @@ var gPlayTests = [
   // Opus data in an ogg container
   { name:"detodos.opus", type:"audio/ogg; codecs=opus", duration:2.9135 },
 
+  { name:"gizmo.mp4", type:"video/mp4", duration:5.0 },
+
   // Invalid file
   { name:"bogus.duh", type:"bogus/duh", duration:Number.NaN }
 ];
@@ -159,10 +164,9 @@ function fileUriToSrc(path, mustExist) {
   if (navigator.appVersion.indexOf("Android") != -1)
     return path;
 
-  netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
   const Ci = Components.interfaces;
-  const Cc = Components.classes;
-  const Cr = Components.results;
+  const Cc = SpecialPowers.wrap(Components).classes;
+  const Cr = SpecialPowers.wrap(Components).results;
   var dirSvc = Cc["@mozilla.org/file/directory_service;1"].
                getService(Ci.nsIProperties);
   var f = dirSvc.get("CurWorkD", Ci.nsILocalFile);
@@ -444,8 +448,7 @@ function MediaTestManager() {
     // Force a GC after every completed testcase. This ensures that any decoders
     // with live threads waiting for the GC are killed promptly, to free up the
     // thread stacks' address space.
-    netscape.security.PrivilegeManager.enablePrivilege('UniversalXPConnect');
-    Components.utils.forceGC();
+    SpecialPowers.forceGC();
     
     while (this.testNum < this.tests.length && this.tokens.length < PARALLEL_TESTS) {
       var test = this.tests[this.testNum];
@@ -497,15 +500,14 @@ function mediaTestCleanup() {
       A[i].parentNode.removeChild(A[i]);
       A[i] = null;
     }
-    netscape.security.PrivilegeManager.enablePrivilege('UniversalXPConnect');
-    Components.utils.forceGC();
+    SpecialPowers.forceGC();
 }
 
 (function() {
-  netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
   // Ensure that preload preferences are comsistent
-  var prefService = Components.classes["@mozilla.org/preferences-service;1"]
-                               .getService(Components.interfaces.nsIPrefService);
+  var prefService = SpecialPowers.wrap(Components)
+                                 .classes["@mozilla.org/preferences-service;1"]
+                                 .getService(Components.interfaces.nsIPrefService);
   var branch = prefService.getBranch("media.");
   var oldDefault = 2;
   var oldAuto = 3;
@@ -522,7 +524,6 @@ function mediaTestCleanup() {
     branch.setBoolPref("opus.enabled", true);
 
   window.addEventListener("unload", function() {
-    netscape.security.PrivilegeManager.enablePrivilege("UniversalXPConnect");
     branch.setIntPref("preload.default", oldDefault);
     branch.setIntPref("preload.auto", oldAuto);
     if (oldOpus !== undefined)

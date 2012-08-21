@@ -1053,15 +1053,17 @@ class JS_PUBLIC_API(AutoGCRooter) {
         STRING =      -14, /* js::AutoStringRooter */
         IDVECTOR =    -15, /* js::AutoIdVector */
         OBJVECTOR =   -16, /* js::AutoObjectVector */
-        SCRIPTVECTOR =-17, /* js::AutoScriptVector */
-        PROPDESC =    -18, /* js::PropDesc::AutoRooter */
-        SHAPERANGE =  -19, /* js::Shape::Range::AutoRooter */
-        STACKSHAPE =  -20, /* js::StackShape::AutoRooter */
-        STACKBASESHAPE=-21,/* js::StackBaseShape::AutoRooter */
-        BINDINGS =    -22, /* js::Bindings::AutoRooter */
-        GETTERSETTER =-23, /* js::AutoRooterGetterSetter */
-        REGEXPSTATICS=-24, /* js::RegExpStatics::AutoRooter */
-        HASHABLEVALUE=-25
+        STRINGVECTOR =-17, /* js::AutoStringVector */
+        SCRIPTVECTOR =-18, /* js::AutoScriptVector */
+        PROPDESC =    -19, /* js::PropDesc::AutoRooter */
+        SHAPERANGE =  -20, /* js::Shape::Range::AutoRooter */
+        STACKSHAPE =  -21, /* js::StackShape::AutoRooter */
+        STACKBASESHAPE=-22,/* js::StackBaseShape::AutoRooter */
+        BINDINGS =    -23, /* js::Bindings::AutoRooter */
+        GETTERSETTER =-24, /* js::AutoRooterGetterSetter */
+        REGEXPSTATICS=-25, /* js::RegExpStatics::AutoRooter */
+        NAMEVECTOR =  -26, /* js::AutoNameVector */
+        HASHABLEVALUE=-27
     };
 
   private:
@@ -1254,9 +1256,15 @@ class AutoVectorRooter : protected AutoGCRooter
         JS_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
+    typedef T ElementType;
+
     size_t length() const { return vector.length(); }
+    bool empty() const { return vector.empty(); }
 
     bool append(const T &v) { return vector.append(v); }
+    bool append(const AutoVectorRooter<T> &other) {
+        return vector.append(other.vector);
+    }
 
     /* For use when space has already been reserved. */
     void infallibleAppend(const T &v) { vector.infallibleAppend(v); }
@@ -1378,8 +1386,15 @@ class CallReceiver
     friend CallReceiver CallReceiverFromArgv(Value *);
     Value *base() const { return argv_ - 2; }
     JSObject &callee() const { JS_ASSERT(!usedRval_); return argv_[-2].toObject(); }
-    Value &calleev() const { JS_ASSERT(!usedRval_); return argv_[-2]; }
-    Value &thisv() const { return argv_[-1]; }
+
+    JS::HandleValue calleev() const {
+        JS_ASSERT(!usedRval_);
+        return JS::HandleValue::fromMarkedLocation(&argv_[-2]);
+    }
+
+    JS::HandleValue thisv() const {
+        return JS::HandleValue::fromMarkedLocation(&argv_[-1]);
+    }
 
     JS::MutableHandleValue rval() const {
         setUsedRval();
@@ -1391,9 +1406,13 @@ class CallReceiver
         return argv_ - 1;
     }
 
-    void setCallee(Value calleev) {
+    void setCallee(Value calleev) const {
         clearUsedRval();
-        this->calleev() = calleev;
+        argv_[-2] = calleev;
+    }
+
+    void setThis(Value thisv) const {
+        argv_[-1] = thisv;
     }
 };
 
@@ -1508,15 +1527,19 @@ CallMethodIfWrapped(JSContext *cx, IsAcceptableThis test, NativeImpl impl, CallA
  * value which is considered acceptable.
  *
  * Now to implement the actual method, write a JSNative that calls the method
- * declared below, passing the appropriate arguments.
+ * declared below, passing the appropriate template and runtime arguments.
  *
  *   static JSBool
  *   answer_getAnswer(JSContext *cx, unsigned argc, JS::Value *vp)
  *   {
  *       JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
- *       return JS::CallNonGenericMethod(cx, IsAnswerObject,
-                                         answer_getAnswer_impl, args);
+ *       return JS::CallNonGenericMethod<IsAnswerObject, answer_getAnswer_impl>(cx, args);
  *   }
+ *
+ * Note that, because they are used as template arguments, the predicate
+ * and implementation functions must have external linkage. (This is
+ * unfortunate, but GCC wasn't inlining things as one would hope when we
+ * passed them as function arguments.)
  *
  * JS::CallNonGenericMethod will test whether |args.thisv()| is acceptable.  If
  * it is, it will call the provided implementation function, which will return
@@ -1528,14 +1551,25 @@ CallMethodIfWrapped(JSContext *cx, IsAcceptableThis test, NativeImpl impl, CallA
  * Note: JS::CallNonGenericMethod will only work correctly if it's called in
  *       tail position in a JSNative.  Do not call it from any other place.
  */
+template<IsAcceptableThis Test, NativeImpl Impl>
 JS_ALWAYS_INLINE bool
-CallNonGenericMethod(JSContext *cx, IsAcceptableThis test, NativeImpl impl, CallArgs args)
+CallNonGenericMethod(JSContext *cx, CallArgs args)
 {
     const Value &thisv = args.thisv();
-    if (test(thisv))
-        return impl(cx, args);
+    if (Test(thisv))
+        return Impl(cx, args);
 
-    return detail::CallMethodIfWrapped(cx, test, impl, args);
+    return detail::CallMethodIfWrapped(cx, Test, Impl, args);
+}
+
+JS_ALWAYS_INLINE bool
+CallNonGenericMethod(JSContext *cx, IsAcceptableThis Test, NativeImpl Impl, CallArgs args)
+{
+    const Value &thisv = args.thisv();
+    if (Test(thisv))
+        return Impl(cx, args);
+
+    return detail::CallMethodIfWrapped(cx, Test, Impl, args);
 }
 
 }  /* namespace JS */
@@ -2506,6 +2540,11 @@ class AutoIdRooter : private AutoGCRooter
 
 /* Function flags, internal use only, returned by JS_GetFunctionFlags. */
 #define JSFUN_LAMBDA            0x08    /* expressed, not declared, function */
+
+#define JSFUN_SELF_HOSTED       0x40    /* function is self-hosted native and
+                                           must not be decompilable nor
+                                           constructible. */
+
 #define JSFUN_HEAVYWEIGHT       0x80    /* activation requires a Call object */
 
 #define JSFUN_HEAVYWEIGHT_TEST(f)  ((f) & JSFUN_HEAVYWEIGHT)
@@ -2868,7 +2907,7 @@ ToUint64(JSContext *cx, const js::Value &v, uint64_t *out)
     }
 
     if (v.isInt32()) {
-        // Account for sign extension of negatives into the longer 64bit space.
+        /* Account for sign extension of negatives into the longer 64bit space. */
         *out = uint64_t(int64_t(v.toInt32()));
         return true;
     }
@@ -3221,12 +3260,11 @@ JS_StringToVersion(const char *string);
                                                    strict mode for all code
                                                    without requiring
                                                    "use strict" annotations. */
-/* JS_BIT(20) is taken in jsfriendapi.h! */
 
 /* Options which reflect compile-time properties of scripts. */
 #define JSCOMPILEOPTION_MASK    (JSOPTION_ALLOW_XML | JSOPTION_MOAR_XML)
 
-#define JSRUNOPTION_MASK        (JS_BITMASK(21) & ~JSCOMPILEOPTION_MASK)
+#define JSRUNOPTION_MASK        (JS_BITMASK(20) & ~JSCOMPILEOPTION_MASK)
 #define JSALLOPTION_MASK        (JSCOMPILEOPTION_MASK | JSRUNOPTION_MASK)
 
 extern JS_PUBLIC_API(uint32_t)
@@ -4336,24 +4374,62 @@ struct JSConstDoubleSpec {
     uint8_t         spare[3];
 };
 
+typedef struct JSJitInfo JSJitInfo;
+
+/*
+ * Wrappers to replace {Strict,}PropertyOp for JSPropertySpecs. This will allow
+ * us to pass one JSJitInfo per function with the property spec, without
+ * additional field overhead.
+ */
+typedef struct JSStrictPropertyOpWrapper {
+    JSStrictPropertyOp  op;
+    const JSJitInfo     *info;
+} JSStrictPropertyOpWrapper;
+
+typedef struct JSPropertyOpWrapper {
+    JSPropertyOp        op;
+    const JSJitInfo     *info;
+} JSPropertyOpWrapper;
+
+/*
+ * Wrapper to do as above, but for JSNatives for JSFunctionSpecs.
+ */
+typedef struct JSNativeWrapper {
+    JSNative        op;
+    const JSJitInfo *info;
+} JSNativeWrapper;
+
+/*
+ * Macro static initializers which make it easy to pass no JSJitInfo as part of a
+ * JSPropertySpec or JSFunctionSpec.
+ */
+#define JSOP_WRAPPER(op) {op, NULL}
+#define JSOP_NULLWRAPPER JSOP_WRAPPER(NULL)
+
 /*
  * To define an array element rather than a named property member, cast the
  * element's index to (const char *) and initialize name with it, and set the
  * JSPROP_INDEX bit in flags.
  */
 struct JSPropertySpec {
-    const char            *name;
-    int8_t                tinyid;
-    uint8_t               flags;
-    JSPropertyOp          getter;
-    JSStrictPropertyOp    setter;
+    const char                  *name;
+    int8_t                      tinyid;
+    uint8_t                     flags;
+    JSPropertyOpWrapper         getter;
+    JSStrictPropertyOpWrapper   setter;
 };
 
+/*
+ * To define a native function, set call to a JSNativeWrapper. To define a
+ * self-hosted function, set selfHostedName to the name of a function
+ * compiled during JSRuntime::initSelfHosting.
+ */
 struct JSFunctionSpec {
     const char      *name;
-    JSNative        call;
+    JSNativeWrapper call;
     uint16_t        nargs;
     uint16_t        flags;
+    const char      *selfHostedName;
 };
 
 /*
@@ -4365,12 +4441,14 @@ struct JSFunctionSpec {
 /*
  * Initializer macros for a JSFunctionSpec array element. JS_FN (whose name
  * pays homage to the old JSNative/JSFastNative split) simply adds the flag
- * JSFUN_STUB_GSOPS.
+ * JSFUN_STUB_GSOPS. JS_FNINFO allows the simple adding of JSJitInfos.
  */
 #define JS_FS(name,call,nargs,flags)                                          \
-    {name, call, nargs, flags}
+    {name, JSOP_WRAPPER(call), nargs, flags}
 #define JS_FN(name,call,nargs,flags)                                          \
-    {name, call, nargs, (flags) | JSFUN_STUB_GSOPS}
+    {name, JSOP_WRAPPER(call), nargs, (flags) | JSFUN_STUB_GSOPS}
+#define JS_FNINFO(name,call,info,nargs,flags)                                 \
+    {name,{call,info},nargs,flags}
 
 extern JS_PUBLIC_API(JSObject *)
 JS_InitClass(JSContext *cx, JSObject *obj, JSObject *parent_proto,
@@ -5080,9 +5158,14 @@ struct JS_PUBLIC_API(CompileOptions) {
     unsigned lineno;
     bool compileAndGo;
     bool noScriptRval;
-    bool allowIntrinsicsCalls;
+    bool selfHostingMode;
+    enum SourcePolicy {
+        NO_SOURCE,
+        LAZY_SOURCE,
+        SAVE_SOURCE
+    } sourcePolicy;
 
-    CompileOptions(JSContext *cx);
+    explicit CompileOptions(JSContext *cx);
     CompileOptions &setPrincipals(JSPrincipals *p) { principals = p; return *this; }
     CompileOptions &setOriginPrincipals(JSPrincipals *p) { originPrincipals = p; return *this; }
     CompileOptions &setVersion(JSVersion v) { version = v; versionSet = true; return *this; }
@@ -5092,7 +5175,8 @@ struct JS_PUBLIC_API(CompileOptions) {
     }
     CompileOptions &setCompileAndGo(bool cng) { compileAndGo = cng; return *this; }
     CompileOptions &setNoScriptRval(bool nsr) { noScriptRval = nsr; return *this; }
-    CompileOptions &setAllowIntrinsicsCalls(bool aic) { allowIntrinsicsCalls = aic; return *this; }
+    CompileOptions &setSelfHostingMode(bool shm) { selfHostingMode = shm; return *this; }
+    CompileOptions &setSourcePolicy(SourcePolicy sp) { sourcePolicy = sp; return *this; }
 };
 
 extern JS_PUBLIC_API(JSScript *)

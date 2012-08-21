@@ -26,6 +26,11 @@ let AboutReader = {
   _STEP_INCREMENT: 0,
   _STEP_DECREMENT: 1,
 
+  _BLOCK_IMAGES_SELECTOR: ".content p > img:only-child, " +
+                          ".content p > a:only-child > img:only-child, " +
+                          ".content .wp-caption img, " +
+                          ".content figure img",
+
   init: function Reader_init() {
     dump("Init()");
 
@@ -34,7 +39,10 @@ let AboutReader = {
     this._article = null;
 
     dump("Feching toolbar, header and content notes from about:reader");
-    this._titleElement = document.getElementById("reader-header");
+    this._headerElement = document.getElementById("reader-header");
+    this._domainElement = document.getElementById("reader-domain");
+    this._titleElement = document.getElementById("reader-title");
+    this._creditsElement = document.getElementById("reader-credits");
     this._contentElement = document.getElementById("reader-content");
     this._toolbarElement = document.getElementById("reader-toolbar");
 
@@ -47,17 +55,18 @@ let AboutReader = {
     body.addEventListener("click", this, false);
     window.addEventListener("scroll", this, false);
     window.addEventListener("popstate", this, false);
+    window.addEventListener("resize", this, false);
 
     this._setupAllDropdowns();
+    this._setupButton("toggle-button", this._onReaderToggle.bind(this));
+    this._setupButton("list-button", this._onList.bind(this));
     this._setupButton("share-button", this._onShare.bind(this));
 
     let colorSchemeOptions = [
       { name: gStrings.GetStringFromName("aboutReader.colorSchemeLight"),
         value: "light"},
       { name: gStrings.GetStringFromName("aboutReader.colorSchemeDark"),
-        value: "dark"},
-      { name: gStrings.GetStringFromName("aboutReader.colorSchemeSepia"),
-        value: "sepia"}
+        value: "dark"}
     ];
 
     let colorScheme = Services.prefs.getCharPref("reader.color_scheme");
@@ -77,16 +86,17 @@ let AboutReader = {
     dump("Decoding query arguments");
     let queryArgs = this._decodeQueryString(window.location.href);
 
+    this._isReadingListItem = (queryArgs.readingList == "1");
+    this._updateToggleButton();
+
     let url = queryArgs.url;
-    if (url) {
+    let tabId = queryArgs.tabId;
+    if (tabId) {
+      dump("Loading from tab with ID: " + tabId + ", URL: " + url);
+      this._loadFromTab(tabId, url);
+    } else {
       dump("Fetching page with URL: " + url);
       this._loadFromURL(url);
-    } else {
-      var tabId = queryArgs.tabId;
-      if (tabId) {
-        dump("Loading from tab with ID: " + tabId);
-        this._loadFromTab(tabId);
-      }
     }
   },
 
@@ -119,6 +129,9 @@ let AboutReader = {
         if (!aEvent.state)
           this._closeAllDropdowns();
         break;
+      case "resize":
+        this._updateImageMargins();
+        break;
     }
   },
 
@@ -132,8 +145,64 @@ let AboutReader = {
     body.removeEventListener("click", this, false);
     window.removeEventListener("scroll", this, false);
     window.removeEventListener("popstate", this, false);
+    window.removeEventListener("resize", this, false);
 
     this._hideContent();
+  },
+
+  _updateToggleButton: function Reader_updateToggleButton() {
+    let classes = document.getElementById("toggle-button").classList;
+
+    if (this._isReadingListItem) {
+      classes.add("on");
+    } else {
+      classes.remove("on");
+    }
+  },
+
+  _onReaderToggle: function Reader_onToggle() {
+    if (!this._article)
+      return;
+
+    this._isReadingListItem = !this._isReadingListItem;
+    this._updateToggleButton();
+
+    if (this._isReadingListItem) {
+      gChromeWin.Reader.storeArticleInCache(this._article, function(success) {
+        dump("Reader:Add (in reader) success=" + success);
+
+        gChromeWin.sendMessageToJava({
+          gecko: {
+            type: "Reader:Added",
+            success: success,
+            title: this._article.title,
+            url: this._article.url,
+          }
+        });
+      }.bind(this));
+    } else {
+      gChromeWin.Reader.removeArticleFromCache(this._article.url , function(success) {
+        dump("Reader:Remove (in reader) success=" + success);
+
+        gChromeWin.sendMessageToJava({
+          gecko: {
+            type: "Reader:Removed",
+            url: this._article.url
+          }
+        });
+      }.bind(this));
+    }
+  },
+
+  _onList: function Reader_onList() {
+    if (!this._article)
+      return;
+
+    gChromeWin.sendMessageToJava({
+      gecko: {
+        type: "Reader:GoToReadingList"
+      }
+    });
   },
 
   _onShare: function Reader_onShare() {
@@ -163,6 +232,8 @@ let AboutReader = {
     this._marginSize = Math.max(5, Math.min(25, newMarginSize));
     document.body.style.marginLeft = this._marginSize + "%";
     document.body.style.marginRight = this._marginSize + "%";
+
+    this._updateImageMargins();
 
     Services.prefs.setIntPref("reader.margin_size", this._marginSize);
   },
@@ -246,10 +317,10 @@ let AboutReader = {
     }.bind(this));
   },
 
-  _loadFromTab: function Reader_loadFromTab(tabId) {
+  _loadFromTab: function Reader_loadFromTab(tabId, url) {
     this._showProgress();
 
-    gChromeWin.Reader.parseDocumentFromTab(tabId, function(article) {
+    gChromeWin.Reader.getArticleForTab(tabId, url, function(article) {
       if (article)
         this._showContent(article);
       else
@@ -277,8 +348,52 @@ let AboutReader = {
     document.getElementsByTagName('head')[0].appendChild(link);
   },
 
+  _updateImageMargins: function Reader_updateImageMargins() {
+    let windowWidth = window.innerWidth;
+    let contentWidth = this._contentElement.offsetWidth;
+    let maxWidthStyle = windowWidth + "px !important";
+
+    let setImageMargins = function(img) {
+      if (!img._originalWidth)
+        img._originalWidth = img.offsetWidth;
+
+      let imgWidth = img._originalWidth;
+
+      // If the image is taking more than half of the screen, just make
+      // it fill edge-to-edge.
+      if (imgWidth < contentWidth && imgWidth > windowWidth * 0.55)
+        imgWidth = windowWidth;
+
+      let sideMargin = Math.max((contentWidth - windowWidth) / 2,
+                                (contentWidth - imgWidth) / 2);
+
+      let imageStyle = sideMargin + "px !important";
+      let widthStyle = imgWidth + "px !important";
+
+      let cssText = "max-width: " + maxWidthStyle + ";" +
+                    "width: " + widthStyle + ";" +
+                    "margin-left: " + imageStyle + ";" +
+                    "margin-right: " + imageStyle + ";";
+
+      img.style.cssText = cssText;
+    }
+
+    let imgs = document.querySelectorAll(this._BLOCK_IMAGES_SELECTOR);
+    for (let i = imgs.length; --i >= 0;) {
+      let img = imgs[i];
+
+      if (img.width > 0) {
+        setImageMargins(img);
+      } else {
+        img.onload = function() {
+          setImageMargins(img);
+        }
+      }
+    }
+  },
+
   _showError: function Reader_showError(error) {
-    this._titleElement.style.display = "none";
+    this._headerElement.style.display = "none";
     this._contentElement.innerHTML = error;
     this._contentElement.style.display = "block";
 
@@ -288,13 +403,21 @@ let AboutReader = {
   _showContent: function Reader_showContent(article) {
     this._article = article;
 
+    let domain = Services.io.newURI(article.url, null, null).host;
+    this._domainElement.innerHTML = domain;
+
+    this._creditsElement.innerHTML = article.byline;
+
     this._titleElement.innerHTML = article.title;
-    this._titleElement.style.display = "block";
+    document.title = article.title;
+
+    this._headerElement.style.display = "block";
 
     this._contentElement.innerHTML = article.content;
+    this._updateImageMargins();
+
     this._contentElement.style.display = "block";
 
-    document.title = article.title;
 
     this._toolbarEnabled = true;
     this._setToolbarVisibility(true);
@@ -303,12 +426,12 @@ let AboutReader = {
   },
 
   _hideContent: function Reader_hideContent() {
-    this._titleElement.style.display = "none";
+    this._headerElement.style.display = "none";
     this._contentElement.style.display = "none";
   },
 
   _showProgress: function Reader_showProgress() {
-    this._titleElement.style.display = "none";
+    this._headerElement.style.display = "none";
     this._contentElement.innerHTML = gStrings.GetStringFromName("aboutReader.loading");
     this._contentElement.style.display = "block";
   },
@@ -387,6 +510,7 @@ let AboutReader = {
     let button = document.getElementById(id);
 
     button.addEventListener("click", function(aEvent) {
+      aEvent.stopPropagation();
       callback();
     }, true);
   },

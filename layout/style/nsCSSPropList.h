@@ -1297,7 +1297,8 @@ CSS_PROP_POSITION(
     bottom,
     Bottom,
     CSS_PROPERTY_PARSE_VALUE |
-        CSS_PROPERTY_STORES_CALC,
+        CSS_PROPERTY_STORES_CALC |
+        CSS_PROPERTY_UNITLESS_LENGTH_QUIRK,
     "",
     VARIANT_AHLP | VARIANT_CALC,
     nullptr,
@@ -2758,10 +2759,9 @@ CSS_PROP_TEXTRESET(
     unicode-bidi,
     unicode_bidi,
     UnicodeBidi,
-    CSS_PROPERTY_PARSE_VALUE |
-        CSS_PROPERTY_VALUE_PARSER_FUNCTION,
+    CSS_PROPERTY_PARSE_VALUE,
     "",
-    0,
+    VARIANT_HK,
     kUnicodeBidiKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_None)

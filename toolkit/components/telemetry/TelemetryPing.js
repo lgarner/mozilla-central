@@ -27,7 +27,9 @@ const TELEMETRY_DELAY = 60000;
 const PR_WRONLY = 0x2;
 const PR_CREATE_FILE = 0x8;
 const PR_TRUNCATE = 0x20;
+const PR_EXCL = 0x80;
 const RW_OWNER = 0600;
+const RWX_OWNER = 0700;
 
 // MEM_HISTOGRAMS lists the memory reporters we turn into histograms.
 //
@@ -134,7 +136,7 @@ function getSimpleMeasurements() {
            .getService(Ci.nsIJSEngineTelemetryStats)
            .telemetryValue;
 
-  let shutdownDuration = si.lastShutdownDuration;
+  let shutdownDuration = Services.startup.lastShutdownDuration;
   if (shutdownDuration)
     ret.shutdownDuration = shutdownDuration;
 
@@ -810,24 +812,31 @@ TelemetryPing.prototype = {
   },
 
   finishTelemetrySave: function finishTelemetrySave(ok, stream) {
-    stream.QueryInterface(Ci.nsISafeOutputStream).finish();
     stream.close();
     if (this._doLoadSaveNotifications && ok) {
       Services.obs.notifyObservers(null, "telemetry-test-save-complete", null);
     }
   },
 
-  savePingToFile: function savePingToFile(ping, file, sync) {
+  savePingToFile: function savePingToFile(ping, file, sync, overwrite) {
     let pingString = JSON.stringify(ping);
 
     let converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
                     .createInstance(Ci.nsIScriptableUnicodeConverter);
     converter.charset = "UTF-8";
 
-    let ostream = Cc["@mozilla.org/network/safe-file-output-stream;1"]
+    let ostream = Cc["@mozilla.org/network/file-output-stream;1"]
                   .createInstance(Ci.nsIFileOutputStream);
-    ostream.init(file, PR_WRONLY | PR_CREATE_FILE | PR_TRUNCATE,
-                 RW_OWNER, ostream.DEFER_OPEN);
+    let initFlags = PR_WRONLY | PR_CREATE_FILE | PR_TRUNCATE;
+    if (!overwrite) {
+      initFlags |= PR_EXCL;
+    }
+    try {
+      ostream.init(file, initFlags, RW_OWNER, ostream.DEFER_OPEN);
+    } catch (e) {
+      // Probably due to PR_EXCL.
+      return;
+    }
 
     if (sync) {
       let utf8String = converter.ConvertFromUnicode(pingString);
@@ -863,13 +872,16 @@ TelemetryPing.prototype = {
     directory.append("saved-telemetry-pings");
     if (directory.exists()) {
       if (directory.isDirectory()) {
+        // We used to wrongly create the directory with mode 0600.
+        // Fix that.
+        directory.permissions = RWX_OWNER;
         return directory;
       } else {
         directory.remove(true);
       }
     }
 
-    directory.create(Ci.nsIFile.DIRECTORY_TYPE, RW_OWNER);
+    directory.create(Ci.nsIFile.DIRECTORY_TYPE, RWX_OWNER);
     return directory;
   },
 
@@ -882,19 +894,22 @@ TelemetryPing.prototype = {
     return file;
   },
 
-  savePing: function savePing(ping) {
-    this.savePingToFile(ping, this.saveFileForPing(ping), true);
+  savePing: function savePing(ping, overwrite) {
+    this.savePingToFile(ping, this.saveFileForPing(ping), true, overwrite);
   },
 
   savePendingPings: function savePendingPings() {
-    this._pendingPings.push(this.getCurrentSessionPayloadAndSlug("saved-session"));
-    this._pendingPings.forEach(function sppcb(e, i, a) { this.savePing(e); }, this);
+    let sessionPing = this.getCurrentSessionPayloadAndSlug("saved-session");
+    this.savePing(sessionPing, true);
+    this._pendingPings.forEach(function sppcb(e, i, a) {
+                                 this.savePing(e, false);
+                               }, this);
     this._pendingPings = [];
   },
 
   saveHistograms: function saveHistograms(file, sync) {
     this.savePingToFile(this.getCurrentSessionPayloadAndSlug("saved-session"),
-                        file, sync);
+                        file, sync, true);
   },
 
   /** 

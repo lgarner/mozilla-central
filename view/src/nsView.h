@@ -12,6 +12,7 @@
 #include "nsCRT.h"
 #include "nsIFactory.h"
 #include "nsEvent.h"
+#include "nsIWidgetListener.h"
 #include <stdio.h>
 
 //mmptemp
@@ -19,7 +20,8 @@
 class nsIViewManager;
 class nsViewManager;
 
-class nsView : public nsIView
+class nsView : public nsIView,
+               public nsIWidgetListener
 {
 public:
   nsView(nsViewManager* aViewManager = nullptr,
@@ -155,6 +157,17 @@ public:
   // released if it points to any view in this view hierarchy.
   void InvalidateHierarchy(nsViewManager *aViewManagerParent);
 
+  // nsIWidgetListener
+  virtual nsIPresShell* GetPresShell();
+  virtual nsIView* GetView() { return this; }
+  bool WindowMoved(nsIWidget* aWidget, PRInt32 x, PRInt32 y);
+  bool WindowResized(nsIWidget* aWidget, PRInt32 aWidth, PRInt32 aHeight);
+  bool RequestWindowClose(nsIWidget* aWidget);
+  void WillPaintWindow(nsIWidget* aWidget, bool aWillSendDidPaint);
+  bool PaintWindow(nsIWidget* aWidget, nsIntRegion aRegion, bool aSentDidPaint, bool aWillSendDidPaint);
+  void DidPaintWindow();
+  nsEventStatus HandleEvent(nsGUIEvent* aEvent, bool aUseAttachedEvents);
+
   virtual ~nsView();
 
   nsPoint GetOffsetTo(const nsView* aOther) const;
@@ -162,12 +175,16 @@ public:
   nsPoint GetOffsetTo(const nsView* aOther, const PRInt32 aAPD) const;
   nsIWidget* GetNearestWidget(nsPoint* aOffset, const PRInt32 aAPD) const;
 
+  void SetForcedRepaint(bool aForceRepaint) { mForcedRepaint = aForceRepaint; }
+  bool ForcedRepaint() { return mForcedRepaint; }
+
 protected:
   // Do the actual work of ResetWidgetBounds, unconditionally.  Don't
   // call this method if we have no widget.
   void DoResetWidgetBounds(bool aMoveOnly, bool aInvalidateChangedSize);
 
   nsRegion*    mDirtyRegion;
+  bool mForcedRepaint;
 
 private:
   void InitializeWindow(bool aEnableDragDrop, bool aResetVisibility);

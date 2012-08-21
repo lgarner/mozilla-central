@@ -376,7 +376,7 @@ js_DumpPC(JSContext *cx)
     return ok;
 }
 
-JSBool
+JS_FRIEND_API(JSBool)
 js_DumpScript(JSContext *cx, JSScript *script_)
 {
     Sprinter sprinter(cx);
@@ -1095,7 +1095,7 @@ js_NewPrinter(JSContext *cx, const char *name, JSFunction *fun,
     jp->decompiledOpcodes = NULL;
     if (fun && fun->isInterpreted() && fun->script()->bindings.count() > 0) {
         jp->localNames = cx->new_<BindingVector>(cx);
-        if (!jp->localNames || !GetOrderedBindings(cx, fun->script()->bindings, jp->localNames)) {
+        if (!jp->localNames || !FillBindingVector(fun->script()->bindings, jp->localNames)) {
             js_DestroyPrinter(jp);
             return NULL;
         }
@@ -1753,7 +1753,7 @@ GetArgOrVarAtom(JSPrinter *jp, unsigned slot)
 {
     LOCAL_ASSERT_RV(jp->fun, NULL);
     LOCAL_ASSERT_RV(slot < jp->fun->script()->bindings.count(), NULL);
-    JSAtom *name = (*jp->localNames)[slot].maybeName;
+    JSAtom *name = (*jp->localNames)[slot].name();
 #if !JS_HAS_DESTRUCTURING
     LOCAL_ASSERT_RV(name, NULL);
 #endif
@@ -4698,7 +4698,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, int nb)
                     if (fun->script()->bindings.count() > 0) {
                         innerLocalNames = cx->new_<BindingVector>(cx);
                         if (!innerLocalNames ||
-                            !GetOrderedBindings(cx, fun->script()->bindings, innerLocalNames))
+                            !FillBindingVector(fun->script()->bindings, innerLocalNames))
                         {
                             return NULL;
                         }
@@ -4819,7 +4819,7 @@ Decompile(SprintStack *ss, jsbytecode *pc, int nb)
                      * syntactically appear.
                      */
                     jsbytecode *nextpc = pc + JSOP_LAMBDA_LENGTH;
-                    LOCAL_ASSERT(*nextpc == JSOP_SETLOCAL || *nextpc == JSOP_SETALIASEDVAR);
+                    LOCAL_ASSERT(*nextpc == JSOP_SETLOCAL || *nextpc == JSOP_SETALIASEDVAR || *nextpc == JSOP_SETARG);
                     nextpc += js_CodeSpec[*nextpc].length;
                     LOCAL_ASSERT(*nextpc == JSOP_POP);
                     nextpc += JSOP_POP_LENGTH;
@@ -5569,7 +5569,7 @@ js_DecompileFunctionBody(JSPrinter *jp)
 
     JS_ASSERT(jp->fun);
     JS_ASSERT(!jp->script);
-    if (!jp->fun->isInterpreted()) {
+    if (jp->fun->isNative() || jp->fun->isSelfHostedBuiltin()) {
         js_printf(jp, native_code_str);
         return JS_TRUE;
     }
@@ -5604,7 +5604,7 @@ js_DecompileFunction(JSPrinter *jp)
         return JS_FALSE;
     js_puts(jp, "(");
 
-    if (!fun->isInterpreted()) {
+    if (fun->isNative() || fun->isSelfHostedBuiltin()) {
         js_printf(jp, ") {\n");
         jp->indent += 4;
         js_printf(jp, native_code_str);
@@ -5738,7 +5738,7 @@ static JSObject *
 GetBlockChainAtPC(JSContext *cx, JSScript *script, jsbytecode *pc)
 {
     jsbytecode *start = script->main();
-    
+
     JS_ASSERT(pc >= start && pc < script->code + script->length);
 
     JSObject *blockChain = NULL;
@@ -5773,7 +5773,7 @@ GetBlockChainAtPC(JSContext *cx, JSScript *script, jsbytecode *pc)
             break;
         }
     }
-    
+
     return blockChain;
 }
 
@@ -5887,10 +5887,10 @@ bool
 ExpressionDecompiler::decompilePC(jsbytecode *pc)
 {
     JS_ASSERT(script->code <= pc && pc < script->code + script->length);
-    
+
     PCStack pcstack(cx);
     if (!pcstack.init(cx, script, pc))
-        return NULL;
+        return false;
 
     JSOp op = (JSOp)*pc;
 
@@ -5932,8 +5932,6 @@ ExpressionDecompiler::decompilePC(jsbytecode *pc)
       case JSOP_CALLARG: {
         unsigned slot = GET_ARGNO(pc);
         JSAtom *atom = getArg(slot);
-        if (!atom)
-            break; // Destructuring
         return write(atom);
       }
       case JSOP_GETLOCAL:
@@ -6048,7 +6046,7 @@ ExpressionDecompiler::init()
     localNames = cx->new_<BindingVector>(cx);
     if (!localNames)
         return false;
-    if (!GetOrderedBindings(cx, script->bindings, localNames))
+    if (!FillBindingVector(script->bindings, localNames))
         return false;
 
     return true;
@@ -6093,17 +6091,12 @@ ExpressionDecompiler::findLetVar(jsbytecode *pc, unsigned depth)
             if (uint32_t(depth - blockDepth) < uint32_t(blockCount)) {
                 for (Shape::Range r(block.lastProperty()); !r.empty(); r.popFront()) {
                     const Shape &shape = r.front();
-                    if (shape.shortid() == int(depth - blockDepth)) {
-                        // !JSID_IS_ATOM(shape.propid()) happens for empty
-                        // destructuring variables in lets. They can be safely
-                        // ignored.
-                        if (JSID_IS_ATOM(shape.propid()))
-                            return JSID_TO_ATOM(shape.propid());
-                    }
+                    if (shape.shortid() == int(depth - blockDepth))
+                        return JSID_TO_ATOM(shape.propid());
                 }
             }
-            chain = chain->enclosingScope();
-        } while (chain->isBlock());
+            chain = chain->getParent();
+        } while (chain && chain->isBlock());
     }
     return NULL;
 }
@@ -6113,7 +6106,7 @@ ExpressionDecompiler::getArg(unsigned slot)
 {
     JS_ASSERT(fun);
     JS_ASSERT(slot < script->bindings.count());
-    return (*localNames)[slot].maybeName;
+    return (*localNames)[slot].name();
 }
 
 JSAtom *
@@ -6122,7 +6115,7 @@ ExpressionDecompiler::getVar(unsigned slot)
     JS_ASSERT(fun);
     slot += fun->nargs;
     JS_ASSERT(slot < script->bindings.count());
-    return (*localNames)[slot].maybeName;
+    return (*localNames)[slot].name();
 }
 
 bool
@@ -6138,7 +6131,8 @@ ExpressionDecompiler::getOutput(char **res)
 }
 
 static bool
-FindStartPC(JSContext *cx, JSScript *script, int spindex, Value v, jsbytecode **valuepc)
+FindStartPC(JSContext *cx, JSScript *script, int spindex, int skipStackHits,
+            Value v, jsbytecode **valuepc)
 {
     jsbytecode *current = *valuepc;
 
@@ -6157,10 +6151,11 @@ FindStartPC(JSContext *cx, JSScript *script, int spindex, Value v, jsbytecode **
         // exception.
         Value *stackBase = cx->regs().spForStackDepth(0);
         Value *sp = cx->regs().sp;
+        int stackHits = 0;
         do {
             if (sp == stackBase)
                 return true;
-        } while (*--sp != v);
+        } while (*--sp != v || stackHits++ != skipStackHits);
         if (sp < stackBase + pcstack.depth())
             *valuepc = pcstack[sp - stackBase];
     } else {
@@ -6170,7 +6165,7 @@ FindStartPC(JSContext *cx, JSScript *script, int spindex, Value v, jsbytecode **
 }
 
 static bool
-DecompileExpressionFromStack(JSContext *cx, int spindex, Value v, char **res)
+DecompileExpressionFromStack(JSContext *cx, int spindex, int skipStackHits, Value v, char **res)
 {
     JS_ASSERT(spindex < 0 ||
               spindex == JSDVG_IGNORE_STACK ||
@@ -6190,7 +6185,7 @@ DecompileExpressionFromStack(JSContext *cx, int spindex, Value v, char **res)
     if (valuepc < script->main())
         return true;
 
-    if (!FindStartPC(cx, script, spindex, v, &valuepc))
+    if (!FindStartPC(cx, script, spindex, skipStackHits, v, &valuepc))
         return false;
     if (!valuepc)
         return true;
@@ -6205,12 +6200,13 @@ DecompileExpressionFromStack(JSContext *cx, int spindex, Value v, char **res)
 }
 
 char *
-js_DecompileValueGenerator(JSContext *cx, int spindex, jsval v,
-                           JSString *fallback)
+js::DecompileValueGenerator(JSContext *cx, int spindex, HandleValue v,
+                            HandleString fallbackArg, int skipStackHits)
 {
+    RootedString fallback(cx, fallbackArg);
     {
         char *result;
-        if (!DecompileExpressionFromStack(cx, spindex, v, &result))
+        if (!DecompileExpressionFromStack(cx, spindex, skipStackHits, v, &result))
             return NULL;
         if (result) {
             if (strcmp(result, "(intermediate value)"))

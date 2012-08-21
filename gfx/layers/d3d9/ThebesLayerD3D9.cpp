@@ -19,6 +19,7 @@
 #include "gfxTeeSurface.h"
 #include "gfxUtils.h"
 #include "ReadbackProcessor.h"
+#include "ReadbackLayer.h"
 
 namespace mozilla {
 namespace layers {
@@ -235,6 +236,10 @@ ThebesLayerD3D9::RenderThebesLayer(ReadbackProcessor* aReadback)
     DrawRegion(drawRegion, mode, readbackUpdates);
 
     mValidRegion = neededRegion;
+  }
+
+  if (mD3DManager->CompositingDisabled()) {
+    return;
   }
 
   SetShaderTransformAndOpacity();
@@ -655,7 +660,7 @@ ShadowThebesLayerD3D9::IsEmpty()
 void
 ShadowThebesLayerD3D9::RenderThebesLayer()
 {
-  if (!mBuffer) {
+  if (!mBuffer || mD3DManager->CompositingDisabled()) {
     return;
   }
   NS_ABORT_IF_FALSE(mBuffer, "should have a buffer here");

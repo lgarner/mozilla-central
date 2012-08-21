@@ -43,10 +43,13 @@
 #include "nsTHashtable.h"
 #include "nsGkAtoms.h"
 #include "wdgtos2rc.h"
+#include "nsIDOMWheelEvent.h"
 #include "mozilla/Preferences.h"
 #include <os2im.h>
 
 using namespace mozilla;
+using namespace mozilla::widget;
+
 //=============================================================================
 //  Macros
 //=============================================================================
@@ -1922,9 +1925,7 @@ void nsWindow::OnDestroy()
   // from the Release() below.  This is very bad...
   if (!(nsWindowState_eDoingDelete & mWindowState)) {
     AddRef();
-    nsGUIEvent event(true, NS_DESTROY, this);
-    InitEvent(event);
-    DispatchWindowEvent(&event);
+    NotifyWindowDestroyed();
     Release();
   }
 
@@ -2945,10 +2946,8 @@ NS_IMETHODIMP nsWindow::DispatchEvent(nsGUIEvent* event, nsEventStatus& aStatus)
     return NS_OK;
   }
 
-  // if state is eInCreate, only send out NS_CREATE
   // if state is eDoingDelete, don't send out anything
-  if ((mWindowState & nsWindowState_eLive) ||
-      (mWindowState == nsWindowState_eInCreate && event->message == NS_CREATE)) {
+  if (mWindowState & nsWindowState_eLive) {
     aStatus = (*mEventCallback)(event);
   }
   return NS_OK;
@@ -3224,46 +3223,51 @@ bool nsWindow::DispatchActivationEvent(PRUint32 aEventType)
 
 bool nsWindow::DispatchScrollEvent(ULONG msg, MPARAM mp1, MPARAM mp2)
 {
-  nsMouseScrollEvent scrollEvent(true, NS_MOUSE_SCROLL, this);
-  InitEvent(scrollEvent);
+  WheelEvent wheelEvent(true, NS_WHEEL_WHEEL, this);
+  InitEvent(wheelEvent);
 
-  scrollEvent.InitBasicModifiers(isKeyDown(VK_CTRL),
-                                 isKeyDown(VK_ALT) || isKeyDown(VK_ALTGRAF),
-                                 isKeyDown(VK_SHIFT), false);
-  scrollEvent.scrollFlags = (msg == WM_HSCROLL) ?
-                            nsMouseScrollEvent::kIsHorizontal :
-                            nsMouseScrollEvent::kIsVertical;
-
+  wheelEvent.InitBasicModifiers(isKeyDown(VK_CTRL),
+                                isKeyDown(VK_ALT) || isKeyDown(VK_ALTGRAF),
+                                isKeyDown(VK_SHIFT), false);
   // The SB_* constants for analogous vertical & horizontal ops have the
   // the same values, so only use the verticals to avoid compiler errors.
+  PRInt32 delta;
   switch (SHORT2FROMMP(mp2)) {
     case SB_LINEUP:
     //   SB_LINELEFT:
-      scrollEvent.delta = -1;
+      wheelEvent.deltaMode = nsIDOMWheelEvent.DOM_DELTA_LINE;
+      delta = -1;
       break;
 
     case SB_LINEDOWN:
     //   SB_LINERIGHT:
-      scrollEvent.delta = 1;
+      wheelEvent.deltaMode = nsIDOMWheelEvent.DOM_DELTA_LINE;
+      delta = 1;
       break;
 
     case SB_PAGEUP:
     //   SB_PAGELEFT:
-      scrollEvent.scrollFlags |= nsMouseScrollEvent::kIsFullPage;
-      scrollEvent.delta = -1;
+      wheelEvent.deltaMode = nsIDOMWheelEvent.DOM_DELTA_PAGE;
+      delta = -1;
       break;
 
     case SB_PAGEDOWN:
     //   SB_PAGERIGHT:
-      scrollEvent.scrollFlags |= nsMouseScrollEvent::kIsFullPage;
-      scrollEvent.delta = 1;
+      wheelEvent.deltaMode = nsIDOMWheelEvent.DOM_DELTA_PAGE;
+      delta = 1;
       break;
 
     default:
-      scrollEvent.delta = 0;
-      break;
+      return false;
   }
-  DispatchWindowEvent(&scrollEvent);
+
+  if (msg == WM_HSCROLL) {
+    wheelEvent.deltaX = wheelEvent.lineOrPageDeltaX = delta;
+  } else {
+    wheelEvent.deltaY = wheelEvent.lineOrPageDeltaY = delta;
+  }
+
+  DispatchWindowEvent(&wheelEvent);
 
   return false;
 }

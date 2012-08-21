@@ -127,12 +127,12 @@ nsHTMLEditor::SetInlineProperty(nsIAtom *aProperty,
   }
 
   nsAutoEditBatch batchIt(this);
-  nsAutoRules beginRulesSniffing(this, kOpInsertElement, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::insertElement, nsIEditor::eNext);
   nsAutoSelectionReset selectionResetter(selection, this);
   nsAutoTxnsConserveSelection dontSpazMySelection(this);
 
   bool cancel, handled;
-  nsTextRulesInfo ruleInfo(kOpSetTextProperty);
+  nsTextRulesInfo ruleInfo(EditAction::setTextProperty);
   nsresult res = mRules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(res, res);
   if (!cancel && !handled) {
@@ -144,7 +144,8 @@ nsHTMLEditor::SetInlineProperty(nsIAtom *aProperty,
 
     // loop thru the ranges in the selection
     nsCOMPtr<nsISupports> currentItem;
-    for (enumerator->First(); NS_ENUMERATOR_FALSE == enumerator->IsDone();
+    for (enumerator->First();
+         static_cast<nsresult>(NS_ENUMERATOR_FALSE) == enumerator->IsDone();
          enumerator->Next()) {
       res = enumerator->CurrentItem(getter_AddRefs(currentItem));
       NS_ENSURE_SUCCESS(res, res);
@@ -1332,7 +1333,7 @@ NS_IMETHODIMP nsHTMLEditor::GetInlinePropertyWithAttrValue(nsIAtom *aProperty,
 NS_IMETHODIMP nsHTMLEditor::RemoveAllInlineProperties()
 {
   nsAutoEditBatch batchIt(this);
-  nsAutoRules beginRulesSniffing(this, kOpResetTextProperties, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::resetTextProperties, nsIEditor::eNext);
 
   nsresult res = RemoveInlinePropertyImpl(nullptr, nullptr);
   NS_ENSURE_SUCCESS(res, res);
@@ -1372,12 +1373,12 @@ nsresult nsHTMLEditor::RemoveInlinePropertyImpl(nsIAtom *aProperty, const nsAStr
   }
 
   nsAutoEditBatch batchIt(this);
-  nsAutoRules beginRulesSniffing(this, kOpRemoveTextProperty, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::removeTextProperty, nsIEditor::eNext);
   nsAutoSelectionReset selectionResetter(selection, this);
   nsAutoTxnsConserveSelection dontSpazMySelection(this);
   
   bool cancel, handled;
-  nsTextRulesInfo ruleInfo(kOpRemoveTextProperty);
+  nsTextRulesInfo ruleInfo(EditAction::removeTextProperty);
   res = mRules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(res, res);
   if (!cancel && !handled)
@@ -1391,8 +1392,7 @@ nsresult nsHTMLEditor::RemoveInlinePropertyImpl(nsIAtom *aProperty, const nsAStr
     // loop thru the ranges in the selection
     enumerator->First(); 
     nsCOMPtr<nsISupports> currentItem;
-    while ((NS_ENUMERATOR_FALSE == enumerator->IsDone()))
-    {
+    while (static_cast<nsresult>(NS_ENUMERATOR_FALSE) == enumerator->IsDone()) {
       res = enumerator->CurrentItem(getter_AddRefs(currentItem));
       NS_ENSURE_SUCCESS(res, res);
       NS_ENSURE_TRUE(currentItem, NS_ERROR_FAILURE);
@@ -1566,7 +1566,7 @@ nsHTMLEditor::RelativeFontChange( PRInt32 aSizeChange)
   
   // wrap with txn batching, rules sniffing, and selection preservation code
   nsAutoEditBatch batchIt(this);
-  nsAutoRules beginRulesSniffing(this, kOpSetTextProperty, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::setTextProperty, nsIEditor::eNext);
   nsAutoSelectionReset selectionResetter(selection, this);
   nsAutoTxnsConserveSelection dontSpazMySelection(this);
 
@@ -1579,8 +1579,7 @@ nsHTMLEditor::RelativeFontChange( PRInt32 aSizeChange)
   // loop thru the ranges in the selection
   enumerator->First(); 
   nsCOMPtr<nsISupports> currentItem;
-  while ((NS_ENUMERATOR_FALSE == enumerator->IsDone()))
-  {
+  while (static_cast<nsresult>(NS_ENUMERATOR_FALSE) == enumerator->IsDone()) {
     res = enumerator->CurrentItem(getter_AddRefs(currentItem));
     NS_ENSURE_SUCCESS(res, res);
     NS_ENSURE_TRUE(currentItem, NS_ERROR_FAILURE);

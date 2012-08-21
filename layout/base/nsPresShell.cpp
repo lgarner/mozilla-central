@@ -84,7 +84,7 @@
 #include "nsIObserverService.h"
 #include "nsIDocShell.h"        // for reflow observation
 #include "nsIBaseWindow.h"
-#include "nsLayoutErrors.h"
+#include "nsError.h"
 #include "nsLayoutUtils.h"
 #include "nsCSSRendering.h"
   // for |#ifdef DEBUG| code
@@ -172,6 +172,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
 #include "sampler.h"
+#include "mozilla/css/ImageLoader.h"
 
 #include "Layers.h"
 #include "nsAsyncDOMEvent.h"
@@ -371,26 +372,26 @@ protected:
   void DisplayTotals(PRUint32 aTotal, PRUint32 * aDupArray, char * aTitle);
   void DisplayHTMLTotals(PRUint32 aTotal, PRUint32 * aDupArray, char * aTitle);
 
-  static PRIntn RemoveItems(PLHashEntry *he, PRIntn i, void *arg);
-  static PRIntn RemoveIndiItems(PLHashEntry *he, PRIntn i, void *arg);
+  static int RemoveItems(PLHashEntry *he, int i, void *arg);
+  static int RemoveIndiItems(PLHashEntry *he, int i, void *arg);
   void CleanUp();
 
   // stdout Output Methods
-  static PRIntn DoSingleTotal(PLHashEntry *he, PRIntn i, void *arg);
-  static PRIntn DoSingleIndi(PLHashEntry *he, PRIntn i, void *arg);
+  static int DoSingleTotal(PLHashEntry *he, int i, void *arg);
+  static int DoSingleIndi(PLHashEntry *he, int i, void *arg);
 
   void DoGrandTotals();
   void DoIndiTotalsTree();
 
   // HTML Output Methods
-  static PRIntn DoSingleHTMLTotal(PLHashEntry *he, PRIntn i, void *arg);
+  static int DoSingleHTMLTotal(PLHashEntry *he, int i, void *arg);
   void DoGrandHTMLTotals();
 
   // Zero Out the Totals
-  static PRIntn DoClearTotals(PLHashEntry *he, PRIntn i, void *arg);
+  static int DoClearTotals(PLHashEntry *he, int i, void *arg);
 
   // Displays the Diff Totals
-  static PRIntn DoDisplayDiffTotals(PLHashEntry *he, PRIntn i, void *arg);
+  static int DoDisplayDiffTotals(PLHashEntry *he, int i, void *arg);
 
   PLHashTable * mCounts;
   PLHashTable * mIndiFrameCounts;
@@ -474,8 +475,29 @@ public:
         // will return a real frame and we don't have to worry about
         // destroying it by flushing later.
         mPresShell->FlushPendingNotifications(Flush_Layout);
+      } else if (aVisitor.mEvent->message == NS_WHEEL_WHEEL &&
+                 aVisitor.mEventStatus != nsEventStatus_eConsumeNoDefault) {
+        nsIFrame* frame = mPresShell->GetCurrentEventFrame();
+        if (frame) {
+          // chrome (including addons) should be able to know if content
+          // handles both D3E "wheel" event and legacy mouse scroll events.
+          // We should dispatch legacy mouse events before dispatching the
+          // "wheel" event into system group.
+          nsRefPtr<nsEventStateManager> esm =
+            aVisitor.mPresContext->EventStateManager();
+          esm->DispatchLegacyMouseScrollEvents(frame,
+                 static_cast<widget::WheelEvent*>(aVisitor.mEvent),
+                 &aVisitor.mEventStatus);
+        }
       }
       nsIFrame* frame = mPresShell->GetCurrentEventFrame();
+      if (!frame &&
+          (aVisitor.mEvent->message == NS_MOUSE_BUTTON_UP ||
+           aVisitor.mEvent->message == NS_TOUCH_END)) {
+        // Redirect BUTTON_UP and TOUCH_END events to the root frame to ensure
+        // that capturing is released.
+        frame = mPresShell->GetRootFrame();
+      }
       if (frame) {
         frame->HandleEvent(aVisitor.mPresContext,
                            (nsGUIEvent*) aVisitor.mEvent,
@@ -1935,11 +1957,10 @@ PresShell::FireResizeEvent()
 void
 PresShell::SetIgnoreFrameDestruction(bool aIgnore)
 {
-  if (mPresContext) {
-    // We need to destroy the image loaders first, as they won't be
-    // notified when frames are destroyed once this setting takes effect.
-    // (See bug 673984)
-    mPresContext->DestroyImageLoaders();
+  if (mDocument) {
+    // We need to tell the ImageLoader to drop all its references to frames
+    // because they're about to go away and it won't get notifications of that.
+    mDocument->StyleImageLoader()->ClearAll();
   }
   mIgnoreFrameDestruction = aIgnore;
 }
@@ -1952,7 +1973,7 @@ PresShell::NotifyDestroyingFrame(nsIFrame* aFrame)
   mPresContext->ForgetUpdatePluginGeometryFrame(aFrame);
 
   if (!mIgnoreFrameDestruction) {
-    mPresContext->StopImagesFor(aFrame);
+    mDocument->StyleImageLoader()->DropRequestsForFrame(aFrame);
 
     mFrameConstructor->NotifyDestroyingFrame(aFrame);
 
@@ -5228,9 +5249,8 @@ private:
 
 void
 PresShell::Paint(nsIView*           aViewToPaint,
-                 nsIWidget*         aWidgetToPaint,
                  const nsRegion&    aDirtyRegion,
-                 const nsIntRegion& aIntDirtyRegion,
+                 PaintType          aType,
                  bool               aWillSendDidPaint)
 {
 #ifdef NS_FUNCTION_TIMER
@@ -5247,7 +5267,6 @@ PresShell::Paint(nsIView*           aViewToPaint,
   SAMPLE_LABEL("Paint", "PresShell::Paint");
   NS_ASSERTION(!mIsDestroying, "painting a destroyed PresShell");
   NS_ASSERTION(aViewToPaint, "null view");
-  NS_ASSERTION(aWidgetToPaint, "Can't paint without a widget");
 
   nsAutoNotifyDidPaint notifyDidPaint(aWillSendDidPaint);
 
@@ -5258,14 +5277,13 @@ PresShell::Paint(nsIView*           aViewToPaint,
 
   bool isRetainingManager;
   LayerManager* layerManager =
-    aWidgetToPaint->GetLayerManager(&isRetainingManager);
+    aViewToPaint->GetWidget()->GetLayerManager(&isRetainingManager);
   NS_ASSERTION(layerManager, "Must be in paint event");
 
   if (mIsFirstPaint) {
     layerManager->SetIsFirstPaint();
     mIsFirstPaint = false;
   }
-  layerManager->BeginTransaction();
 
   if (frame && isRetainingManager) {
     // Try to do an empty transaction, if the frame tree does not
@@ -5274,21 +5292,39 @@ PresShell::Paint(nsIView*           aViewToPaint,
     // draws the window title bar on Mac), because a) it won't work
     // and b) below we don't want to clear NS_FRAME_UPDATE_LAYER_TREE,
     // that will cause us to forget to update the real layer manager!
-    if (!(frame->GetStateBits() & NS_FRAME_UPDATE_LAYER_TREE)) {
+    if (aType == PaintType_Composite) {
+      if (layerManager->HasShadowManager()) {
+        return;
+      }
+      layerManager->BeginTransaction();
       if (layerManager->EndEmptyTransaction()) {
+        return;
+      }
+      NS_WARNING("Must complete empty transaction when compositing!");
+    } else  if (!(frame->GetStateBits() & NS_FRAME_UPDATE_LAYER_TREE)) {
+      layerManager->BeginTransaction();
+      if (layerManager->EndEmptyTransaction(LayerManager::END_NO_COMPOSITE)) {
         frame->UpdatePaintCountForPaintedPresShells();
         presContext->NotifyDidPaintForSubtree();
         return;
       }
+    } else {
+      layerManager->BeginTransaction();
     }
 
     frame->RemoveStateBits(NS_FRAME_UPDATE_LAYER_TREE);
+  } else {
+    layerManager->BeginTransaction();
   }
   if (frame) {
     frame->ClearPresShellsFromLastPaint();
   }
 
   nscolor bgcolor = ComputeBackstopColor(aViewToPaint);
+  PRUint32 flags = nsLayoutUtils::PAINT_WIDGET_LAYERS | nsLayoutUtils::PAINT_EXISTING_TRANSACTION;
+  if (aType == PaintType_NoComposite) {
+    flags |= nsLayoutUtils::PAINT_NO_COMPOSITE;
+  }
 
   if (frame) {
     // Defer invalidates that are triggered during painting, and discard
@@ -5298,12 +5334,12 @@ PresShell::Paint(nsIView*           aViewToPaint,
     frame->BeginDeferringInvalidatesForDisplayRoot(aDirtyRegion);
 
     // We can paint directly into the widget using its layer manager.
-    nsLayoutUtils::PaintFrame(nullptr, frame, aDirtyRegion, bgcolor,
-                              nsLayoutUtils::PAINT_WIDGET_LAYERS |
-                              nsLayoutUtils::PAINT_EXISTING_TRANSACTION);
+    nsLayoutUtils::PaintFrame(nullptr, frame, aDirtyRegion, bgcolor, flags);
 
     frame->EndDeferringInvalidatesForDisplayRoot();
-    presContext->NotifyDidPaintForSubtree();
+    if (aType != PaintType_Composite) {
+      presContext->NotifyDidPaintForSubtree();
+    }
     return;
   }
 
@@ -5317,9 +5353,13 @@ PresShell::Paint(nsIView*           aViewToPaint,
     root->SetVisibleRegion(bounds);
     layerManager->SetRoot(root);
   }
-  layerManager->EndTransaction(NULL, NULL);
+  layerManager->EndTransaction(NULL, NULL, aType == PaintType_NoComposite ?
+                                             LayerManager::END_NO_COMPOSITE :
+                                             LayerManager::END_DEFAULT);
 
-  presContext->NotifyDidPaintForSubtree();
+  if (aType != PaintType_Composite) {
+    presContext->NotifyDidPaintForSubtree();
+  }
 }
 
 // static
@@ -5622,23 +5662,13 @@ PresShell::HandleEvent(nsIFrame        *aFrame,
 
   RecordMouseLocation(aEvent);
 
-#ifdef ACCESSIBILITY
-  if (aEvent->eventStructType == NS_ACCESSIBLE_EVENT) {
-    NS_TIME_FUNCTION_MIN(1.0);
-
-    // Accessibility events come through OS requests and not from scripts,
-    // so it is safe to handle here
-    return HandleEventInternal(aEvent, aEventStatus);
-  }
-#endif
-
   if (!nsContentUtils::IsSafeToRunScript())
     return NS_OK;
 
   NS_TIME_FUNCTION_MIN(1.0);
 
   nsIContent* capturingContent =
-    NS_IS_MOUSE_EVENT(aEvent) || aEvent->eventStructType == NS_MOUSE_SCROLL_EVENT ?
+    NS_IS_MOUSE_EVENT(aEvent) || aEvent->eventStructType == NS_WHEEL_EVENT ?
       GetCapturingContent() : nullptr;
 
   nsCOMPtr<nsIDocument> retargetEventDoc;
@@ -5703,30 +5733,6 @@ PresShell::HandleEvent(nsIFrame        *aFrame,
         return shell->HandleEvent(frame, aEvent, true, aEventStatus);
       }
     }
-  }
-
-  // Check for a theme change up front, since the frame type is irrelevant
-  if (aEvent->message == NS_THEMECHANGED && mPresContext) {
-    mPresContext->ThemeChanged();
-    return NS_OK;
-  }
-
-  if (aEvent->message == NS_UISTATECHANGED && mDocument) {
-    nsPIDOMWindow* win = mDocument->GetWindow();
-    if (win) {
-      nsUIStateChangeEvent* event = (nsUIStateChangeEvent*)aEvent;
-      win->SetKeyboardIndicators(event->showAccelerators, event->showFocusRings);
-    }
-    return NS_OK;
-  }
-
-  // Check for a system color change up front, since the frame type is
-  // irrelevant
-  if ((aEvent->message == NS_SYSCOLORCHANGED) && mPresContext &&
-      aFrame == mFrameConstructor->GetRootFrame()) {
-    *aEventStatus = nsEventStatus_eConsumeDoDefault;
-    mPresContext->SysColorChanged();
-    return NS_OK;
   }
 
   if (aEvent->eventStructType == NS_KEY_EVENT &&
@@ -6224,13 +6230,6 @@ PresShell::HandleEventWithTarget(nsEvent* aEvent, nsIFrame* aFrame,
   return rv;
 }
 
-static inline bool
-IsSynthesizedMouseEvent(nsEvent* aEvent)
-{
-  return aEvent->eventStructType == NS_MOUSE_EVENT &&
-         static_cast<nsMouseEvent*>(aEvent)->reason != nsMouseEvent::eReal;
-}
-
 static bool CanHandleContextMenuEvent(nsMouseEvent* aMouseEvent,
                                         nsIFrame* aFrame)
 {
@@ -6265,32 +6264,6 @@ nsresult
 PresShell::HandleEventInternal(nsEvent* aEvent, nsEventStatus* aStatus)
 {
   NS_TIME_FUNCTION_MIN(1.0);
-
-#ifdef ACCESSIBILITY
-  if (aEvent->eventStructType == NS_ACCESSIBLE_EVENT)
-  {
-    nsAccessibleEvent *accEvent = static_cast<nsAccessibleEvent*>(aEvent);
-    accEvent->mAccessible = nullptr;
-
-    nsCOMPtr<nsIAccessibilityService> accService =
-      do_GetService("@mozilla.org/accessibilityService;1");
-    if (accService) {
-      nsCOMPtr<nsISupports> container = mPresContext->GetContainer();
-      if (!container) {
-        // This presshell is not active. This often happens when a
-        // preshell is being held onto for fastback.
-        return NS_OK;
-      }
-
-      // Accessible creation might be not safe so we make sure it's not created
-      // at unsafe times.
-      accEvent->mAccessible =
-        accService->GetRootDocumentAccessible(this, nsContentUtils::IsSafeToRunScript());
-
-      return NS_OK;
-    }
-  }
-#endif
 
   nsRefPtr<nsEventStateManager> manager = mPresContext->EventStateManager();
   nsresult rv = NS_OK;
@@ -6462,11 +6435,7 @@ PresShell::HandleEventInternal(nsEvent* aEvent, nsEventStatus* aStatus)
       if (aEvent->eventStructType == NS_KEY_EVENT) {
         nsContentUtils::SetIsHandlingKeyBoardEvent(true);
       }
-      // We want synthesized mouse moves to cause mouseover and mouseout
-      // DOM events (PreHandleEvent above), but not mousemove DOM events.
-      // Synthesized button up events also do not cause DOM events
-      // because they do not have a reliable refPoint.
-      if (!IsSynthesizedMouseEvent(aEvent)) {
+      if (NS_IsAllowedToDispatchDOMEvent(aEvent)) {
         nsPresShellEventCB eventCB(this);
         if (aEvent->eventStructType == NS_TOUCH_EVENT) {
           DispatchTouchEvent(aEvent, aStatus, &eventCB, touchIsNew);
@@ -7670,6 +7639,15 @@ PresShell::ProcessReflowCommands(bool aInterruptible)
   return !interrupted;
 }
 
+void
+PresShell::WindowSizeMoveDone()
+{
+  if (mPresContext) {
+    nsEventStateManager::ClearGlobalActiveContent(nullptr);
+    ClearMouseCapture(nullptr);
+  }
+}
+
 #ifdef MOZ_XUL
 /*
  * It's better to add stuff to the |DidSetStyleContext| method of the
@@ -8136,8 +8114,13 @@ DumpToPNG(nsIPresShell* shell, nsAString& name) {
   rv = file->InitWithPath(name);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  PRUint32 length;
-  encoder->Available(&length);
+  PRUint64 length64;
+  rv = encoder->Available(&length64);
+  NS_ENSURE_SUCCESS(rv, rv);
+  if (length64 > PR_UINT32_MAX)
+    return NS_ERROR_FILE_TOO_BIG;
+
+  PRUint32 length = (PRUint32)length64;
 
   nsCOMPtr<nsIOutputStream> outputStream;
   rv = NS_NewLocalFileOutputStream(getter_AddRefs(outputStream), file);
@@ -8591,7 +8574,7 @@ void ReflowCountMgr::PaintCount(const char*     aName,
 }
 
 //------------------------------------------------------------------
-PRIntn ReflowCountMgr::RemoveItems(PLHashEntry *he, PRIntn i, void *arg)
+int ReflowCountMgr::RemoveItems(PLHashEntry *he, int i, void *arg)
 {
   char *str = (char *)he->key;
   ReflowCounter * counter = (ReflowCounter *)he->value;
@@ -8602,7 +8585,7 @@ PRIntn ReflowCountMgr::RemoveItems(PLHashEntry *he, PRIntn i, void *arg)
 }
 
 //------------------------------------------------------------------
-PRIntn ReflowCountMgr::RemoveIndiItems(PLHashEntry *he, PRIntn i, void *arg)
+int ReflowCountMgr::RemoveIndiItems(PLHashEntry *he, int i, void *arg)
 {
   char *str = (char *)he->key;
   IndiReflowCounter * counter = (IndiReflowCounter *)he->value;
@@ -8629,7 +8612,7 @@ void ReflowCountMgr::CleanUp()
 }
 
 //------------------------------------------------------------------
-PRIntn ReflowCountMgr::DoSingleTotal(PLHashEntry *he, PRIntn i, void *arg)
+int ReflowCountMgr::DoSingleTotal(PLHashEntry *he, int i, void *arg)
 {
   char *str = (char *)he->key;
   ReflowCounter * counter = (ReflowCounter *)he->value;
@@ -8691,7 +8674,7 @@ static void RecurseIndiTotals(nsPresContext* aPresContext,
 }
 
 //------------------------------------------------------------------
-PRIntn ReflowCountMgr::DoSingleIndi(PLHashEntry *he, PRIntn i, void *arg)
+int ReflowCountMgr::DoSingleIndi(PLHashEntry *he, int i, void *arg)
 {
   IndiReflowCounter * counter = (IndiReflowCounter *)he->value;
   if (counter && !counter->mHasBeenOutput) {
@@ -8724,7 +8707,7 @@ void ReflowCountMgr::DoIndiTotalsTree()
 }
 
 //------------------------------------------------------------------
-PRIntn ReflowCountMgr::DoSingleHTMLTotal(PLHashEntry *he, PRIntn i, void *arg)
+int ReflowCountMgr::DoSingleHTMLTotal(PLHashEntry *he, int i, void *arg)
 {
   char *str = (char *)he->key;
   ReflowCounter * counter = (ReflowCounter *)he->value;
@@ -8801,7 +8784,7 @@ void ReflowCountMgr::DisplayHTMLTotals(const char * aStr)
 }
 
 //------------------------------------------------------------------
-PRIntn ReflowCountMgr::DoClearTotals(PLHashEntry *he, PRIntn i, void *arg)
+int ReflowCountMgr::DoClearTotals(PLHashEntry *he, int i, void *arg)
 {
   ReflowCounter * counter = (ReflowCounter *)he->value;
   counter->ClearTotals();
@@ -8831,7 +8814,7 @@ void ReflowCountMgr::ClearGrandTotals()
 }
 
 //------------------------------------------------------------------
-PRIntn ReflowCountMgr::DoDisplayDiffTotals(PLHashEntry *he, PRIntn i, void *arg)
+int ReflowCountMgr::DoDisplayDiffTotals(PLHashEntry *he, int i, void *arg)
 {
   bool cycledOnce = (arg != 0);
 

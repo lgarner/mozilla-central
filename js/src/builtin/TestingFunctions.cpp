@@ -486,6 +486,22 @@ DeterministicGC(JSContext *cx, unsigned argc, jsval *vp)
 }
 #endif /* JS_GC_ZEAL */
 
+static JSBool
+ValidateGC(JSContext *cx, unsigned argc, jsval *vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+
+    if (argc != 1) {
+        RootedObject callee(cx, &args.callee());
+        ReportUsageError(cx, callee, "Wrong number of arguments");
+        return JS_FALSE;
+    }
+
+    gc::SetValidateGC(cx, ToBoolean(vp[2]));
+    *vp = JSVAL_VOID;
+    return JS_TRUE;
+}
+
 struct JSCountHeapNode {
     void                *thing;
     JSGCTraceKind       kind;
@@ -731,11 +747,9 @@ EnableSPSProfilingAssertions(JSContext *cx, unsigned argc, jsval *vp)
     static ProfileEntry stack[1000];
     static uint32_t stack_size = 0;
 
-    if (args[0].toBoolean())
-        SetRuntimeProfilingStack(cx->runtime, stack, &stack_size, 1000);
-    else
-        SetRuntimeProfilingStack(cx->runtime, NULL, NULL, 0);
+    SetRuntimeProfilingStack(cx->runtime, stack, &stack_size, 1000);
     cx->runtime->spsProfiler.enableSlowAssertions(args[0].toBoolean());
+    cx->runtime->spsProfiler.enable(true);
 
     JS_SET_RVAL(cx, vp, JSVAL_VOID);
     return true;
@@ -824,6 +838,10 @@ static JSFunctionSpecWithHelp TestingFunctions[] = {
 "  If true, only allow determinstic GCs to run."),
 #endif
 
+    JS_FN_HELP("validategc", ValidateGC, 1, 0,
+"validategc(true|false)",
+"  If true, a separate validation step is performed after an incremental GC."),
+
     JS_FN_HELP("internalConst", InternalConst, 1, 0,
 "internalConst(name)",
 "  Query an internal constant for the engine. See InternalConst source for\n"
@@ -843,11 +861,13 @@ static JSFunctionSpecWithHelp TestingFunctions[] = {
 "  memory or been terminated by the slow script dialog."),
 
     JS_FN_HELP("enableSPSProfilingAssertions", EnableSPSProfilingAssertions, 1, 0,
-"enableSPSProfilingAssertions(enabled)",
-"  Enables or disables the assertions related to SPS profiling. This is fairly\n"
-"  expensive, so it shouldn't be enabled normally."),
+"enableSPSProfilingAssertions(slow)",
+"  Enables SPS instrumentation and corresponding assertions. If 'slow' is\n"
+"  true, then even slower assertions are enabled for all generated JIT code.\n"
+"  When 'slow' is false, then instrumentation is enabled, but the slow\n"
+"  assertions are disabled."),
 
-    JS_FS_END
+    JS_FS_HELP_END
 };
 
 namespace js {

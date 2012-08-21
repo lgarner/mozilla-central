@@ -141,7 +141,7 @@ private:
 
     nsCString                       mReqHeaderBuf;    // flattened request headers
     nsCOMPtr<nsIInputStream>        mRequestStream;
-    PRUint32                        mRequestSize;
+    PRUint64                        mRequestSize;
 
     nsAHttpConnection              *mConnection;      // hard ref
     nsHttpConnectionInfo           *mConnInfo;        // hard ref
@@ -176,6 +176,8 @@ private:
     enum Classifier                 mClassification;
     PRInt32                         mPipelinePosition;
     PRInt64                         mMaxPipelineObjectSize;
+
+    nsHttpVersion                   mHttpVersion;
 
     // state flags, all logically boolean, but not packed together into a
     // bitfield so as to avoid bitfield-induced races.  See bug 560579.

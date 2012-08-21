@@ -109,7 +109,7 @@ public:
 
   /** All editor operations which alter the doc should be prefaced
    *  with a call to StartOperation, naming the action and direction */
-  NS_IMETHOD StartOperation(OperationID opID,
+  NS_IMETHOD StartOperation(EditAction opID,
                             nsIEditor::EDirection aDirection);
 
   /** All editor operations which alter the doc should be followed
@@ -153,6 +153,11 @@ public:
    */
   nsresult ExtendSelectionForDelete(nsISelection* aSelection,
                                     nsIEditor::EDirection *aAction);
+
+  // Return true if the data is safe to insert as the source and destination
+  // principals match, or we are in a editor context where this doesn't matter.
+  // Otherwise, the data must be sanitized first.
+  bool IsSafeToInsertData(nsIDOMDocument* aSourceDoc);
 
   static void GetDefaultEditorPrefs(PRInt32 &aNewLineHandling,
                                     PRInt32 &aCaretStyle);

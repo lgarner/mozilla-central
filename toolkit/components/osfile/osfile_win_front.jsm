@@ -167,21 +167,18 @@
         * the file or from the end of the file is determined by
         * argument |whence|.  Note that |pos| may exceed the length of
         * the file.
-        * @param {number=} whence The reference position. If omitted or
-        * |OS.File.POS_START|, |pos| is taken from the start of the file.
-        * If |OS.File.POS_CURRENT|, |pos| is taken from the current position
-        * in the file. If |OS.File.POS_END|, |pos| is taken from the end of
-        * the file.
+        * @param {number=} whence The reference position. If omitted
+        * or |OS.File.POS_START|, |pos| is relative to the start of the
+        * file.  If |OS.File.POS_CURRENT|, |pos| is relative to the
+        * current position in the file. If |OS.File.POS_END|, |pos| is
+        * relative to the end of the file.
         *
         * @return The new position in the file.
         */
        setPosition: function setPosition(pos, whence) {
-         // We are cheating to avoid one unnecessary conversion:
-         // In this implementation,
-         // OS.File.POS_START == OS.Constants.Win.FILE_BEGIN
-         // OS.File.POS_CURRENT == OS.Constants.Win.FILE_CURRENT
-         // OS.File.POS_END == OS.Constants.Win.FILE_END
-         whence = (whence == undefined)?Const.FILE_BEGIN:whence;
+         if (whence === undefined) {
+           whence = Const.FILE_BEGIN;
+         }
          return throw_on_negative("setPosition",
            WinFile.SetFilePointer(this.fd, pos, null, whence));
        },
@@ -584,30 +581,30 @@
         * The creation time of this file.
         * @type {Date}
         */
-       get winCreationTime() {
+       get winCreationDate() {
          let date = FILETIME_to_Date(this._ftCreationTime);
-         delete this.winCreationTime;
-         Object.defineProperty(this, "winCreationTime", {value: date});
+         delete this.winCreationDate;
+         Object.defineProperty(this, "winCreationDate", {value: date});
          return date;
        },
        /**
         * The last modification time of this file.
         * @type {Date}
         */
-       get winLastWriteTime() {
+       get winLastWriteDate() {
          let date = FILETIME_to_Date(this._ftLastWriteTime);
-         delete this.winLastWriteTime;
-         Object.defineProperty(this, "winLastWriteTime", {value: date});
+         delete this.winLastWriteDate;
+         Object.defineProperty(this, "winLastWriteDate", {value: date});
          return date;
        },
        /**
         * The last access time of this file.
         * @type {Date}
         */
-       get winLastAccessTime() {
+       get winLastAccessDate() {
          let date = FILETIME_to_Date(this._ftLastAccessTime);
-         delete this.winLastAccessTime;
-         Object.defineProperty(this, "winLastAccessTime", {value: date});
+         delete this.winLastAccessDate;
+         Object.defineProperty(this, "winLastAccessDate", {value: date});
          return date;
        },
        /**
@@ -621,6 +618,27 @@
          return path;
        }
      };
+
+     /**
+      * Return a version of an instance of
+      * File.DirectoryIterator.Entry that can be sent from a worker
+      * thread to the main thread. Note that deserialization is
+      * asymmetric and returns an object with a different
+      * implementation.
+      */
+     File.DirectoryIterator.Entry.toMsg = function toMsg(value) {
+       if (!value instanceof File.DirectoryIterator.Entry) {
+         throw new TypeError("parameter of " +
+           "File.DirectoryIterator.Entry.toMsg must be a " +
+           "File.DirectoryIterator.Entry");
+       }
+       let serialized = {};
+       for (let key in File.DirectoryIterator.Entry.prototype) {
+         serialized[key] = value[key];
+       }
+       return serialized;
+     };
+
 
      /**
       * Information on a file.
@@ -661,14 +679,8 @@
         * @type {number}
         */
        get size() {
-         try {
-           return OS.Shared.projectValue(
-             ctypes.uint64_t("" +
-             this._nFileSizeHigh +
-             this._nFileSizeLow));
-         } catch (x) {
-           return NaN;
-         }
+         let value = ctypes.UInt64.join(this._nFileSizeHigh, this._nFileSizeLow);
+         return exports.OS.Shared.Type.uint64_t.importFromC(value);
        },
        /**
         * The date of creation of this file
@@ -710,6 +722,23 @@
          return date;
        }
      };
+
+     /**
+      * Return a version of an instance of File.Info that can be sent
+      * from a worker thread to the main thread. Note that deserialization
+      * is asymmetric and returns an object with a different implementation.
+      */
+     File.Info.toMsg = function toMsg(stat) {
+       if (!stat instanceof File.Info) {
+         throw new TypeError("parameter of File.Info.toMsg must be a File.Info");
+       }
+       let serialized = {};
+       for (let key in File.Info.prototype) {
+         serialized[key] = stat[key];
+       }
+       return serialized;
+     };
+
 
      /**
       * Fetch the information on a file.
@@ -814,20 +843,14 @@
        return result;
      }
 
-
-
-
-     // Constants
-
-     // Constants for File.prototype.setPosition
-     File.POS_START = Const.FILE_BEGIN;
-     File.POS_CURRENT = Const.FILE_CURRENT;
-     File.POS_END = Const.FILE_END;
-
      File.Win = exports.OS.Win.File;
      File.Error = exports.OS.Shared.Win.Error;
      exports.OS.File = File;
 
      exports.OS.Path = exports.OS.Win.Path;
+
+     Object.defineProperty(File, "POS_START", { value: OS.Shared.POS_START });
+     Object.defineProperty(File, "POS_CURRENT", { value: OS.Shared.POS_CURRENT });
+     Object.defineProperty(File, "POS_END", { value: OS.Shared.POS_END });
    })(this);
 }

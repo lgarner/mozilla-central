@@ -313,9 +313,8 @@ PluginModuleParent::CrashReporter()
 {
     return static_cast<CrashReporterParent*>(ManagedPCrashReporterParent()[0]);
 }
-#endif
 
-#ifdef MOZ_CRASHREPORTER
+#ifdef MOZ_CRASHREPORTER_INJECTOR
 static void
 RemoveMinidump(nsIFile* minidump)
 {
@@ -329,6 +328,7 @@ RemoveMinidump(nsIFile* minidump)
         extraFile->Remove(true);
     }
 }
+#endif // MOZ_CRASHREPORTER_INJECTOR
 
 void
 PluginModuleParent::ProcessFirstMinidump()
@@ -689,9 +689,8 @@ PluginModuleParent::RecvBackUpXResources(const FileDescriptor& aXSocketFd)
 #else
     NS_ABORT_IF_FALSE(0 > mPluginXSocketFdDup.get(),
                       "Already backed up X resources??");
-    int fd = aXSocketFd.fd; // Copy to discard |const| qualifier
     mPluginXSocketFdDup.forget();
-    mPluginXSocketFdDup.reset(fd);
+    mPluginXSocketFdDup.reset(aXSocketFd.PlatformHandle());
 #endif
     return true;
 }

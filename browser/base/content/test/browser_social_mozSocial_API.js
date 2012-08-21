@@ -2,27 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-let SocialService = Cu.import("resource://gre/modules/SocialService.jsm", {}).SocialService;
-
 function test() {
-  // XXX Bug 775779
-  if (Cc["@mozilla.org/xpcom/debug;1"].getService(Ci.nsIDebug2).isDebugBuild) {
-    ok(true, "can't run social sidebar test in debug builds because they falsely report leaks");
-    return;
-  }
   waitForExplicitFinish();
 
   let manifest = { // normal provider
     name: "provider 1",
-    origin: "http://example.com",
-    sidebarURL: "http://example.com/browser/browser/base/content/test/social_sidebar.html",
-    workerURL: "http://example.com/browser/browser/base/content/test/social_worker.js",
+    origin: "https://example.com",
+    sidebarURL: "https://example.com/browser/browser/base/content/test/social_sidebar.html",
+    workerURL: "https://example.com/browser/browser/base/content/test/social_worker.js",
     iconURL: "chrome://branding/content/icon48.png"
   };
-  runSocialTestWithProvider(manifest, function () {
-    runSocialTests(tests, undefined, undefined, function () {
-      SocialService.removeProvider(Social.provider.origin, finish);
-    });
+  runSocialTestWithProvider(manifest, function (finishcb) {
+    runSocialTests(tests, undefined, undefined, finishcb);
   });
 }
 
@@ -38,7 +29,7 @@ var tests = {
 
     function triggerIconPanel() {
       let statusIcons = document.getElementById("social-status-iconbox");
-      ok(!statusIcons.firstChild.collapsed, "status icon is visible");
+      ok(!statusIcons.firstChild.hidden, "status icon is visible");
       // Click the button to trigger its contentPanel
       let panel = document.getElementById("social-notification-panel");
       EventUtils.synthesizeMouseAtCenter(statusIcons.firstChild, {});

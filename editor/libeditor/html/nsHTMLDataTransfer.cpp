@@ -52,8 +52,6 @@
 #include "nsIDOMHTMLTableRowElement.h"
 #include "nsIDOMNode.h"
 #include "nsIDOMRange.h"
-#include "nsIDocShell.h"
-#include "nsIDocShellTreeItem.h"
 #include "nsIDocument.h"
 #include "nsIEditor.h"
 #include "nsIEditorIMESupport.h"
@@ -65,7 +63,6 @@
 #include "nsINode.h"
 #include "nsIParserUtils.h"
 #include "nsIPlaintextEditor.h"
-#include "nsIPrincipal.h"
 #include "nsISelection.h"
 #include "nsISupportsImpl.h"
 #include "nsISupportsPrimitives.h"
@@ -105,8 +102,6 @@ using namespace mozilla;
 const PRUnichar nbsp = 160;
 
 #define kInsertCookie  "_moz_Insert Here_moz_"
-
-#define NS_FOUND_TARGET NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_EDITOR, 3)
 
 // some little helpers
 static bool FindIntegerAfterString(const char *aLeadingString, 
@@ -155,13 +150,13 @@ NS_IMETHODIMP nsHTMLEditor::LoadHTML(const nsAString & aInputString)
   // force IME commit; set up rules sniffing and batching
   ForceCompositionEnd();
   nsAutoEditBatch beginBatching(this);
-  nsAutoRules beginRulesSniffing(this, kOpLoadHTML, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::loadHTML, nsIEditor::eNext);
 
   // Get selection
   nsRefPtr<Selection> selection = GetSelection();
   NS_ENSURE_STATE(selection);
 
-  nsTextRulesInfo ruleInfo(kOpLoadHTML);
+  nsTextRulesInfo ruleInfo(EditAction::loadHTML);
   bool cancel, handled;
   nsresult rv = mRules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -252,7 +247,7 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
   // force IME commit; set up rules sniffing and batching
   ForceCompositionEnd();
   nsAutoEditBatch beginBatching(this);
-  nsAutoRules beginRulesSniffing(this, kOpHTMLPaste, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::htmlPaste, nsIEditor::eNext);
 
   // Get selection
   nsRefPtr<Selection> selection = GetSelection();
@@ -391,7 +386,7 @@ nsHTMLEditor::DoInsertHTMLWithContext(const nsAString & aInputString,
   }
 
   // give rules a chance to handle or cancel
-  nsTextRulesInfo ruleInfo(kOpInsertElement);
+  nsTextRulesInfo ruleInfo(EditAction::insertElement);
   bool cancel, handled;
   rv = mRules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1173,35 +1168,6 @@ nsHTMLEditor::ParseCFHTML(nsCString & aCfhtml, PRUnichar **aStuffToPaste, PRUnic
   return NS_OK;
 }
 
-bool nsHTMLEditor::IsSafeToInsertData(nsIDOMDocument* aSourceDoc)
-{
-  // Try to determine whether we should use a sanitizing fragment sink
-  bool isSafe = false;
-
-  nsCOMPtr<nsIDocument> destdoc = GetDocument();
-  NS_ASSERTION(destdoc, "Where is our destination doc?");
-  nsCOMPtr<nsISupports> container = destdoc->GetContainer();
-  nsCOMPtr<nsIDocShellTreeItem> dsti = do_QueryInterface(container);
-  nsCOMPtr<nsIDocShellTreeItem> root;
-  if (dsti)
-    dsti->GetRootTreeItem(getter_AddRefs(root));
-  nsCOMPtr<nsIDocShell> docShell = do_QueryInterface(root);
-  PRUint32 appType;
-  if (docShell && NS_SUCCEEDED(docShell->GetAppType(&appType)))
-    isSafe = appType == nsIDocShell::APP_TYPE_EDITOR;
-  if (!isSafe && aSourceDoc) {
-    nsCOMPtr<nsIDocument> srcdoc = do_QueryInterface(aSourceDoc);
-    NS_ASSERTION(srcdoc, "Where is our source doc?");
-
-    nsIPrincipal* srcPrincipal = srcdoc->NodePrincipal();
-    nsIPrincipal* destPrincipal = destdoc->NodePrincipal();
-    NS_ASSERTION(srcPrincipal && destPrincipal, "How come we don't have a principal?");
-    srcPrincipal->Subsumes(destPrincipal, &isSafe);
-  }
-
-  return isSafe;
-}
-
 nsresult nsHTMLEditor::InsertObject(const char* aType, nsISupports* aObject, bool aIsSafe,
                                     nsIDOMDocument *aSourceDoc,
                                     nsIDOMNode *aDestinationNode,
@@ -1746,14 +1712,14 @@ NS_IMETHODIMP nsHTMLEditor::PasteAsCitedQuotation(const nsAString & aCitation,
                                                   PRInt32 aSelectionType)
 {
   nsAutoEditBatch beginBatching(this);
-  nsAutoRules beginRulesSniffing(this, kOpInsertQuotation, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::insertQuotation, nsIEditor::eNext);
 
   // get selection
   nsRefPtr<Selection> selection = GetSelection();
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
 
   // give rules a chance to handle or cancel
-  nsTextRulesInfo ruleInfo(kOpInsertElement);
+  nsTextRulesInfo ruleInfo(EditAction::insertElement);
   bool cancel, handled;
   nsresult rv = mRules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1954,10 +1920,10 @@ nsHTMLEditor::InsertAsPlaintextQuotation(const nsAString & aQuotedText,
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
 
   nsAutoEditBatch beginBatching(this);
-  nsAutoRules beginRulesSniffing(this, kOpInsertQuotation, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::insertQuotation, nsIEditor::eNext);
 
   // give rules a chance to handle or cancel
-  nsTextRulesInfo ruleInfo(kOpInsertElement);
+  nsTextRulesInfo ruleInfo(EditAction::insertElement);
   bool cancel, handled;
   nsresult rv = mRules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2047,10 +2013,10 @@ nsHTMLEditor::InsertAsCitedQuotation(const nsAString & aQuotedText,
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
 
   nsAutoEditBatch beginBatching(this);
-  nsAutoRules beginRulesSniffing(this, kOpInsertQuotation, nsIEditor::eNext);
+  nsAutoRules beginRulesSniffing(this, EditAction::insertQuotation, nsIEditor::eNext);
 
   // give rules a chance to handle or cancel
-  nsTextRulesInfo ruleInfo(kOpInsertElement);
+  nsTextRulesInfo ruleInfo(EditAction::insertElement);
   bool cancel, handled;
   nsresult rv = mRules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(rv, rv);

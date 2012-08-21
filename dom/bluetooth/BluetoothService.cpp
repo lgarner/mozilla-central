@@ -1,5 +1,5 @@
 /* -*- Mode: c++; c-basic-offset: 2; indent-tabs-mode: nil; tab-width: 40 -*- */
-/* vim: set ts=2 et sw=2 tw=40: */
+/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -22,34 +22,39 @@ using namespace mozilla;
 
 USING_BLUETOOTH_NAMESPACE
 
-nsRefPtr<BluetoothService> gBluetoothService;
-nsCOMPtr<nsIThread> gToggleBtThread;
-int gPendingInitCount = 0;
-bool gInShutdown = false;
+static nsRefPtr<BluetoothService> gBluetoothService;
+static bool gInShutdown = false;
 
 NS_IMPL_ISUPPORTS1(BluetoothService, nsIObserver)
 
 class ToggleBtAck : public nsRunnable
 {
 public:
+  ToggleBtAck(bool aEnabled) :
+    mEnabled(aEnabled)
+  {
+  }
+  
   NS_IMETHOD Run()
   {
     MOZ_ASSERT(NS_IsMainThread());
-    gPendingInitCount--;
-    
-    if (gPendingInitCount) {
-      return NS_OK;
+
+    if (!mEnabled || gInShutdown) {
+      if (gBluetoothService->mBluetoothCommandThread) {
+        nsCOMPtr<nsIThread> t;
+        gBluetoothService->mBluetoothCommandThread.swap(t);
+        t->Shutdown();
+      }
     }
     
     if (gInShutdown) {
       gBluetoothService = nullptr;
     }
 
-    nsCOMPtr<nsIThread> t;
-    gToggleBtThread.swap(t);
-    t->Shutdown();
     return NS_OK;
   }
+
+  bool mEnabled;
 };
 
 class ToggleBtTask : public nsRunnable
@@ -82,7 +87,7 @@ public:
     // Always has to be called since this is where we take care of our reference
     // count for runnables. If there's an error, replyError won't be empty, so
     // consider our status flipped.
-    nsCOMPtr<nsIRunnable> ackTask = new ToggleBtAck();
+    nsCOMPtr<nsIRunnable> ackTask = new ToggleBtAck(mEnabled);
     if (NS_FAILED(NS_DispatchToMainThread(ackTask))) {
       NS_WARNING("Failed to dispatch to main thread!");
     }
@@ -168,17 +173,16 @@ BluetoothService::StartStopBluetooth(BluetoothReplyRunnable* aResultRunnable,
     NS_ERROR("Start called while in shutdown!");
     return NS_ERROR_FAILURE;
   }
-  if (!gToggleBtThread) {
-    nsresult rv = NS_NewNamedThread("BluetoothCtrl",
-                                    getter_AddRefs(gToggleBtThread));
+  if (!mBluetoothCommandThread) {
+    nsresult rv = NS_NewNamedThread("BluetoothCmd",
+                                    getter_AddRefs(mBluetoothCommandThread));
     NS_ENSURE_SUCCESS(rv, rv);
   }
   nsCOMPtr<nsIRunnable> r = new ToggleBtTask(aStart, aResultRunnable);
-  if (NS_FAILED(gToggleBtThread->Dispatch(r, NS_DISPATCH_NORMAL))) {
+  if (NS_FAILED(mBluetoothCommandThread->Dispatch(r, NS_DISPATCH_NORMAL))) {
     NS_WARNING("Cannot dispatch firmware loading task!");
     return NS_ERROR_FAILURE;
   }
-  gPendingInitCount++;
   return NS_OK;
 }
 

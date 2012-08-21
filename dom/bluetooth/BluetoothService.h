@@ -1,5 +1,5 @@
 /* -*- Mode: c++; c-basic-offset: 2; indent-tabs-mode: nil; tab-width: 40 -*- */
-/* vim: set ts=2 et sw=2 tw=40: */
+/* vim: set ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -107,6 +107,15 @@ public:
    */
   virtual nsresult GetDefaultAdapterPathInternal(BluetoothReplyRunnable* aRunnable) = 0;
 
+  /**
+   * Returns the properties of paired devices, implemented via a platform
+   * specific method.
+   *
+   * @return NS_OK on success, NS_ERROR_FAILURE otherwise
+   */
+  virtual nsresult GetPairedDevicePropertiesInternal(const nsTArray<nsString>& aDeviceAddresses,
+                                                     BluetoothReplyRunnable* aRunnable) = 0;
+
   /** 
    * Stop device discovery (platform specific implementation)
    *
@@ -186,6 +195,49 @@ public:
   GetDevicePath(const nsAString& aAdapterPath,
                 const nsAString& aDeviceAddress,
                 nsAString& aDevicePath) = 0;
+
+  virtual int
+  GetDeviceServiceChannelInternal(const nsAString& aObjectPath,
+                                  const nsAString& aPattern,
+                                  int aAttributeId) = 0;
+
+  virtual nsTArray<PRUint32>
+  AddReservedServicesInternal(const nsAString& aAdapterPath,
+                              const nsTArray<PRUint32>& aServices) = 0;
+
+  virtual bool
+  RemoveReservedServicesInternal(const nsAString& aAdapterPath,
+                                 const nsTArray<PRUint32>& aServiceHandles) = 0;
+
+  virtual nsresult
+  CreatePairedDeviceInternal(const nsAString& aAdapterPath,
+                             const nsAString& aAddress,
+                             int aTimeout,
+                             BluetoothReplyRunnable* aRunnable) = 0;
+
+  virtual nsresult
+  RemoveDeviceInternal(const nsAString& aAdapterPath,
+                       const nsAString& aObjectPath,
+                       BluetoothReplyRunnable* aRunnable) = 0;
+
+  virtual bool SetPinCodeInternal(const nsAString& aDeviceAddress, const nsAString& aPinCode) = 0;
+  virtual bool SetPasskeyInternal(const nsAString& aDeviceAddress, PRUint32 aPasskey) = 0;
+  virtual bool SetPairingConfirmationInternal(const nsAString& aDeviceAddress, bool aConfirm) = 0;
+  virtual bool SetAuthorizationInternal(const nsAString& aDeviceAddress, bool aAllow) = 0;
+
+  /**
+   * Due to the fact that some operations require multiple calls, a
+   * CommandThread is created that can run blocking, platform-specific calls
+   * where either no asynchronous equivilent exists, or else where multiple
+   * asynchronous calls would require excessive runnable bouncing between main
+   * thread and IO thread.
+   *
+   * For instance, when we retrieve an Adapter object, we would like it to come
+   * with all of its properties filled in and registered as an agent, which
+   * requires a minimum of 3 calls to platform specific code on some platforms.
+   *
+   */
+  nsCOMPtr<nsIThread> mBluetoothCommandThread;
 
 protected:
   BluetoothService()

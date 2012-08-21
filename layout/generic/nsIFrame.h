@@ -1001,7 +1001,7 @@ public:
   static bool ComputeBorderRadii(const nsStyleCorners& aBorderRadius,
                                    const nsSize& aFrameSize,
                                    const nsSize& aBorderArea,
-                                   PRIntn aSkipSides,
+                                   int aSkipSides,
                                    nscoord aRadii[8]);
 
   /*
@@ -1542,7 +1542,20 @@ public:
     nscoord trailingWhitespace;
 
     // Floats encountered in the lines.
-    nsTArray<nsIFrame*> floats;
+    class FloatInfo {
+    public:
+      FloatInfo(const nsIFrame* aFrame, nscoord aWidth)
+        : mFrame(aFrame), mWidth(aWidth)
+      { }
+      const nsIFrame* Frame() const { return mFrame; }
+      nscoord         Width() const { return mWidth; }
+
+    private:
+      const nsIFrame* mFrame;
+      nscoord         mWidth;
+    };
+
+    nsTArray<FloatInfo> floats;
   };
 
   struct InlineMinWidthData : public InlineIntrinsicWidthData {
@@ -2357,7 +2370,7 @@ public:
    * Determine whether borders should not be painted on certain sides of the
    * frame.
    */
-  virtual PRIntn GetSkipSides() const { return 0; }
+  virtual int GetSkipSides() const { return 0; }
 
   /**
    * @returns true if this frame is selected.

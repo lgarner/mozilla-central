@@ -11,7 +11,6 @@
 #include "nsTArray.h"
 #include "nsRegion.h"
 #include "nsIFrame.h"
-#include "Layers.h"
 
 class nsDisplayListBuilder;
 class nsDisplayList;
@@ -22,6 +21,7 @@ class nsRootPresContext;
 namespace mozilla {
 namespace layers {
 class ContainerLayer;
+class LayerManager;
 class ThebesLayer;
 }
 
@@ -39,35 +39,6 @@ enum LayerState {
   // Inactive style layer for rendering SVG effects.
   LAYER_SVG_EFFECTS
 };
-
-class LayerManagerLayerBuilder : public layers::LayerUserData {
-public:
-  LayerManagerLayerBuilder(FrameLayerBuilder* aBuilder, bool aDelete = true)
-    : mLayerBuilder(aBuilder)
-    , mDelete(aDelete)
-  {
-    MOZ_COUNT_CTOR(LayerManagerLayerBuilder);
-  }
-  ~LayerManagerLayerBuilder();
-
-  FrameLayerBuilder* mLayerBuilder;
-  bool mDelete;
-};
-
-extern PRUint8 gLayerManagerLayerBuilder;
-
-class ContainerLayerPresContext : public layers::LayerUserData {
-public:
-  nsPresContext* mPresContext;
-};
-
-extern PRUint8 gContainerLayerPresContext;
-
-static inline FrameLayerBuilder *GetLayerBuilderForManager(layers::LayerManager* aManager)
-{
-  LayerManagerLayerBuilder *data = static_cast<LayerManagerLayerBuilder*>(aManager->GetUserData(&gLayerManagerLayerBuilder));
-  return data ? data->mLayerBuilder : nullptr;
-}
 
 class RefCountedRegion : public RefCounted<RefCountedRegion> {
 public:
@@ -115,8 +86,8 @@ public:
  */
 class FrameLayerBuilder {
 public:
-  typedef layers::ContainerLayer ContainerLayer; 
-  typedef layers::Layer Layer; 
+  typedef layers::ContainerLayer ContainerLayer;
+  typedef layers::Layer Layer;
   typedef layers::ThebesLayer ThebesLayer;
   typedef layers::LayerManager LayerManager;
 
@@ -138,7 +109,7 @@ public:
 
   static void Shutdown();
 
-  void Init(nsDisplayListBuilder* aBuilder);
+  void Init(nsDisplayListBuilder* aBuilder, LayerManager* aManager);
 
   /**
    * Call this to notify that we have just started a transaction on the
@@ -239,6 +210,7 @@ public:
    * the NS_FRAME_HAS_CONTAINER_LAYER state bit. Only the nearest
    * ancestor frame of the damaged frame that has
    * NS_FRAME_HAS_CONTAINER_LAYER needs to be invalidated this way.
+   * It is assumed that aRect does NOT have the frame's transforms applied.
    */
   static void InvalidateThebesLayerContents(nsIFrame* aFrame,
                                             const nsRect& aRect);
@@ -250,6 +222,12 @@ public:
    * being moved and we need to invalidate everything in aFrame's subtree.
    */
   static void InvalidateThebesLayersInSubtree(nsIFrame* aFrame);
+
+  /**
+   * As InvalidateThebesLayersInSubtree, but don't trust frame geometry
+   * (e.g. because appunits-per-dev-pixel changed).
+   */
+  static void InvalidateThebesLayersInSubtreeWithUntrustedFrameGeometry(nsIFrame* aFrame);
 
   /**
    * Call this to force all retained layers to be discarded and recreated at
@@ -279,9 +257,9 @@ public:
 #ifdef MOZ_DUMP_PAINTING
   /**
    * Dumps this FrameLayerBuilder's retained layer manager's retained
-   * layer tree to stderr.
+   * layer tree. Defaults to dumping to stdout in non-HTML format.
    */
-  static void DumpRetainedLayerTree(LayerManager* aManager, FILE* aFile = stdout);
+  static void DumpRetainedLayerTree(LayerManager* aManager, FILE* aFile = stdout, bool aDumpHtml = false);
 #endif
 
   /******* PRIVATE METHODS to FrameLayerBuilder.cpp ********/
@@ -467,12 +445,8 @@ protected:
    */
   class DisplayItemData {
   public:
-    DisplayItemData(Layer* aLayer, PRUint32 aKey, LayerState aLayerState, PRUint32 aGeneration)
-      : mLayer(aLayer)
-      , mDisplayItemKey(aKey)
-      , mContainerLayerGeneration(aGeneration)
-      , mLayerState(aLayerState)
-    {}
+    DisplayItemData(Layer* aLayer, PRUint32 aKey, LayerState aLayerState, PRUint32 aGeneration);
+    ~DisplayItemData();
 
     nsRefPtr<Layer> mLayer;
     PRUint32        mDisplayItemKey;

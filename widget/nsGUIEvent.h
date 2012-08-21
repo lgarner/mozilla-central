@@ -16,6 +16,7 @@
 #include "nsIAtom.h"
 #include "nsIDOMKeyEvent.h"
 #include "nsIDOMMouseEvent.h"
+#include "nsIDOMWheelEvent.h"
 #include "nsIDOMDataTransfer.h"
 #include "nsIDOMEventTarget.h"
 #include "nsIDOMTouchEvent.h"
@@ -38,9 +39,6 @@ namespace plugins {
 }
 }
 
-#ifdef ACCESSIBILITY
-class Accessible;
-#endif
 class nsRenderingContext;
 class nsIMenuItem;
 class nsIContent;
@@ -66,7 +64,6 @@ class nsHashKey;
 #define NS_MOUSE_SCROLL_EVENT             16
 #define NS_SCROLLPORT_EVENT               18
 #define NS_MUTATION_EVENT                 19 // |nsMutationEvent| in content
-#define NS_ACCESSIBLE_EVENT               20
 #define NS_FORM_EVENT                     21
 #define NS_FOCUS_EVENT                    22
 #define NS_POPUP_EVENT                    23
@@ -88,10 +85,10 @@ class nsHashKey;
 #define NS_SELECTION_EVENT                38
 #define NS_CONTENT_COMMAND_EVENT          39
 #define NS_GESTURENOTIFY_EVENT            40
-#define NS_UISTATECHANGE_EVENT            41
 #define NS_MOZTOUCH_EVENT                 42
 #define NS_PLUGIN_EVENT                   43
 #define NS_TOUCH_EVENT                    44
+#define NS_WHEEL_EVENT                    45
 
 // These flags are sort of a mess. They're sort of shared between event
 // listener flags and event flags, but only some of them. You've been
@@ -148,61 +145,14 @@ class nsHashKey;
 
 #define NS_WINDOW_START                 100
 
-// Widget is being created
-#define NS_CREATE                       (NS_WINDOW_START)
 // Widget may be destroyed
 #define NS_XUL_CLOSE                    (NS_WINDOW_START + 1)
-// Widget is being destroyed
-#define NS_DESTROY                      (NS_WINDOW_START + 2)
-// Widget was resized
-#define NS_SIZE                         (NS_WINDOW_START + 3)
-// Widget size mode was changed
-#define NS_SIZEMODE                     (NS_WINDOW_START + 4)
-// Widget got activated
-#define NS_ACTIVATE                     (NS_WINDOW_START + 7)
-// Widget got deactivated
-#define NS_DEACTIVATE                   (NS_WINDOW_START + 8)
-// top-level window z-level change request
-#define NS_SETZLEVEL                    (NS_WINDOW_START + 9)
-// Widget was repainted (dispatched when it's safe to move widgets, but
-// only on some platforms (including GTK2 and Windows))
-#define NS_DID_PAINT                   (NS_WINDOW_START + 28)
-// Widget will need to be painted
-#define NS_WILL_PAINT                   (NS_WINDOW_START + 29)
-// Widget needs to be repainted
-#define NS_PAINT                        (NS_WINDOW_START + 30)
 // Key is pressed within a window
 #define NS_KEY_PRESS                    (NS_WINDOW_START + 31)
 // Key is released within a window
 #define NS_KEY_UP                       (NS_WINDOW_START + 32)
 // Key is pressed within a window
 #define NS_KEY_DOWN                     (NS_WINDOW_START + 33)
-// Window has been moved to a new location.
-// The events point contains the x, y location in screen coordinates
-#define NS_MOVE                         (NS_WINDOW_START + 34) 
-
-// Tab control's selected tab has changed
-#define NS_TABCHANGE                    (NS_WINDOW_START + 35)
-
-#define NS_OS_TOOLBAR                   (NS_WINDOW_START + 36)
-
-// Indicates the display has changed depth
-#define NS_DISPLAYCHANGED                (NS_WINDOW_START + 40)
-
-// Indicates a theme change has occurred
-#define NS_THEMECHANGED                 (NS_WINDOW_START + 41)
-
-// Indicates a System color has changed. It is the platform
-// toolkits responsibility to invalidate the window to 
-// ensure that it is drawn using the current system colors.
-#define NS_SYSCOLORCHANGED              (NS_WINDOW_START + 42)
-
-// Indicates that the ui state such as whether to show focus or
-// keyboard accelerator indicators has changed.
-#define NS_UISTATECHANGED               (NS_WINDOW_START + 43)
-
-// Done sizing or moving a window, so ensure that the mousedown state was cleared.
-#define NS_DONESIZEMOVE                 (NS_WINDOW_START + 44)
 
 #define NS_RESIZE_EVENT                 (NS_WINDOW_START + 60)
 #define NS_SCROLL_EVENT                 (NS_WINDOW_START + 61)
@@ -241,13 +191,6 @@ class nsHashKey;
 
 #define NS_CONTEXTMENU_MESSAGE_START    500
 #define NS_CONTEXTMENU                  (NS_CONTEXTMENU_MESSAGE_START)
-
-#define NS_SCROLLBAR_MESSAGE_START      1000
-#define NS_SCROLLBAR_POS                (NS_SCROLLBAR_MESSAGE_START)
-#define NS_SCROLLBAR_PAGE_NEXT          (NS_SCROLLBAR_MESSAGE_START + 1)
-#define NS_SCROLLBAR_PAGE_PREV          (NS_SCROLLBAR_MESSAGE_START + 2)
-#define NS_SCROLLBAR_LINE_NEXT          (NS_SCROLLBAR_MESSAGE_START + 3)
-#define NS_SCROLLBAR_LINE_PREV          (NS_SCROLLBAR_MESSAGE_START + 4)
 
 #define NS_STREAM_EVENT_START           1100
 #define NS_LOAD                         (NS_STREAM_EVENT_START)
@@ -309,10 +252,6 @@ class nsHashKey;
 #define NS_SCROLLPORT_OVERFLOWCHANGED (NS_SCROLLPORT_START+2)
 
 // Mutation events defined elsewhere starting at 1800
-
-// accessible events
-#define NS_ACCESSIBLE_START           1900
-#define NS_GETACCESSIBLE              (NS_ACCESSIBLE_START)
 
 #define NS_USER_DEFINED_EVENT         2000
  
@@ -391,12 +330,6 @@ class nsHashKey;
 // Query if the DOM element under nsEvent::refPoint belongs to our widget
 // or not.
 #define NS_QUERY_DOM_WIDGET_HITTEST     (NS_QUERY_CONTENT_EVENT_START + 9)
-// Query for some information about mouse wheel event's target
-// XXX This is used only for supporting high resolution mouse scroll on Windows
-//     and it's going to be reimplemented with another approach.  At that time,
-//     this even is going to be removed. Therefore,  DON'T use this event for
-//     other purpose.
-#define NS_QUERY_SCROLL_TARGET_INFO     (NS_QUERY_CONTENT_EVENT_START + 99)
 
 // Video events
 #define NS_MEDIA_EVENT_START            3300
@@ -537,6 +470,9 @@ class nsHashKey;
 #define NS_POINTERLOCKCHANGE         (NS_POINTERLOCK_START)
 #define NS_POINTERLOCKERROR          (NS_POINTERLOCK_START + 1)
 
+#define NS_WHEEL_EVENT_START         5400
+#define NS_WHEEL_WHEEL               (NS_WHEEL_EVENT_START)
+
 /**
  * Return status for event processors, nsEventStatus, is defined in
  * nsEvent.h.
@@ -670,84 +606,6 @@ public:
   PRInt32           lineNr;
   const PRUnichar*  errorMsg;
   const PRUnichar*  fileName;
-};
-
-/**
- * Window resize event
- */
-
-class nsSizeEvent : public nsGUIEvent
-{
-public:
-  nsSizeEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
-    : nsGUIEvent(isTrusted, msg, w, NS_SIZE_EVENT),
-      windowSize(nullptr), mWinWidth(0), mWinHeight(0)
-  {
-  }
-
-  /// x,y width, height in pixels (client area)
-  nsIntRect       *windowSize;
-  /// width of entire window (in pixels)
-  PRInt32         mWinWidth;    
-  /// height of entire window (in pixels)
-  PRInt32         mWinHeight;    
-};
-
-/**
- * Window size mode event
- */
-
-class nsSizeModeEvent : public nsGUIEvent
-{
-public:
-  nsSizeModeEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
-    : nsGUIEvent(isTrusted, msg, w, NS_SIZEMODE_EVENT),
-      mSizeMode(nsSizeMode_Normal)
-  {
-  }
-
-  nsSizeMode      mSizeMode;
-};
-
-/**
- * Window z-level event
- */
-
-class nsZLevelEvent : public nsGUIEvent
-{
-public:
-  nsZLevelEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
-    : nsGUIEvent(isTrusted, msg, w, NS_ZLEVEL_EVENT),
-      mPlacement(nsWindowZTop), mReqBelow(nullptr), mActualBelow(nullptr),
-      mImmediate(false), mAdjusted(false)
-  {
-  }
-
-  nsWindowZ  mPlacement;
-  nsIWidget *mReqBelow,    // widget we request being below, if any
-            *mActualBelow; // widget to be below, returned by handler
-  bool       mImmediate,   // handler should make changes immediately
-             mAdjusted;    // handler changed placement
-};
-
-/**
- * Window repaint event
- */
-
-class nsPaintEvent : public nsGUIEvent
-{
-public:
-  nsPaintEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
-    : nsGUIEvent(isTrusted, msg, w, NS_PAINT_EVENT),
-      willSendDidPaint(false),
-      didSendWillPaint(false)
-  {
-  }
-
-  // area that needs repainting
-  nsIntRegion region;
-  bool willSendDidPaint;
-  bool didSendWillPaint;
 };
 
 /**
@@ -1050,24 +908,6 @@ public:
   bool userCancelled;
 };
 
-#ifdef ACCESSIBILITY
-/**
- * Accessible event
- */
-
-class nsAccessibleEvent : public nsInputEvent
-{
-public:
-  nsAccessibleEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
-    : nsInputEvent(isTrusted, msg, w, NS_ACCESSIBLE_EVENT),
-      mAccessible(nullptr)
-  {
-  }
-
-  Accessible *mAccessible;
-};
-#endif
-
 /**
  * Keyboard event
  */
@@ -1290,96 +1130,126 @@ public:
   nsString data;
 };
 
-/* Mouse Scroll Events: Line Scrolling, Pixel Scrolling and Common Event Flows
- *
- * There are two common event flows:
- *  (1) Normal line scrolling:
- *      1. An NS_MOUSE_SCROLL event without kHasPixels is dispatched to Gecko.
- *      2. A DOMMouseScroll event is sent into the DOM.
- *      3. A MozMousePixelScroll event is sent into the DOM.
- *      4. If neither event has been consumed, the default handling of the
- *         NS_MOUSE_SCROLL event is executed.
- *
- *  (2) Pixel scrolling:
- *      1. An NS_MOUSE_SCROLL event with kHasPixels is dispatched to Gecko.
- *      2. A DOMMouseScroll event is sent into the DOM.
- *      3. No scrolling takes place in the default handler.
- *      4. An NS_MOUSE_PIXEL_SCROLL event is dispatched to Gecko.
- *      5. A MozMousePixelScroll event is sent into the DOM.
- *      6. If neither the NS_MOUSE_PIXELSCROLL event nor the preceding
- *         NS_MOUSE_SCROLL event have been consumed, the default handler scrolls.
- *      7. Steps 4.-6. are repeated for every pixel scroll that belongs to
- *         the announced line scroll. Once enough pixels have been sent to
- *         complete a line, a new NS_MOUSE_SCROLL event is sent (goto step 1.).
- *
- * If a DOMMouseScroll event has been preventDefaulted, the associated
- * following MozMousePixelScroll events are still sent - they just don't result
- * in any scrolling (their default handler isn't executed).
- *
- * How many pixel scrolls make up one line scroll is decided in the widget layer
- * where the NS_MOUSE(_PIXEL)_SCROLL events are created.
- *
- * This event flow model satisfies several requirements:
- *  - DOMMouseScroll handlers don't need to be aware of the existence of pixel
- *    scrolling.
- *  - preventDefault on a DOMMouseScroll event results in no scrolling.
- *  - DOMMouseScroll events aren't polluted with a kHasPixels flag.
- *  - You can make use of pixel scroll DOM events (MozMousePixelScroll).
+/**
+ * nsMouseScrollEvent is used for legacy DOM mouse scroll events, i.e.,
+ * DOMMouseScroll and MozMousePixelScroll event.  These events are NOT hanbled
+ * by ESM even if widget dispatches them.  Use new widget::WheelEvent instead.
  */
 
 class nsMouseScrollEvent : public nsMouseEvent_base
 {
 private:
-  friend class mozilla::dom::PBrowserParent;
-  friend class mozilla::dom::PBrowserChild;
-
   nsMouseScrollEvent()
   {
   }
 
 public:
-  enum nsMouseScrollFlags {
-    kIsFullPage =   1 << 0,
-    kIsVertical =   1 << 1,
-    kIsHorizontal = 1 << 2,
-    kHasPixels =    1 << 3, // Marks line scroll events that are provided as
-                            // a fallback for pixel scroll events.
-                            // These scroll events are used by things that can't
-                            // be scrolled pixel-wise, like trees. You should
-                            // ignore them when processing pixel scroll events
-                            // to avoid double-processing the same scroll gesture.
-                            // When kHasPixels is set, the event is guaranteed to
-                            // be followed up by an event that contains pixel
-                            // scrolling information.
-    kNoLines =      1 << 4, // Marks pixel scroll events that will not be
-                            // followed by a line scroll events. EventStateManager
-                            // will compute the appropriate height/width based on
-                            // view lineHeight and generate line scroll events
-                            // as needed.
-    kNoDefer =      1 << 5, // For scrollable views, indicates scroll should not
-                            // occur asynchronously.
-    kIsMomentum =   1 << 6, // Marks scroll events that aren't controlled by the
-                            // user but fire automatically as the result of a
-                            // "momentum" scroll.
-    kAllowSmoothScroll = 1 << 7, // Allow smooth scroll for the pixel scroll
-                                 // event.
-    kFromLines =    1 << 8  // For a pixels scroll event, indicates that it
-                            // originated from a lines scroll event.
-                            // (Only used on windows which generates "faked"
-                            // pixel scroll events even for simple mouse wheel
-                            // scroll)
-};
-
   nsMouseScrollEvent(bool isTrusted, PRUint32 msg, nsIWidget *w)
     : nsMouseEvent_base(isTrusted, msg, w, NS_MOUSE_SCROLL_EVENT),
-      scrollFlags(0), delta(0), scrollOverflow(0)
+      delta(0), isHorizontal(false)
   {
   }
 
-  PRInt32               scrollFlags;
   PRInt32               delta;
-  PRInt32               scrollOverflow;
+  bool                  isHorizontal;
 };
+
+/**
+ * WheelEvent is used only for DOM Level 3 WheelEvent (dom::DOMWheelEvent).
+ */
+
+namespace mozilla {
+namespace widget {
+
+class WheelEvent : public nsMouseEvent_base
+{
+private:
+  friend class mozilla::dom::PBrowserParent;
+  friend class mozilla::dom::PBrowserChild;
+
+  WheelEvent()
+  {
+  }
+
+public:
+  WheelEvent(bool aIsTrusted, PRUint32 aMessage, nsIWidget* aWidget) :
+    nsMouseEvent_base(aIsTrusted, aMessage, aWidget, NS_WHEEL_EVENT),
+    deltaX(0.0), deltaY(0.0), deltaZ(0.0),
+    deltaMode(nsIDOMWheelEvent::DOM_DELTA_PIXEL),
+    customizedByUserPrefs(false), isMomentum(false), isPixelOnlyDevice(false),
+    lineOrPageDeltaX(0), lineOrPageDeltaY(0), scrollType(SCROLL_DEFAULT),
+    overflowDeltaX(0.0), overflowDeltaY(0.0)
+  {
+  }
+
+  double deltaX;
+  double deltaY;
+  double deltaZ;
+
+  // Should be one of nsIDOMWheelEvent::DOM_DELTA_*
+  PRUint32 deltaMode;
+
+  // Following members are for internal use only, not for DOM event.
+
+  // If the delta values are computed from prefs, this value is true.
+  // Otherwise, i.e., they are computed from native events, false.
+  bool customizedByUserPrefs;
+
+  // true if the event is caused by momentum.
+  bool isMomentum;
+
+  // If device event handlers don't know when they should set lineOrPageDeltaX
+  // and lineOrPageDeltaY, this is true.  Otherwise, false.
+  // If isPixelOnlyDevice is true, ESM will generate NS_MOUSE_SCROLL events
+  // when accumulated pixel delta values reach a line height.
+  bool isPixelOnlyDevice;
+
+  // If widget sets lineOrPageDelta, nsEventStateManager will dispatch
+  // NS_MOUSE_SCROLL event for compatibility.  Note that the delta value means
+  // pages if the deltaMode is DOM_DELTA_PAGE, otherwise, lines.
+  PRInt32 lineOrPageDeltaX;
+  PRInt32 lineOrPageDeltaY;
+
+  // When the default action for an wheel event is moving history or zooming,
+  // need to chose a delta value for doing it.
+  PRInt32 GetPreferredIntDelta()
+  {
+    if (!lineOrPageDeltaX && !lineOrPageDeltaY) {
+      return 0;
+    }
+    if (lineOrPageDeltaY && !lineOrPageDeltaX) {
+      return lineOrPageDeltaY;
+    }
+    if (lineOrPageDeltaX && !lineOrPageDeltaY) {
+      return lineOrPageDeltaX;
+    }
+    if ((lineOrPageDeltaX < 0 && lineOrPageDeltaY > 0) ||
+        (lineOrPageDeltaX > 0 && lineOrPageDeltaY < 0)) {
+      return 0; // We cannot guess the answer in this case.
+    }
+    return (NS_ABS(lineOrPageDeltaX) > NS_ABS(lineOrPageDeltaY)) ?
+             lineOrPageDeltaX : lineOrPageDeltaY;
+  }
+
+  // Scroll type
+  // The default value is SCROLL_DEFAULT, which means nsEventStateManager will
+  // select preferred scroll type automatically.
+  enum ScrollType {
+    SCROLL_DEFAULT,
+    SCROLL_SYNCHRONOUSLY,
+    SCROLL_ASYNCHRONOUSELY,
+    SCROLL_SMOOTHLY
+  };
+  ScrollType scrollType;
+
+  // overflowed delta values, these values are the result of dispatching this
+  // event.
+  double overflowDeltaX;
+  double overflowDeltaY;
+};
+
+} // namespace widget
+} // namespace mozilla
 
 /*
  * Gesture Notify Event:
@@ -1462,13 +1332,6 @@ public:
     refPoint = aPoint;
   }
 
-  void InitForQueryScrollTargetInfo(nsMouseScrollEvent* aEvent)
-  {
-    NS_ASSERTION(message == NS_QUERY_SCROLL_TARGET_INFO,
-                 "wrong initializer is called");
-    mInput.mMouseScrollEvent = aEvent;
-  }
-
   PRUint32 GetSelectionStart(void) const
   {
     NS_ASSERTION(message == NS_QUERY_SELECTED_TEXT,
@@ -1488,8 +1351,6 @@ public:
   struct {
     PRUint32 mOffset;
     PRUint32 mLength;
-    // used by NS_QUERY_SCROLL_TARGET_INFO
-    nsMouseScrollEvent* mMouseScrollEvent;
   } mInput;
   struct {
     void* mContentsRoot;
@@ -1503,18 +1364,6 @@ public:
     bool mWidgetIsHit; // true if DOM element under mouse belongs to widget
     // used by NS_QUERY_SELECTION_AS_TRANSFERABLE
     nsCOMPtr<nsITransferable> mTransferable;
-    // used by NS_QUERY_SCROLL_TARGET_INFO
-    PRInt32 mLineHeight;
-    PRInt32 mPageWidth;
-    PRInt32 mPageHeight;
-    // used by NS_QUERY_SCROLL_TARGET_INFO
-    // the mouse wheel scrolling amount may be overridden by prefs or
-    // overriding system scrolling speed mechanism.
-    // If mMouseScrollEvent is a line scroll event, the unit of this value is
-    // line.  If mMouseScrollEvent is a page scroll event, the unit of this
-    // value is page.
-    PRInt32 mComputedScrollAmount;
-    PRInt32 mComputedScrollAction;
   } mReply;
 
   enum {
@@ -1713,7 +1562,7 @@ class nsSimpleGestureEvent : public nsMouseEvent_base
 {
 public:
   nsSimpleGestureEvent(bool isTrusted, PRUint32 msg, nsIWidget* w,
-                         PRUint32 directionArg, PRFloat64 deltaArg)
+                         PRUint32 directionArg, double deltaArg)
     : nsMouseEvent_base(isTrusted, msg, w, NS_SIMPLE_GESTURE_EVENT),
       direction(directionArg), delta(deltaArg), clickCount(0)
   {
@@ -1727,7 +1576,7 @@ public:
   }
 
   PRUint32 direction;   // See nsIDOMSimpleGestureEvent for values
-  PRFloat64 delta;      // Delta for magnify and rotate events
+  double delta;         // Delta for magnify and rotate events
   PRUint32 clickCount;  // The number of taps for tap events
 };
 
@@ -1757,20 +1606,6 @@ public:
 
   nsString animationName;
   float elapsedTime;
-};
-
-class nsUIStateChangeEvent : public nsGUIEvent
-{
-public:
-  nsUIStateChangeEvent(bool isTrusted, PRUint32 msg, nsIWidget* w)
-    : nsGUIEvent(isTrusted, msg, w, NS_UISTATECHANGE_EVENT),
-      showAccelerators(UIStateChangeType_NoChange),
-      showFocusRings(UIStateChangeType_NoChange)
-  {
-  }
-
-  UIStateChangeType showAccelerators;
-  UIStateChangeType showFocusRings;
 };
 
 /**
@@ -1806,7 +1641,6 @@ enum nsDragDropEventStatus {
 
 #define NS_IS_INPUT_EVENT(evnt) \
        (((evnt)->eventStructType == NS_INPUT_EVENT) || \
-        ((evnt)->eventStructType == NS_ACCESSIBLE_EVENT) || \
         ((evnt)->eventStructType == NS_MOUSE_EVENT) || \
         ((evnt)->eventStructType == NS_KEY_EVENT) || \
         ((evnt)->eventStructType == NS_TEXT_EVENT) || \
@@ -1867,9 +1701,7 @@ enum nsDragDropEventStatus {
         ((evnt)->message == NS_COMPOSITION_UPDATE))
 
 #define NS_IS_ACTIVATION_EVENT(evnt) \
-       (((evnt)->message == NS_ACTIVATE) || \
-        ((evnt)->message == NS_DEACTIVATE) || \
-        ((evnt)->message == NS_PLUGIN_ACTIVATE) || \
+        (((evnt)->message == NS_PLUGIN_ACTIVATE) || \
         ((evnt)->message == NS_PLUGIN_FOCUS))
 
 #define NS_IS_QUERY_CONTENT_EVENT(evnt) \
@@ -1915,8 +1747,7 @@ enum nsDragDropEventStatus {
 // cases, you should use NS_IS_IME_RELATED_EVENT instead.
 #define NS_IS_IME_RELATED_EVENT(evnt) \
   (NS_IS_IME_EVENT(evnt) || \
-   (NS_IS_QUERY_CONTENT_EVENT(evnt) && \
-    evnt->message != NS_QUERY_SCROLL_TARGET_INFO) || \
+   NS_IS_QUERY_CONTENT_EVENT(evnt) || \
    NS_IS_SELECTION_EVENT(evnt))
 
 /*
@@ -1949,8 +1780,7 @@ inline bool NS_IsEventUsingCoordinates(nsEvent* aEvent)
   return !NS_IS_KEY_EVENT(aEvent) && !NS_IS_IME_RELATED_EVENT(aEvent) &&
          !NS_IS_CONTEXT_MENU_KEY(aEvent) && !NS_IS_ACTIVATION_EVENT(aEvent) &&
          !NS_IS_PLUGIN_EVENT(aEvent) &&
-         !NS_IS_CONTENT_COMMAND_EVENT(aEvent) &&
-         aEvent->eventStructType != NS_ACCESSIBLE_EVENT;
+         !NS_IS_CONTENT_COMMAND_EVENT(aEvent);
 }
 
 /**
@@ -1989,6 +1819,34 @@ inline bool NS_IsEventTargetedAtFocusedContent(nsEvent* aEvent)
   return NS_IS_KEY_EVENT(aEvent) || NS_IS_IME_RELATED_EVENT(aEvent) ||
          NS_IS_CONTEXT_MENU_KEY(aEvent) ||
          NS_IS_RETARGETED_PLUGIN_EVENT(aEvent);
+}
+
+/**
+ * Whether the event should cause a DOM event.
+ */
+inline bool NS_IsAllowedToDispatchDOMEvent(nsEvent* aEvent)
+{
+  switch (aEvent->eventStructType) {
+    case NS_MOUSE_EVENT:
+      // We want synthesized mouse moves to cause mouseover and mouseout
+      // DOM events (nsEventStateManager::PreHandleEvent), but not mousemove
+      // DOM events.
+      // Synthesized button up events also do not cause DOM events because they
+      // do not have a reliable refPoint.
+      return static_cast<nsMouseEvent*>(aEvent)->reason == nsMouseEvent::eReal;
+
+    case NS_WHEEL_EVENT: {
+      // wheel event whose all delta values are zero by user pref applied, it
+      // shouldn't cause a DOM event.
+      mozilla::widget::WheelEvent* wheelEvent =
+        static_cast<mozilla::widget::WheelEvent*>(aEvent);
+      return wheelEvent->deltaX != 0.0 || wheelEvent->deltaY != 0.0 ||
+             wheelEvent->deltaZ != 0.0;
+    }
+
+    default:
+      return true;
+  }
 }
 
 #endif // nsGUIEvent_h__

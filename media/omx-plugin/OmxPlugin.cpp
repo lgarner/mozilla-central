@@ -1,42 +1,17 @@
 /* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* vim:set ts=2 sw=2 sts=2 et cindent: */
-/* Copyright 2012 Mozilla Foundation and Mozilla contributors
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-#include <unistd.h>
-#include <fcntl.h>
-
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include <stagefright/DataSource.h>
-#include <stagefright/MediaErrors.h>
 #include <stagefright/MediaExtractor.h>
-#include <stagefright/MediaSource.h>
 #include <stagefright/MetaData.h>
 #include <stagefright/OMXCodec.h>
-#include <stagefright/HardwareAPI.h>
+#ifdef MOZ_WIDGET_GONK
 #include <OMX.h>
-#include <ui/GraphicBuffer.h>
-#include <ui/Rect.h>
-#include <ui/Region.h>
-#include <binder/IMemory.h>
-
-#include <OMX_Types.h>
-#include <OMX_Core.h>
-#include <OMX_Index.h>
-#include <OMX_IVCommon.h>
-#include <OMX_Component.h>
-
+#else
+#include <stagefright/OMXClient.h>
+#endif
 #include "mozilla/Types.h"
 #include "MPAPI.h"
 
@@ -129,6 +104,9 @@ using namespace android;
 class OmxDecoder {
   PluginHost *mPluginHost;
   Decoder *mDecoder;
+#ifndef MOZ_WIDGET_GONK
+  OMXClient mClient;
+#endif
   sp<MediaSource> mVideoTrack;
   sp<MediaSource> mVideoSource;
   sp<MediaSource> mAudioTrack;
@@ -224,6 +202,9 @@ OmxDecoder::~OmxDecoder()
   if (mAudioSource.get()) {
     mAudioSource->stop();
   }
+#ifndef MOZ_WIDGET_GONK
+  mClient.disconnect();
+#endif
 }
 
 class AutoStopMediaSource {
@@ -237,13 +218,15 @@ public:
   }
 };
 
+#ifdef MOZ_WIDGET_GONK
 static sp<IOMX> sOMX = NULL;
 static sp<IOMX> GetOMX() {
   if(sOMX.get() == NULL) {
-    sOMX = new OMX;
-    }
+    sOMX = reinterpret_cast<IOMX*>(new OMX);
+  }
   return sOMX;
 }
+#endif
 
 bool OmxDecoder::Init() {
   //register sniffers, if they are not registered in this process.
@@ -293,15 +276,30 @@ bool OmxDecoder::Init() {
 
   int64_t totalDurationUs = 0;
 
+#ifdef MOZ_WIDGET_GONK
+  sp<IOMX> omx = GetOMX();
+  uint32_t flags = OMXCodec::kSoftwareCodecsOnly;
+#else
+  // OMXClient::connect() always returns OK and abort's fatally if
+  // it can't connect. We may need to implement the connect functionality
+  // ourselves if this proves to be an issue.
+  if (mClient.connect() != OK) {
+    LOG("OMXClient failed to connect");
+  }
+  sp<IOMX> omx = mClient.interface();
+  // Flag value of zero means return a hardware or software decoder
+  // depending on what the device supports.
+  uint32_t flags = 0;
+#endif
   sp<MediaSource> videoTrack;
   sp<MediaSource> videoSource;
   if (videoTrackIndex != -1 && (videoTrack = extractor->getTrack(videoTrackIndex)) != NULL) {
-    videoSource = OMXCodec::Create(GetOMX(),
+    videoSource = OMXCodec::Create(omx,
                                    videoTrack->getFormat(),
                                    false, // decoder
                                    videoTrack,
                                    NULL,
-                                   0); // flags (prefer hw codecs)
+                                   flags);
     if (videoSource == NULL) {
       return false;
     }
@@ -324,7 +322,7 @@ bool OmxDecoder::Init() {
     if (!strcasecmp(audioMime, "audio/raw")) {
       audioSource = audioTrack;
     } else {
-      audioSource = OMXCodec::Create(GetOMX(),
+      audioSource = OMXCodec::Create(omx,
                                      audioTrack->getFormat(),
                                      false, // decoder
                                      audioTrack);
@@ -530,19 +528,8 @@ bool OmxDecoder::ReadVideo(VideoFrame *aFrame, int64_t aSeekTimeUs)
       unreadable = 0;
     }
 
-    LOG("data: %p size: %u offset: %u length: %u unreadable: %d",
-        mVideoBuffer->data(), 
-        mVideoBuffer->size(),
-        mVideoBuffer->range_offset(),
-        mVideoBuffer->range_length(),
-        unreadable);
-
     char *data = reinterpret_cast<char *>(mVideoBuffer->data()) + mVideoBuffer->range_offset();
     size_t length = mVideoBuffer->range_length();
-
-    if (unreadable) {
-      LOG("video frame is unreadable");
-    }
 
     if (!ToVideoFrame(aFrame, timeUs, data, length, keyFrame)) {
       return false;
@@ -550,7 +537,10 @@ bool OmxDecoder::ReadVideo(VideoFrame *aFrame, int64_t aSeekTimeUs)
   }
   else if (err == INFO_FORMAT_CHANGED) {
     // If the format changed, update our cached info.
-    return SetVideoFormat();
+    if (!SetVideoFormat())
+      return false;
+    else
+      return ReadVideo(aFrame, aSeekTimeUs);
   }
   else if (err == ERROR_END_OF_STREAM) {
     return false;
@@ -562,7 +552,6 @@ bool OmxDecoder::ReadVideo(VideoFrame *aFrame, int64_t aSeekTimeUs)
 bool OmxDecoder::ReadAudio(AudioFrame *aFrame, int64_t aSeekTimeUs)
 {
   status_t err;
-
   if (mAudioMetadataRead && aSeekTimeUs == -1) {
     // Use the data read into the buffer during metadata time
     err = OK;
@@ -592,14 +581,15 @@ bool OmxDecoder::ReadAudio(AudioFrame *aFrame, int64_t aSeekTimeUs)
                         mAudioBuffer->range_length(),
                         mAudioChannels, mAudioSampleRate);
   }
-  else if (err == INFO_FORMAT_CHANGED && !SetAudioFormat()) {
+  else if (err == INFO_FORMAT_CHANGED) {
     // If the format changed, update our cached info.
-    return false;
+    if (!SetAudioFormat())
+      return false;
+    else
+      return ReadAudio(aFrame, aSeekTimeUs);
   }
-  else if (err == ERROR_END_OF_STREAM)
-    return false;
 
-  return true;
+  return err == OK;
 }
 
 static OmxDecoder *cast(Decoder *decoder) {

@@ -184,9 +184,8 @@ public:
 
   //nsIViewObserver interface
 
-  virtual void Paint(nsIView* aViewToPaint, nsIWidget* aWidget,
-                     const nsRegion& aDirtyRegion, const nsIntRegion& aIntDirtyRegion,
-                     bool aWillSendDidPaint);
+  virtual void Paint(nsIView* aViewToPaint, const nsRegion& aDirtyRegion,
+                     PaintType aType, bool aWillSendDidPaint);
   virtual nsresult HandleEvent(nsIFrame*       aFrame,
                                nsGUIEvent*     aEvent,
                                bool            aDontRetargetEvents,
@@ -690,7 +689,12 @@ protected:
   // The callback for the mReflowContinueTimer timer.
   static void sReflowContinueCallback(nsITimer* aTimer, void* aPresShell);
   bool ScheduleReflowOffTimer();
-  
+
+  // Widget notificiations
+  virtual void WindowSizeMoveDone();
+  virtual void SysColorChanged() { mPresContext->SysColorChanged(); }
+  virtual void ThemeChanged() { mPresContext->ThemeChanged(); }
+
 #ifdef DEBUG
   // The reflow root under which we're currently reflowing.  Null when
   // not in reflow.

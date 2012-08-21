@@ -26,7 +26,7 @@
 // Note the ALPHABETICAL ORDERING
 #include "nsXULDocument.h"
 
-#include "nsDOMError.h"
+#include "nsError.h"
 #include "nsIBoxObject.h"
 #include "nsIChromeRegistry.h"
 #include "nsIView.h"
@@ -80,7 +80,6 @@
 #include "nsIScriptError.h"
 #include "nsIStyleSheetLinkingElement.h"
 #include "nsEventDispatcher.h"
-#include "nsContentErrors.h"
 #include "nsIObserverService.h"
 #include "nsNodeUtils.h"
 #include "nsIDocShellTreeItem.h"
@@ -2659,7 +2658,7 @@ nsXULDocument::LoadOverlayInternal(nsIURI* aURI, bool aIsDynamic,
     bool documentIsChrome = IsChromeURI(mDocumentURI);
     if (!documentIsChrome) {
         // Make sure we're allowed to load this overlay.
-        rv = NodePrincipal()->CheckMayLoad(aURI, true);
+        rv = NodePrincipal()->CheckMayLoad(aURI, true, false);
         if (NS_FAILED(rv)) {
             *aFailureFromContent = true;
             return rv;

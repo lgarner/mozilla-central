@@ -18,7 +18,6 @@ mozFlushType.h \
 nsIContent.h \
 nsIAttribute.h \
 nsIContentIterator.h \
-nsContentErrors.h \
 nsContentPolicyUtils.h \
 nsContentUtils.h \
 nsIDocument.h \
@@ -48,6 +47,7 @@ $(NULL)
 EXPORTS_NAMESPACES = mozilla/dom mozilla
 
 EXPORTS_mozilla/dom = \
+		DirectionalityUtils.h \
 		Element.h \
 		FragmentOrElement.h \
 		FromParser.h \

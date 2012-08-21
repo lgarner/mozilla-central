@@ -105,8 +105,9 @@ ValueToIdentifier(JSContext *cx, const Value &v, jsid *idp)
     if (!ValueToId(cx, v, &id))
         return false;
     if (!JSID_IS_ATOM(id) || !IsIdentifier(JSID_TO_ATOM(id))) {
+        RootedValue val(cx, v);
         js_ReportValueErrorFlags(cx, JSREPORT_ERROR, JSMSG_UNEXPECTED_TYPE,
-                                 JSDVG_SEARCH_STACK, v, NULL, "not an identifier", NULL);
+                                 JSDVG_SEARCH_STACK, val, NullPtr(), "not an identifier", NULL);
         return false;
     }
     *idp = id;
@@ -878,7 +879,7 @@ CallMethodIfPresent(JSContext *cx, HandleObject obj, const char *name, int argc,
                     Value *rval)
 {
     rval->setUndefined();
-    JSAtom *atom = js_Atomize(cx, name, strlen(name));
+    JSAtom *atom = Atomize(cx, name, strlen(name));
     if (!atom)
         return false;
 
@@ -1472,7 +1473,6 @@ Debugger::sweepAll(FreeOp *fop)
             for (GlobalObjectSet::Enum e(dbg->debuggees); !e.empty(); e.popFront())
                 dbg->removeDebuggeeGlobal(fop, e.front(), NULL, &e);
         }
-
     }
 
     for (JSCompartment **c = rt->compartments.begin(); c != rt->compartments.end(); c++) {
@@ -1971,12 +1971,18 @@ Debugger::removeDebuggeeGlobal(FreeOp *fop, GlobalObject *global,
      * for sure, and possibly the compartment's debuggee set.
      */
     v->erase(p);
-    if (v->empty())
-        global->compartment()->removeDebuggee(fop, global, compartmentEnum);
     if (debugEnum)
         debugEnum->removeFront();
     else
         debuggees.remove(global);
+
+    /*
+     * The debuggee needs to be removed from the compartment last, as this can
+     * trigger GCs if the compartment's debug mode is being changed, and the
+     * global cannot be rooted on the stack without a cx.
+     */
+    if (v->empty())
+        global->compartment()->removeDebuggee(fop, global, compartmentEnum);
 }
 
 /*
@@ -2540,6 +2546,26 @@ DebuggerScript_getStaticLevel(JSContext *cx, unsigned argc, Value *vp)
 }
 
 static JSBool
+DebuggerScript_getSourceMapUrl(JSContext *cx, unsigned argc, Value *vp)
+{
+    THIS_DEBUGSCRIPT_SCRIPT(cx, argc, vp, "(get sourceMapURL)", args, obj, script);
+
+    ScriptSource *source = script->scriptSource();
+    JS_ASSERT(source);
+
+    if (source->hasSourceMap()) {
+        JSString *str = JS_NewUCStringCopyZ(cx, source->sourceMap());
+        if (!str)
+            return false;
+        args.rval().setString(str);
+    } else {
+        args.rval().setNull();
+    }
+
+    return true;
+}
+
+static JSBool
 DebuggerScript_getChildScripts(JSContext *cx, unsigned argc, Value *vp)
 {
     THIS_DEBUGSCRIPT_SCRIPT(cx, argc, vp, "getChildScripts", args, obj, script);
@@ -2977,6 +3003,7 @@ static JSPropertySpec DebuggerScript_properties[] = {
     JS_PSG("startLine", DebuggerScript_getStartLine, 0),
     JS_PSG("lineCount", DebuggerScript_getLineCount, 0),
     JS_PSG("staticLevel", DebuggerScript_getStaticLevel, 0),
+    JS_PSG("sourceMapURL", DebuggerScript_getSourceMapUrl, 0),
     JS_PS_END
 };
 
@@ -3171,7 +3198,7 @@ DebuggerArguments_getArg(JSContext *cx, unsigned argc, Value *vp)
      * Put the Debugger.Frame into the this-value slot, then use THIS_FRAME
      * to check that it is still live and get the fp.
      */
-    args.thisv() = argsobj->getReservedSlot(JSSLOT_DEBUGARGUMENTS_FRAME);
+    args.setThis(argsobj->getReservedSlot(JSSLOT_DEBUGARGUMENTS_FRAME));
     THIS_FRAME(cx, argc, vp, "get argument", ca2, thisobj, fp);
 
     /*
@@ -3181,12 +3208,19 @@ DebuggerArguments_getArg(JSContext *cx, unsigned argc, Value *vp)
     JS_ASSERT(i >= 0);
     Value arg;
     if (unsigned(i) < fp->numActualArgs()) {
-        if (unsigned(i) < fp->numFormalArgs() && fp->script()->formalLivesInCallObject(i))
-            arg = fp->callObj().formal(i);
-        else if (fp->script()->argsObjAliasesFormals() && fp->hasArgsObj())
+        JSScript *script = fp->script();
+        if (unsigned(i) < fp->numFormalArgs() && script->formalIsAliased(i)) {
+            for (AliasedFormalIter fi(script); ; fi++) {
+                if (fi.frameIndex() == unsigned(i)) {
+                    arg = fp->callObj().aliasedVar(fi);
+                    break;
+                }
+            }
+        } else if (script->argsObjAliasesFormals() && fp->hasArgsObj()) {
             arg = fp->argsObj().arg(i);
-        else
+        } else {
             arg = fp->unaliasedActual(i, DONT_CHECK_ALIASING);
+        }
     } else {
         arg.setUndefined();
     }
@@ -3648,7 +3682,7 @@ DebuggerObject_getClass(JSContext *cx, unsigned argc, Value *vp)
 {
     THIS_DEBUGOBJECT_REFERENT(cx, argc, vp, "get class", args, refobj);
     const char *s = refobj->getClass()->name;
-    JSAtom *str = js_Atomize(cx, s, strlen(s));
+    JSAtom *str = Atomize(cx, s, strlen(s));
     if (!str)
         return false;
     args.rval().setString(str);
@@ -3704,13 +3738,16 @@ DebuggerObject_getParameterNames(JSContext *cx, unsigned argc, Value *vp)
         JS_ASSERT(fun->nargs == fun->script()->bindings.numArgs());
 
         if (fun->nargs > 0) {
-            BindingVector names(cx);
-            if (!GetOrderedBindings(cx, fun->script()->bindings, &names))
+            BindingVector bindings(cx);
+            if (!FillBindingVector(fun->script()->bindings, &bindings))
                 return false;
-
             for (size_t i = 0; i < fun->nargs; i++) {
-                PropertyName *name = names[i].maybeName;
-                result->setDenseArrayElement(i, name ? StringValue(name) : UndefinedValue());
+                Value v;
+                if (bindings[i].name()->length() == 0)
+                    v = UndefinedValue();
+                else
+                    v = StringValue(bindings[i].name());
+                result->setDenseArrayElement(i, v);
             }
         }
     } else {
@@ -3907,7 +3944,9 @@ DebuggerObject_defineProperties(JSContext *cx, unsigned argc, Value *vp)
 {
     THIS_DEBUGOBJECT_OWNER_REFERENT(cx, argc, vp, "defineProperties", args, dbg, obj);
     REQUIRE_ARGC("Debugger.Object.defineProperties", 1);
-    RootedObject props(cx, ToObject(cx, &args[0]));
+
+    RootedValue arg(cx, args[0]);
+    RootedObject props(cx, ToObject(cx, arg));
     if (!props)
         return false;
 
@@ -4307,7 +4346,7 @@ DebuggerEnv_getType(JSContext *cx, unsigned argc, Value *vp)
     else
         s = "object";
 
-    JSAtom *str = js_Atomize(cx, s, strlen(s), InternAtom, NormalEncoding);
+    JSAtom *str = Atomize(cx, s, strlen(s), InternAtom, NormalEncoding);
     if (!str)
         return false;
     args.rval().setString(str);

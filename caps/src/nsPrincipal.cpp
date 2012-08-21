@@ -20,7 +20,7 @@
 #include "nsIObjectInputStream.h"
 #include "nsIObjectOutputStream.h"
 #include "nsIClassInfoImpl.h"
-#include "nsDOMError.h"
+#include "nsError.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsContentUtils.h"
 #include "jswrapper.h"
@@ -846,8 +846,16 @@ URIIsLocalFile(nsIURI *aURI)
 }
 
 NS_IMETHODIMP
-nsPrincipal::CheckMayLoad(nsIURI* aURI, bool aReport)
+nsPrincipal::CheckMayLoad(nsIURI* aURI, bool aReport, bool aAllowIfInheritsPrincipal)
 {
+   if (aAllowIfInheritsPrincipal) {
+    // If the caller specified to allow loads of URIs that inherit
+    // our principal, allow the load if this URI inherits its principal
+    if (nsPrincipal::IsPrincipalInherited(aURI)) {
+      return NS_OK;
+    }
+  }
+
   if (!nsScriptSecurityManager::SecurityCompareURIs(mCodebase, aURI)) {
     if (nsScriptSecurityManager::GetStrictFileOriginPolicy() &&
         URIIsLocalFile(aURI)) {
@@ -1043,7 +1051,7 @@ nsPrincipal::InitFromPersistent(const char* aPrefName,
 
   const char* ordinalBegin = PL_strpbrk(aPrefName, "1234567890");
   if (ordinalBegin) {
-    PRIntn n = atoi(ordinalBegin);
+    int n = atoi(ordinalBegin);
     if (sCapabilitiesOrdinal <= n) {
       sCapabilitiesOrdinal = n + 1;
     }
@@ -1122,7 +1130,7 @@ nsPrincipal::Read(nsIObjectInputStream* aStream)
 
   const char* ordinalBegin = PL_strpbrk(mPrefName.get(), "1234567890");
   if (ordinalBegin) {
-    PRIntn n = atoi(ordinalBegin);
+    int n = atoi(ordinalBegin);
     if (sCapabilitiesOrdinal <= n) {
       sCapabilitiesOrdinal = n + 1;
     }
@@ -1432,11 +1440,11 @@ nsExpandedPrincipal::SubsumesIgnoringDomain(nsIPrincipal* aOther, bool* aResult)
 }
 
 NS_IMETHODIMP
-nsExpandedPrincipal::CheckMayLoad(nsIURI* uri, bool aReport)
+nsExpandedPrincipal::CheckMayLoad(nsIURI* uri, bool aReport, bool aAllowIfInheritsPrincipal)
 {
   nsresult rv;
   for (uint32_t i = 0; i < mPrincipals.Length(); ++i){
-    rv = mPrincipals[i]->CheckMayLoad(uri, aReport);
+    rv = mPrincipals[i]->CheckMayLoad(uri, aReport, aAllowIfInheritsPrincipal);
     if (NS_SUCCEEDED(rv))
       return rv;
   }

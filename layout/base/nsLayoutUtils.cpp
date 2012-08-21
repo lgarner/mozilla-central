@@ -76,6 +76,7 @@
 #include "nsSVGIntegrationUtils.h"
 #include "nsSVGForeignObjectFrame.h"
 #include "nsSVGOuterSVGFrame.h"
+#include "nsStyleStructInlines.h"
 
 #include "mozilla/Preferences.h"
 
@@ -103,6 +104,7 @@ typedef FrameMetrics::ViewID ViewID;
 /* static */ PRUint32 nsLayoutUtils::sFontSizeInflationEmPerLine;
 /* static */ PRUint32 nsLayoutUtils::sFontSizeInflationMinTwips;
 /* static */ PRUint32 nsLayoutUtils::sFontSizeInflationLineThreshold;
+/* static */ PRInt32 nsLayoutUtils::sFontSizeInflationMappingIntercept;
 
 static ViewID sScrollIdCounter = FrameMetrics::START_SCROLL_ID;
 
@@ -186,6 +188,21 @@ nsLayoutUtils::AreTransformAnimationsEnabled()
   }
 
   return sAreTransformAnimationsEnabled && CompositorParent::CompositorLoop();
+}
+
+bool
+nsLayoutUtils::IsAnimationLoggingEnabled()
+{
+  static bool sShouldLog;
+  static bool sShouldLogPrefCached;
+
+  if (!sShouldLogPrefCached) {
+    sShouldLogPrefCached = true;
+    Preferences::AddBoolVarCache(&sShouldLog,
+                                 "layers.offmainthreadcomposition.log-animations");
+  }
+
+  return sShouldLog;
 }
 
 bool
@@ -1008,6 +1025,7 @@ nsLayoutUtils::GetEventCoordinatesRelativeTo(const nsEvent* aEvent, nsIFrame* aF
 {
   if (!aEvent || (aEvent->eventStructType != NS_MOUSE_EVENT &&
                   aEvent->eventStructType != NS_MOUSE_SCROLL_EVENT &&
+                  aEvent->eventStructType != NS_WHEEL_EVENT &&
                   aEvent->eventStructType != NS_DRAG_EVENT &&
                   aEvent->eventStructType != NS_SIMPLE_GESTURE_EVENT &&
                   aEvent->eventStructType != NS_GESTURENOTIFY_EVENT &&
@@ -1804,10 +1822,12 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
     } else {
       gfxUtils::sDumpPaintFile = stdout;
     }
-    fprintf(gfxUtils::sDumpPaintFile, "<html><head><script>var array = {}; function ViewImage(index) { window.location = array[index]; }</script></head><body>");
+    if (gfxUtils::sDumpPaintingToFile) {
+      fprintf(gfxUtils::sDumpPaintFile, "<html><head><script>var array = {}; function ViewImage(index) { window.location = array[index]; }</script></head><body>");
+    }
     fprintf(gfxUtils::sDumpPaintFile, "Painting --- before optimization (dirty %d,%d,%d,%d):\n",
             dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
-    nsFrame::PrintDisplayList(&builder, list, gfxUtils::sDumpPaintFile);
+    nsFrame::PrintDisplayList(&builder, list, gfxUtils::sDumpPaintFile, gfxUtils::sDumpPaintingToFile);
     if (gfxUtils::sDumpPaintingToFile) {
       fprintf(gfxUtils::sDumpPaintFile, "<script>");
     }
@@ -1841,6 +1861,9 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
   if (aFlags & PAINT_EXISTING_TRANSACTION) {
     flags |= nsDisplayList::PAINT_EXISTING_TRANSACTION;
   }
+  if (aFlags & PAINT_NO_COMPOSITE) {
+    flags |= nsDisplayList::PAINT_NO_COMPOSITE;
+  }
 
   list.PaintRoot(&builder, aRenderingContext, flags);
 
@@ -1860,20 +1883,23 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
 
 #ifdef MOZ_DUMP_PAINTING
   if (gfxUtils::sDumpPaintList || gfxUtils::sDumpPainting) {
-    fprintf(gfxUtils::sDumpPaintFile, "</script>Painting --- after optimization:\n");
-    nsFrame::PrintDisplayList(&builder, list, gfxUtils::sDumpPaintFile);
+    if (gfxUtils::sDumpPaintingToFile) {
+      fprintf(gfxUtils::sDumpPaintFile, "</script>");
+    }
+    fprintf(gfxUtils::sDumpPaintFile, "Painting --- after optimization:\n");
+    nsFrame::PrintDisplayList(&builder, list, gfxUtils::sDumpPaintFile, gfxUtils::sDumpPaintingToFile);
 
     fprintf(gfxUtils::sDumpPaintFile, "Painting --- retained layer tree:\n");
     nsIWidget* widget = aFrame->GetNearestWidget();
     if (widget) {
       nsRefPtr<LayerManager> layerManager = widget->GetLayerManager();
       if (layerManager) {
-        FrameLayerBuilder::DumpRetainedLayerTree(layerManager, gfxUtils::sDumpPaintFile);
+        FrameLayerBuilder::DumpRetainedLayerTree(layerManager, gfxUtils::sDumpPaintFile,
+                                                 gfxUtils::sDumpPaintingToFile);
       }
     }
-    fprintf(gfxUtils::sDumpPaintFile, "</body></html>");
-    
     if (gfxUtils::sDumpPaintingToFile) {
+      fprintf(gfxUtils::sDumpPaintFile, "</body></html>");
       fclose(gfxUtils::sDumpPaintFile);
     }
     gfxUtils::sDumpPaintFile = NULL;
@@ -2098,7 +2124,7 @@ nsLayoutUtils::GetTextShadowRectsUnion(const nsRect& aTextAndDecorationsRect,
                                        PRUint32 aFlags)
 {
   const nsStyleText* textStyle = aFrame->GetStyleText();
-  if (!textStyle->mTextShadow)
+  if (!textStyle->HasTextShadow(aFrame))
     return aTextAndDecorationsRect;
 
   nsRect resultRect = aTextAndDecorationsRect;
@@ -2708,12 +2734,14 @@ nsLayoutUtils::ComputeWidthValue(
 
   nscoord result;
   if (aCoord.IsCoordPercentCalcUnit()) {
-    result = nsRuleNode::ComputeCoordPercentCalc(aCoord, aContainingBlockWidth);
+    result = nsRuleNode::ComputeCoordPercentCalc(aCoord, 
+                                                 aContainingBlockWidth);
     // The result of a calc() expression might be less than 0; we
     // should clamp at runtime (below).  (Percentages and coords that
     // are less than 0 have already been dropped by the parser.)
     result -= aContentEdgeToBoxSizing;
-  } else if (eStyleUnit_Enumerated == aCoord.GetUnit()) {
+  } else {
+    MOZ_ASSERT(eStyleUnit_Enumerated == aCoord.GetUnit());
     // If aFrame is a container for font size inflation, then shrink
     // wrapping inside of it should not apply font size inflation.
     AutoMaybeDisableFontInflation an(aFrame);
@@ -2742,15 +2770,10 @@ nsLayoutUtils::ComputeWidthValue(
         result = aContainingBlockWidth -
                  (aBoxSizingToMarginEdge + aContentEdgeToBoxSizing);
     }
-  } else {
-    NS_NOTREACHED("unexpected width value");
-    result = 0;
   }
-  if (result < 0)
-    result = 0;
-  return result;
-}
 
+  return NS_MAX(0, result);
+}
 
 /* static */ nscoord
 nsLayoutUtils::ComputeHeightDependentValue(
@@ -2816,14 +2839,12 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
     width = nsLayoutUtils::ComputeWidthValue(aRenderingContext,
               aFrame, aCBSize.width, boxSizingAdjust.width,
               boxSizingToMarginEdgeWidth, stylePos->mWidth);
-    NS_ASSERTION(width >= 0, "negative result from ComputeWidthValue");
   }
 
   if (stylePos->mMaxWidth.GetUnit() != eStyleUnit_None) {
     maxWidth = nsLayoutUtils::ComputeWidthValue(aRenderingContext,
                  aFrame, aCBSize.width, boxSizingAdjust.width,
                  boxSizingToMarginEdgeWidth, stylePos->mMaxWidth);
-    NS_ASSERTION(maxWidth >= 0, "negative result from ComputeWidthValue");
   } else {
     maxWidth = nscoord_MAX;
   }
@@ -2831,32 +2852,25 @@ nsLayoutUtils::ComputeSizeWithIntrinsicDimensions(
   minWidth = nsLayoutUtils::ComputeWidthValue(aRenderingContext,
                aFrame, aCBSize.width, boxSizingAdjust.width,
                boxSizingToMarginEdgeWidth, stylePos->mMinWidth);
-  NS_ASSERTION(minWidth >= 0, "negative result from ComputeWidthValue");
 
   if (!isAutoHeight) {
-    height = nsLayoutUtils::
-      ComputeHeightValue(aCBSize.height, stylePos->mHeight) -
-      boxSizingAdjust.height;
-    if (height < 0)
-      height = 0;
+    height = nsLayoutUtils::ComputeHeightValue(aCBSize.height, 
+                boxSizingAdjust.height, 
+                stylePos->mHeight);
   }
 
   if (!IsAutoHeight(stylePos->mMaxHeight, aCBSize.height)) {
-    maxHeight = nsLayoutUtils::
-      ComputeHeightValue(aCBSize.height, stylePos->mMaxHeight) -
-      boxSizingAdjust.height;
-    if (maxHeight < 0)
-      maxHeight = 0;
+    maxHeight = nsLayoutUtils::ComputeHeightValue(aCBSize.height, 
+                  boxSizingAdjust.height, 
+                  stylePos->mMaxHeight);
   } else {
     maxHeight = nscoord_MAX;
   }
 
   if (!IsAutoHeight(stylePos->mMinHeight, aCBSize.height)) {
-    minHeight = nsLayoutUtils::
-      ComputeHeightValue(aCBSize.height, stylePos->mMinHeight) -
-      boxSizingAdjust.height;
-    if (minHeight < 0)
-      minHeight = 0;
+    minHeight = nsLayoutUtils::ComputeHeightValue(aCBSize.height, 
+                  boxSizingAdjust.height,
+                  stylePos->mMinHeight);
   } else {
     minHeight = 0;
   }
@@ -3204,7 +3218,7 @@ nsLayoutUtils::PaintTextShadow(const nsIFrame* aFrame,
                                void* aCallbackData)
 {
   const nsStyleText* textStyle = aFrame->GetStyleText();
-  if (!textStyle->mTextShadow)
+  if (!textStyle->HasTextShadow(aFrame))
     return;
 
   // Text shadow happens with the last value being painted at the back,
@@ -4613,6 +4627,8 @@ nsLayoutUtils::Initialize()
                                         "font.size.inflation.minTwips");
   mozilla::Preferences::AddUintVarCache(&sFontSizeInflationLineThreshold,
                                         "font.size.inflation.lineThreshold");
+  mozilla::Preferences::AddIntVarCache(&sFontSizeInflationMappingIntercept,
+                                       "font.size.inflation.mappingIntercept");
 }
 
 /* static */
@@ -4874,21 +4890,38 @@ nsLayoutUtils::FontSizeInflationInner(const nsIFrame *aFrame,
     }
   }
 
-  // Scale everything from 0-1.5 times min to instead fit in the range
-  // 1-1.5 times min, so that we still show some distinction rather than
-  // just enforcing a minimum.
-  // FIXME: Fiddle with this algorithm; maybe have prefs to control it?
-  float ratio = float(styleFontSize) / float(aMinFontSize);
-  if (ratio >= 1.5f) {
-    // If we're already at 1.5 or more times the minimum, don't scale.
-    return 1.0;
-  }
+  PRInt32 interceptParam = nsLayoutUtils::FontSizeInflationMappingIntercept();
 
-  // To scale 0-1.5 times min to instead be 1-1.5 times min, we want
-  // to the desired multiple of min to be 1 + (ratio/3) (where ratio
-  // is our input's multiple of min).  The scaling needed to produce
-  // that is that divided by |ratio|, or:
-  return (1.0f / ratio) + (1.0f / 3.0f);
+  float ratio = float(styleFontSize) / float(aMinFontSize);
+
+  // Given a minimum inflated font size m, a specified font size s, we want to
+  // find the inflated font size i and then return the ratio of i to s (i/s).
+  if (interceptParam >= 0) {
+    // Since the mapping intercept parameter P is greater than zero, we use it
+    // to determine the point where our mapping function intersects the i=s
+    // line. This means that we have an equation of the form:
+    //
+    // i = m + s·(P/2)/(1 + P/2), if s <= (1 + P/2)·m
+    // i = s, if s >= (1 + P/2)·m
+
+    float intercept = 1 + float(interceptParam)/2.0f;
+    if (ratio >= intercept) {
+      // If we're already at 1+P/2 or more times the minimum, don't scale.
+      return 1.0;
+    }
+
+    // The point (intercept, intercept) is where the part of the i vs. s graph
+    // that's not slope 1 meets the i=s line.  (This part of the
+    // graph is a line from (0, m), to that point). We calculate the
+    // intersection point to be ((1+P/2)m, (1+P/2)m), where P is the
+    // intercept parameter above. We then need to return i/s.
+    return (1.0f + (ratio * (intercept - 1) / intercept)) / ratio;
+  } else {
+    // This is the case where P is negative. We essentially want to implement
+    // the case for P=infinity here, so we make i = s + m, which means that
+    // i/s = s/s + m/s = 1 + 1/ratio
+    return 1 + 1.0f / ratio;
+  }
 }
 
 static bool

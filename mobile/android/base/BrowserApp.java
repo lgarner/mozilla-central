@@ -283,10 +283,17 @@ abstract public class BrowserApp extends GeckoApp
             mMainLayout.addView(actionBar, index);
             mBrowserToolbar.from(actionBar);
             mBrowserToolbar.refresh();
+
+            // The favicon view is different now, so we need to update the DoorHangerPopup anchor view.
+            if (mDoorHangerPopup != null)
+                mDoorHangerPopup.setAnchor(mBrowserToolbar.mFavicon);
         }
 
         invalidateOptionsMenu();
         mTabsPanel.refresh();
+
+        if (mAboutHomeContent != null)
+            mAboutHomeContent.refresh();
     }
 
     public View getActionBarLayout() {
@@ -761,9 +768,6 @@ abstract public class BrowserApp extends GeckoApp
             case R.id.settings:
                 intent = new Intent(this, GeckoPreferences.class);
                 startActivity(intent);
-                return true;
-            case R.id.site_settings:
-                GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Permissions:Get", null));
                 return true;
             case R.id.addons:
                 loadUrlInTab("about:addons");

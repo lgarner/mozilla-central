@@ -25,6 +25,7 @@
 #include "mozilla/FileUtils.h"
 #include "Framebuffer.h"
 #include "gfxContext.h"
+#include "gfxPlatform.h"
 #include "gfxUtils.h"
 #include "GLContextProvider.h"
 #include "LayerManagerOGL.h"
@@ -34,6 +35,7 @@
 #include "nsScreenManagerGonk.h"
 #include "nsTArray.h"
 #include "nsWindow.h"
+#include "nsIWidgetListener.h"
 #include "cutils/properties.h"
 #include "BasicLayers.h"
 
@@ -69,6 +71,12 @@ static pthread_t sFramebufferWatchThread;
 
 namespace {
 
+static int
+CancelBufferNoop(ANativeWindow* aWindow, android_native_buffer_t* aBuffer)
+{
+    return 0;
+}
+
 android::FramebufferNativeWindow*
 NativeWindow()
 {
@@ -76,6 +84,12 @@ NativeWindow()
         // We (apparently) don't have a way to tell if allocating the
         // fbs succeeded or failed.
         gNativeWindow = new android::FramebufferNativeWindow();
+
+        // Bug 776742: FrambufferNativeWindow doesn't set the cancelBuffer
+        // function pointer, causing EGL to segfault when the window surface
+        // is destroyed (i.e. on process exit). This workaround stops us
+        // from hard crashing in that situation.
+        gNativeWindow->cancelBuffer = CancelBufferNoop;
     }
     return gNativeWindow;
 }
@@ -93,16 +107,12 @@ public:
     {}
 
     NS_IMETHOD Run() {
-        nsSizeModeEvent event(true, NS_SIZEMODE, NULL);
-        nsEventStatus status;
-
-        event.time = PR_Now() / 1000;
-        event.mSizeMode = mIsOn ? nsSizeMode_Fullscreen : nsSizeMode_Minimized;
-
         for (PRUint32 i = 0; i < sTopWindows.Length(); i++) {
             nsWindow *win = sTopWindows[i];
-            event.widget = win;
-            win->DispatchEvent(&event, status);
+
+            if (nsIWidgetListener* listener = win->GetWidgetListener()) {
+                listener->SizeModeChanged(mIsOn ? nsSizeMode_Fullscreen : nsSizeMode_Minimized);
+            }
         }
 
         return NS_OK;
@@ -224,16 +234,17 @@ nsWindow::DoDraw(void)
         return;
     }
 
-    nsPaintEvent event(true, NS_PAINT, gWindowToRedraw);
-    event.region = gWindowToRedraw->mDirtyRegion;
+    nsIntRegion region = gWindowToRedraw->mDirtyRegion;
     gWindowToRedraw->mDirtyRegion.SetEmpty();
 
     LayerManager* lm = gWindowToRedraw->GetLayerManager();
     if (mozilla::layers::LAYERS_OPENGL == lm->GetBackendType()) {
         LayerManagerOGL* oglm = static_cast<LayerManagerOGL*>(lm);
-        oglm->SetClippingRegion(event.region);
+        oglm->SetClippingRegion(region);
         oglm->SetWorldTransform(sRotationMatrix);
-        gWindowToRedraw->mEventCallback(&event);
+
+        if (nsIWidgetListener* listener = gWindowToRedraw->GetWidgetListener())
+          listener->PaintWindow(gWindowToRedraw, region, false, false);
     } else if (mozilla::layers::LAYERS_BASIC == lm->GetBackendType()) {
         MOZ_ASSERT(sFramebufferOpen || sUsingOMTC);
         nsRefPtr<gfxASurface> targetSurface;
@@ -245,19 +256,21 @@ nsWindow::DoDraw(void)
 
         {
             nsRefPtr<gfxContext> ctx = new gfxContext(targetSurface);
-            gfxUtils::PathFromRegion(ctx, event.region);
+            gfxUtils::PathFromRegion(ctx, region);
             ctx->Clip();
 
             // No double-buffering needed.
             AutoLayerManagerSetup setupLayerManager(
                 gWindowToRedraw, ctx, mozilla::layers::BUFFER_NONE,
                 ScreenRotation(EffectiveScreenRotation()));
-            gWindowToRedraw->mEventCallback(&event);
+
+            if (nsIWidgetListener* listener = gWindowToRedraw->GetWidgetListener())
+              listener->PaintWindow(gWindowToRedraw, region, false, false);
         }
 
         if (!sUsingOMTC) {
             targetSurface->Flush();
-            Framebuffer::Present(event.region);
+            Framebuffer::Present(region);
         }
     } else {
         NS_RUNTIMEABORT("Unexpected layer manager type");
@@ -271,20 +284,22 @@ nsWindow::DispatchInputEvent(nsGUIEvent &aEvent)
         return nsEventStatus_eIgnore;
 
     gFocusedWindow->UserActivity();
+
+    nsEventStatus status;
     aEvent.widget = gFocusedWindow;
-    return gFocusedWindow->mEventCallback(&aEvent);
+    gFocusedWindow->DispatchEvent(&aEvent, status);
+    return status;
 }
 
 NS_IMETHODIMP
 nsWindow::Create(nsIWidget *aParent,
                  void *aNativeParent,
                  const nsIntRect &aRect,
-                 EVENT_CALLBACK aHandleEventFunction,
                  nsDeviceContext *aContext,
                  nsWidgetInitData *aInitData)
 {
     BaseCreate(aParent, IS_TOPLEVEL() ? sVirtualBounds : aRect,
-               aHandleEventFunction, aContext, aInitData);
+               aContext, aInitData);
 
     mBounds = aRect;
 
@@ -381,16 +396,9 @@ nsWindow::Resize(PRInt32 aX,
                  PRInt32 aHeight,
                  bool    aRepaint)
 {
-    nsSizeEvent event(true, NS_SIZE, this);
-    event.time = PR_Now() / 1000;
-
-    nsIntRect rect(aX, aY, aWidth, aHeight);
-    mBounds = rect;
-    event.windowSize = &rect;
-    event.mWinWidth = sVirtualBounds.width;
-    event.mWinHeight = sVirtualBounds.height;
-
-    (*mEventCallback)(&event);
+    mBounds = nsIntRect(aX, aY, aWidth, aHeight);
+    if (mWidgetListener)
+        mWidgetListener->WindowResized(this, aWidth, aHeight);
 
     if (aRepaint && gWindowToRedraw)
         gWindowToRedraw->Invalidate(sVirtualBounds);
@@ -473,7 +481,8 @@ nsWindow::GetNativeData(PRUint32 aDataType)
 NS_IMETHODIMP
 nsWindow::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus &aStatus)
 {
-    aStatus = (*mEventCallback)(aEvent);
+    if (mWidgetListener)
+      aStatus = mWidgetListener->HandleEvent(aEvent, mUseAttachedEvents);
     return NS_OK;
 }
 
@@ -496,6 +505,28 @@ nsWindow::ReparentNativeWidget(nsIWidget* aNewParent)
     return NS_OK;
 }
 
+NS_IMETHODIMP
+nsWindow::MakeFullScreen(bool aFullScreen)
+{
+    if (mWindowType != eWindowType_toplevel) {
+        // Ignore fullscreen request for non-toplevel windows.
+        NS_WARNING("MakeFullScreen() on a dialog or child widget?");
+        return nsBaseWidget::MakeFullScreen(aFullScreen);
+    }
+
+    if (aFullScreen) {
+        // Fullscreen is "sticky" for toplevel widgets on gonk: we
+        // must paint the entire screen, and should only have one
+        // toplevel widget, so it doesn't make sense to ever "exit"
+        // fullscreen.  If we do, we can leave parts of the screen
+        // unpainted.
+        Resize(sVirtualBounds.x, sVirtualBounds.y,
+               sVirtualBounds.width, sVirtualBounds.height,
+               /*repaint*/true);
+    }
+    return NS_OK;
+}
+
 float
 nsWindow::GetDPI()
 {
@@ -510,8 +541,17 @@ nsWindow::GetLayerManager(PLayersChild* aShadowManager,
 {
     if (aAllowRetaining)
         *aAllowRetaining = true;
-    if (mLayerManager)
+    if (mLayerManager) {
+        // This layer manager might be used for painting outside of DoDraw(), so we need
+        // to set the correct rotation on it.
+        if (mLayerManager->GetBackendType() == LAYERS_BASIC) {
+            BasicLayerManager* manager =
+                static_cast<BasicLayerManager*>(mLayerManager.get());
+            manager->SetDefaultTargetConfiguration(mozilla::layers::BUFFER_NONE, 
+                                                   ScreenRotation(EffectiveScreenRotation()));
+        }
         return mLayerManager;
+    }
 
     // Set mUseAcceleratedRendering here to make it consistent with
     // nsBaseWidget::GetLayerManager
@@ -581,15 +621,15 @@ void
 nsWindow::BringToTop()
 {
     if (!sTopWindows.IsEmpty()) {
-        nsGUIEvent event(true, NS_DEACTIVATE, sTopWindows[0]);
-        (*mEventCallback)(&event);
+        if (nsIWidgetListener* listener = sTopWindows[0]->GetWidgetListener())
+            listener->WindowDeactivated();
     }
 
     sTopWindows.RemoveElement(this);
     sTopWindows.InsertElementAt(0, this);
 
-    nsGUIEvent event(true, NS_ACTIVATE, this);
-    (*mEventCallback)(&event);
+    if (mWidgetListener)
+        mWidgetListener->WindowActivated();
     Invalidate(sVirtualBounds);
 }
 
@@ -621,6 +661,15 @@ nsIntRect
 nsWindow::GetNaturalBounds()
 {
     return gScreenBounds;
+}
+
+bool
+nsWindow::NeedsPaint()
+{
+  if (!mLayerManager) {
+    return false;
+  }
+  return nsIWidget::NeedsPaint();
 }
 
 // nsScreenGonk.cpp

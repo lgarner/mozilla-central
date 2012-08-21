@@ -118,7 +118,7 @@ interface ScheduledGCCallback : nsISupports
 /**
 * interface of Components.utils
 */
-[scriptable, uuid(2df24c04-f1ef-481c-8605-433082a34e95)]
+[scriptable, uuid(25442383-a1f5-440c-9e18-a2a1cdb8a638)]
 interface nsIXPCComponents_Utils : nsISupports
 {
 
@@ -228,6 +228,13 @@ interface nsIXPCComponents_Utils : nsISupports
      * Force an immediate garbage collection cycle.
      */
     void forceGC();
+
+    /*
+     * To be called from JS only.
+     *
+     * Force an immediate cycle collection cycle.
+     */
+    void forceCC();
     
     /*
      * To be called from JS only.
@@ -321,6 +328,14 @@ interface nsIXPCComponents_Utils : nsISupports
      */
     [implicit_jscontext]
     void recomputeWrappers([optional] in jsval vobj);
+
+    /*
+     * Dispatches a runnable to the current/main thread. If |scope| is passed,
+     * the runnable will be dispatch in the compartment of |scope|, which
+     * affects which error reporter gets called.
+     */
+    [implicit_jscontext]
+    void dispatch(in jsval runnable, [optional] in jsval scope);
 
     /*
      * To be called from JS only.

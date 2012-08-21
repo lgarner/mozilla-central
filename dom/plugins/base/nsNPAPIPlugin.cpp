@@ -101,6 +101,7 @@ using mozilla::plugins::PluginModuleParent;
 #include "android_npapi.h"
 #include "ANPBase.h"
 #include "AndroidBridge.h"
+#undef LOG
 #define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, "GeckoPlugins" , ## args)
 #endif
 
@@ -2442,7 +2443,8 @@ _setvalue(NPP npp, NPPVariable variable, void *result)
 
     case NPPVpluginKeepLibraryInMemory: {
       NPBool bCached = (result != nullptr);
-      return inst->SetCached(bCached);
+      inst->SetCached(bCached);
+      return NPERR_NO_ERROR;
     }
 
     case NPPVpluginUsesDOMForCursorBool: {
@@ -2529,7 +2531,7 @@ _requestread(NPStream *pstream, NPByteRange *rangeList)
   if (NS_FAILED(rv))
     return NPERR_GENERIC_ERROR;
 
-  return NS_OK;
+  return NPERR_NO_ERROR;
 }
 
 // Deprecated, only stubbed out

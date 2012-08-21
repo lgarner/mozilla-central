@@ -10,6 +10,7 @@
 #include "ContentChild.h"
 #include "ContentParent.h"
 #include "nsContentUtils.h"
+#include "nsError.h"
 #include "nsIXPConnect.h"
 #include "jsapi.h"
 #include "nsJSUtils.h"
@@ -30,6 +31,9 @@
 
 #ifdef ANDROID
 #include <android/log.h>
+#endif
+#ifdef XP_WIN
+#include <windows.h>
 #endif
 
 using namespace mozilla;
@@ -293,6 +297,11 @@ nsFrameMessageManager::Dump(const nsAString& aStr)
 {
 #ifdef ANDROID
   __android_log_print(ANDROID_LOG_INFO, "Gecko", "%s", NS_ConvertUTF16toUTF8(aStr).get());
+#endif
+#ifdef XP_WIN
+  if (IsDebuggerPresent()) {
+    OutputDebugStringW(PromiseFlatString(aStr).get());
+  }
 #endif
   fputs(NS_ConvertUTF16toUTF8(aStr).get(), stdout);
   fflush(stdout);
@@ -799,9 +808,13 @@ nsFrameScriptExecutor::LoadFrameScriptInternal(const nsAString& aURL)
   nsCOMPtr<nsIInputStream> input;
   channel->Open(getter_AddRefs(input));
   nsString dataString;
-  PRUint32 avail = 0;
-  if (input && NS_SUCCEEDED(input->Available(&avail)) && avail) {
+  PRUint64 avail64 = 0;
+  if (input && NS_SUCCEEDED(input->Available(&avail64)) && avail64) {
+    if (avail64 > PR_UINT32_MAX) {
+      return;
+    }
     nsCString buffer;
+    PRUint32 avail = (PRUint32)NS_MIN(avail64, (PRUint64)PR_UINT32_MAX);
     if (NS_FAILED(NS_ReadInputStreamToString(input, buffer, avail))) {
       return;
     }

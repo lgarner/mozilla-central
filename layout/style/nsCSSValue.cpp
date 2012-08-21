@@ -15,6 +15,7 @@
 #include "nsStyleUtil.h"
 #include "CSSCalc.h"
 #include "nsNetUtil.h"
+#include "mozilla/css/ImageLoader.h"
 
 namespace css = mozilla::css;
 
@@ -240,10 +241,10 @@ double nsCSSValue::GetAngleValueInRadians() const
   }
 }
 
-imgIRequest* nsCSSValue::GetImageValue() const
+imgIRequest* nsCSSValue::GetImageValue(nsIDocument* aDocument) const
 {
   NS_ABORT_IF_FALSE(mUnit == eCSSUnit_Image, "not an Image value");
-  return mValue.mImage->mRequest;
+  return mValue.mImage->mRequests.GetWeak(aDocument);
 }
 
 nscoord nsCSSValue::GetFixedLength(nsPresContext* aPresContext) const
@@ -826,21 +827,6 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
                                            NS_STYLE_PAGE_MARKS_CROP,
                                            NS_STYLE_PAGE_MARKS_REGISTER,
                                            aResult);
-      }
-    }
-    else if (eCSSProperty_unicode_bidi == aProperty) {
-      MOZ_STATIC_ASSERT(NS_STYLE_UNICODE_BIDI_NORMAL == 0,
-                        "unicode-bidi style constants not as expected");
-      PRInt32 intValue = GetIntValue();
-      if (NS_STYLE_UNICODE_BIDI_NORMAL == intValue) {
-        AppendASCIItoUTF16(nsCSSProps::LookupPropertyValue(aProperty, intValue),
-                           aResult);
-      } else {
-        nsStyleUtil::AppendBitmaskCSSValue(
-          aProperty, intValue,
-          NS_STYLE_UNICODE_BIDI_EMBED,
-          NS_STYLE_UNICODE_BIDI_PLAINTEXT,
-          aResult);
       }
     }
     else {
@@ -1716,17 +1702,41 @@ nsCSSValue::Image::Image(nsIURI* aURI, nsStringBuffer* aString,
   if (aDocument->GetOriginalDocument()) {
     aDocument = aDocument->GetOriginalDocument();
   }
-  if (aURI &&
-      nsContentUtils::CanLoadImage(aURI, aDocument, aDocument,
-                                   aOriginPrincipal)) {
-    nsContentUtils::LoadImage(aURI, aDocument, aOriginPrincipal, aReferrer,
-                              nullptr, nsIRequest::LOAD_NORMAL,
-                              getter_AddRefs(mRequest));
+
+  mRequests.Init();
+
+  aDocument->StyleImageLoader()->LoadImage(aURI, aOriginPrincipal, aReferrer,
+                                           this);
+}
+
+static PLDHashOperator
+ClearRequestHashtable(nsISupports* aKey, nsCOMPtr<imgIRequest>& aValue,
+                      void* aClosure)
+{
+  nsCSSValue::Image* image = static_cast<nsCSSValue::Image*>(aClosure);
+  nsIDocument* doc = static_cast<nsIDocument*>(aKey);
+
+#ifdef DEBUG
+  {
+    nsCOMPtr<nsIDocument> slowDoc = do_QueryInterface(aKey);
+    MOZ_ASSERT(slowDoc == doc);
   }
+#endif
+
+  if (doc) {
+    doc->StyleImageLoader()->DeregisterCSSImage(image);
+  }
+
+  if (aValue) {
+    aValue->CancelAndForgetObserver(NS_BINDING_ABORTED);
+  }
+
+  return PL_DHASH_REMOVE;
 }
 
 nsCSSValue::Image::~Image()
 {
+  mRequests.Enumerate(&ClearRequestHashtable, this);
 }
 
 nsCSSValueGradientStop::nsCSSValueGradientStop()

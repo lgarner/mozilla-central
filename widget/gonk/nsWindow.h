@@ -51,7 +51,6 @@ public:
     NS_IMETHOD Create(nsIWidget *aParent,
                       void *aNativeParent,
                       const nsIntRect &aRect,
-                      EVENT_CALLBACK aHandleEventFunction,
                       nsDeviceContext *aContext,
                       nsWidgetInitData *aInitData);
     NS_IMETHOD Destroy(void);
@@ -91,6 +90,8 @@ public:
     }
     NS_IMETHOD ReparentNativeWidget(nsIWidget* aNewParent);
 
+    NS_IMETHOD MakeFullScreen(bool aFullScreen) /*MOZ_OVERRIDE*/;
+
     virtual float GetDPI();
     virtual mozilla::layers::LayerManager*
         GetLayerManager(PLayersChild* aShadowManager = nullptr,
@@ -106,6 +107,7 @@ public:
     virtual PRUint32 GetGLFrameBufferFormat() MOZ_OVERRIDE;
 
     virtual nsIntRect GetNaturalBounds() MOZ_OVERRIDE;
+    virtual bool NeedsPaint();
 
 protected:
     nsWindow* mParent;

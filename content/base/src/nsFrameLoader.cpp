@@ -13,6 +13,7 @@
 
 #include "prenv.h"
 
+#include "mozIApplication.h"
 #include "nsIDOMHTMLIFrameElement.h"
 #include "nsIDOMHTMLFrameElement.h"
 #include "nsIDOMMozBrowserFrame.h"
@@ -31,6 +32,7 @@
 #include "nsIDocShellTreeNode.h"
 #include "nsIDocShellTreeOwner.h"
 #include "nsIDocShellLoadInfo.h"
+#include "nsIDOMApplicationRegistry.h"
 #include "nsIBaseWindow.h"
 #include "nsContentUtils.h"
 #include "nsIXPConnect.h"
@@ -44,7 +46,7 @@
 #include "nsIFrame.h"
 #include "nsIScrollableFrame.h"
 #include "nsSubDocumentFrame.h"
-#include "nsDOMError.h"
+#include "nsError.h"
 #include "nsGUIEvent.h"
 #include "nsEventDispatcher.h"
 #include "nsISHistory.h"
@@ -84,6 +86,9 @@
 #include "nsIAppsService.h"
 
 #include "jsapi.h"
+#include "nsHTMLIFrameElement.h"
+#include "nsSandboxFlags.h"
+
 #include "mozilla/dom/StructuredCloneUtils.h"
 
 using namespace mozilla;
@@ -286,6 +291,7 @@ NS_INTERFACE_MAP_END
 
 nsFrameLoader::nsFrameLoader(Element* aOwner, bool aNetworkCreated)
   : mOwnerContent(aOwner)
+  , mDetachedSubdocViews(nullptr)
   , mDepthTooGreat(false)
   , mIsTopLevelContent(false)
   , mDestroyCalled(false)
@@ -448,6 +454,30 @@ nsFrameLoader::ReallyStartLoadingInternal()
   mDocShell->CreateLoadInfo(getter_AddRefs(loadInfo));
   NS_ENSURE_TRUE(loadInfo, NS_ERROR_FAILURE);
 
+  // Is this an <iframe> with a sandbox attribute or a parent which is
+  // sandboxed ?
+  nsHTMLIFrameElement* iframe =
+    nsHTMLIFrameElement::FromContent(mOwnerContent);
+
+  PRUint32 sandboxFlags = 0;
+
+  if (iframe) {
+    sandboxFlags = iframe->GetSandboxFlags();
+
+    PRUint32 parentSandboxFlags = iframe->OwnerDoc()->GetSandboxFlags();
+
+    if (sandboxFlags || parentSandboxFlags) {
+      // The child can only add restrictions, not remove them.
+      sandboxFlags |= parentSandboxFlags;
+
+      mDocShell->SetSandboxFlags(sandboxFlags);
+    }
+  }
+
+  // If this is an <iframe> and it's sandboxed with respect to origin
+  // we will set it up with a null principal later in nsDocShell::DoURILoad.
+  // We do it there to correctly sandbox content that was loaded into
+  // the iframe via other methods than the src attribute.
   // We'll use our principal, not that of the document loaded inside us.  This
   // is very important; needed to prevent XSS attacks on documents loaded in
   // subframes!
@@ -1973,9 +2003,8 @@ nsFrameLoader::TryRemoteBrowser()
     return false;
   }
 
-  PRUint32 appId = 0;
   bool isBrowserElement = false;
-
+  nsCOMPtr<mozIApplication> app;
   if (OwnerIsBrowserFrame()) {
     isBrowserElement = true;
 
@@ -1989,24 +2018,21 @@ nsFrameLoader::TryRemoteBrowser()
         return false;
       }
 
-      appsService->GetAppLocalIdByManifestURL(manifest, &appId);
-
-      // If the frame is actually an app, we should not mark it as a browser.
-      if (appId != nsIScriptSecurityManager::NO_APP_ID) {
+      nsCOMPtr<mozIDOMApplication> domApp;
+      appsService->GetAppByManifestURL(manifest, getter_AddRefs(domApp));
+      // If the frame is actually an app, we should not mark it as a
+      // browser.  This is to identify the data store: since <app>s
+      // and <browser>s-within-<app>s have different stores, we want
+      // to ensure the <app> uses its store, not the one for its
+      // <browser>s.
+      app = do_QueryInterface(domApp);
+      if (app) {
         isBrowserElement = false;
       }
     }
   }
 
-  // If our owner has no app manifest URL, then this is equivalent to
-  // ContentParent::GetNewOrUsed().
-  nsAutoString appManifest;
-  GetOwnerAppManifestURL(appManifest);
-  ContentParent* parent = ContentParent::GetForApp(appManifest);
-
-  NS_ASSERTION(parent->IsAlive(), "Process parent should be alive; something is very wrong!");
-  mRemoteBrowser = parent->CreateTab(chromeFlags, isBrowserElement, appId);
-  if (mRemoteBrowser) {
+  if ((mRemoteBrowser = ContentParent::CreateBrowser(app, isBrowserElement))) {
     nsCOMPtr<nsIDOMElement> element = do_QueryInterface(mOwnerContent);
     mRemoteBrowser->SetOwnerElement(element);
 
@@ -2019,8 +2045,8 @@ nsFrameLoader::TryRemoteBrowser()
     nsCOMPtr<nsIBrowserDOMWindow> browserDOMWin;
     rootChromeWin->GetBrowserDOMWindow(getter_AddRefs(browserDOMWin));
     mRemoteBrowser->SetBrowserDOMWindow(browserDOMWin);
-    
-    mChildHost = parent;
+
+    mChildHost = static_cast<ContentParent*>(mRemoteBrowser->Manager());
   }
   return true;
 }
@@ -2374,14 +2400,24 @@ nsFrameLoader::SetRemoteBrowser(nsITabParent* aTabParent)
 {
   MOZ_ASSERT(!mRemoteBrowser);
   MOZ_ASSERT(!mCurrentRemoteFrame);
+  mRemoteFrame = true;
   mRemoteBrowser = static_cast<TabParent*>(aTabParent);
 
-  EnsureMessageManager();
-  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
-  if (OwnerIsBrowserFrame() && os) {
-    mRemoteBrowserInitialized = true;
-    os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, this),
-                        "remote-browser-frame-shown", NULL);
-  }
+  ShowRemoteFrame(nsIntSize(0, 0));
+}
+
+void
+nsFrameLoader::SetDetachedSubdocView(nsIView* aDetachedViews,
+                                     nsIDocument* aContainerDoc)
+{
+  mDetachedSubdocViews = aDetachedViews;
+  mContainerDocWhileDetached = aContainerDoc;
+}
+
+nsIView*
+nsFrameLoader::GetDetachedSubdocView(nsIDocument** aContainerDoc) const
+{
+  NS_IF_ADDREF(*aContainerDoc = mContainerDocWhileDetached);
+  return mDetachedSubdocViews;
 }
 

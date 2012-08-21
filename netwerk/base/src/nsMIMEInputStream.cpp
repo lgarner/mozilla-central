@@ -19,12 +19,12 @@
 #include "nsIStringStream.h"
 #include "nsString.h"
 #include "nsMIMEInputStream.h"
-#include "nsIIPCSerializable.h"
+#include "nsIIPCSerializableObsolete.h"
 #include "nsIClassInfoImpl.h"
 
 class nsMIMEInputStream : public nsIMIMEInputStream,
                           public nsISeekableStream,
-                          public nsIIPCSerializable
+                          public nsIIPCSerializableObsolete
 {
 public:
     nsMIMEInputStream();
@@ -34,7 +34,7 @@ public:
     NS_DECL_NSIINPUTSTREAM
     NS_DECL_NSIMIMEINPUTSTREAM
     NS_DECL_NSISEEKABLESTREAM
-    NS_DECL_NSIIPCSERIALIZABLE
+    NS_DECL_NSIIPCSERIALIZABLEOBSOLETE
     
     NS_METHOD Init();
 
@@ -73,12 +73,12 @@ NS_IMPL_QUERY_INTERFACE4_CI(nsMIMEInputStream,
                             nsIMIMEInputStream,
                             nsIInputStream,
                             nsISeekableStream,
-                            nsIIPCSerializable)
+                            nsIIPCSerializableObsolete)
 NS_IMPL_CI_INTERFACE_GETTER4(nsMIMEInputStream,
                              nsIMIMEInputStream,
                              nsIInputStream,
                              nsISeekableStream,
-                             nsIIPCSerializable)
+                             nsIIPCSerializableObsolete)
 
 nsMIMEInputStream::nsMIMEInputStream() : mAddContentLength(false),
                                          mStartedReading(false)
@@ -170,12 +170,12 @@ void nsMIMEInputStream::InitStreams()
 
     // We'll use the content-length stream to add the final \r\n
     if (mAddContentLength) {
-        PRUint32 cl = 0;
+        PRUint64 cl = 0;
         if (mData) {
             mData->Available(&cl);
         }
         mContentLength.AssignLiteral("Content-Length: ");
-        mContentLength.AppendInt((PRInt32)cl);
+        mContentLength.AppendInt(cl);
         mContentLength.AppendLiteral("\r\n\r\n");
     }
     else {
@@ -245,7 +245,7 @@ nsMIMEInputStream::ReadSegCb(nsIInputStream* aIn, void* aClosure,
 
 // nsIInputStream
 NS_IMETHODIMP nsMIMEInputStream::Close(void) { INITSTREAMS; return mStream->Close(); }
-NS_IMETHODIMP nsMIMEInputStream::Available(PRUint32 *_retval) { INITSTREAMS; return mStream->Available(_retval); }
+NS_IMETHODIMP nsMIMEInputStream::Available(PRUint64 *_retval) { INITSTREAMS; return mStream->Available(_retval); }
 NS_IMETHODIMP nsMIMEInputStream::Read(char * buf, PRUint32 count, PRUint32 *_retval) { INITSTREAMS; return mStream->Read(buf, count, _retval); }
 NS_IMETHODIMP nsMIMEInputStream::IsNonBlocking(bool *aNonBlocking) { INITSTREAMS; return mStream->IsNonBlocking(aNonBlocking); }
 

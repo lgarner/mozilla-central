@@ -58,6 +58,7 @@
 #include "nsContentUtils.h"
 #include "nsIPrefBranch.h"
 #include "nsIPrefService.h"
+#include "nsSandboxFlags.h"
 
 #ifdef USEWEAKREFS
 #include "nsIWeakReference.h"
@@ -319,6 +320,64 @@ nsWindowWatcher::Init()
   return NS_OK;
 }
 
+/**
+ * Convert aArguments into either an nsIArray or NULL.
+ *
+ *  - If aArguments is NULL, return NULL.
+ *  - If aArguments is an nsArray, return NULL if it's empty, or otherwise
+ *    return the array.
+ *  - If aArguments is an nsISupportsArray, return NULL if it's empty, or
+ *    otherwise add its elements to an nsArray and return the new array.
+ *  - Otherwise, return an nsIArray with one element: aArguments.
+ */
+static already_AddRefed<nsIArray>
+ConvertArgsToArray(nsISupports* aArguments)
+{
+  if (!aArguments) {
+    return NULL;
+  }
+
+  nsCOMPtr<nsIArray> array = do_QueryInterface(aArguments);
+  if (array) {
+    PRUint32 argc = 0;
+    array->GetLength(&argc);
+    if (argc == 0)
+      return NULL;
+
+    return array.forget();
+  }
+
+  nsCOMPtr<nsISupportsArray> supArray = do_QueryInterface(aArguments);
+  if (supArray) {
+    PRUint32 argc = 0;
+    supArray->Count(&argc);
+    if (argc == 0) {
+      return NULL;
+    }
+
+    nsCOMPtr<nsIMutableArray> mutableArray =
+      do_CreateInstance(NS_ARRAY_CONTRACTID);
+    NS_ENSURE_TRUE(mutableArray, NULL);
+
+    for (PRUint32 i = 0; i < argc; i++) {
+      nsCOMPtr<nsISupports> elt = dont_AddRef(supArray->ElementAt(i));
+      nsresult rv = mutableArray->AppendElement(elt, /* aWeak = */ false);
+      NS_ENSURE_SUCCESS(rv, NULL);
+    }
+
+    return mutableArray.forget();
+  }
+
+  nsCOMPtr<nsIMutableArray> singletonArray =
+    do_CreateInstance(NS_ARRAY_CONTRACTID);
+  NS_ENSURE_TRUE(singletonArray, NULL);
+
+  nsresult rv = singletonArray->AppendElement(aArguments, /* aWeak = */ false);
+  NS_ENSURE_SUCCESS(rv, NULL);
+
+  return singletonArray.forget();
+}
+
 NS_IMETHODIMP
 nsWindowWatcher::OpenWindow(nsIDOMWindow *aParent,
                             const char *aUrl,
@@ -327,58 +386,17 @@ nsWindowWatcher::OpenWindow(nsIDOMWindow *aParent,
                             nsISupports *aArguments,
                             nsIDOMWindow **_retval)
 {
-  nsCOMPtr<nsIArray> argsArray;
+  nsCOMPtr<nsIArray> argv = ConvertArgsToArray(aArguments);
+
   PRUint32 argc = 0;
-  if (aArguments) {
-    // aArguments is allowed to be either an nsISupportsArray or an nsIArray
-    // (in which case it is treated as argv) or any other COM object (in which
-    // case it becomes argv[0]).
-    nsresult rv;
-
-    nsCOMPtr<nsISupportsArray> supArray(do_QueryInterface(aArguments));
-    if (!supArray) {
-      nsCOMPtr<nsIArray> array(do_QueryInterface(aArguments));
-      if (!array) {
-        nsCOMPtr<nsIMutableArray> muteArray;
-        argsArray = muteArray = do_CreateInstance(NS_ARRAY_CONTRACTID, &rv);
-        if (NS_FAILED(rv))
-          return rv;
-        rv = muteArray->AppendElement(aArguments, false);
-        if (NS_FAILED(rv))
-          return rv;
-        argc = 1;
-      } else {
-        rv = array->GetLength(&argc);
-        if (NS_FAILED(rv))
-          return rv;
-        if (argc > 0)
-          argsArray = array;
-      }
-    } else {
-      // nsISupports array - copy into nsIArray...
-      rv = supArray->Count(&argc);
-      if (NS_FAILED(rv))
-        return rv;
-      // But only create an arguments array if there's at least one element in
-      // the supports array.
-      if (argc > 0) {
-        nsCOMPtr<nsIMutableArray> muteArray;
-        argsArray = muteArray = do_CreateInstance(NS_ARRAY_CONTRACTID, &rv);
-        if (NS_FAILED(rv))
-          return rv;
-        for (PRUint32 i = 0; i < argc; i++) {
-          nsCOMPtr<nsISupports> elt(dont_AddRef(supArray->ElementAt(i)));
-          rv = muteArray->AppendElement(elt, false);
-          if (NS_FAILED(rv))
-            return rv;
-        }
-      }
-    }
+  if (argv) {
+    argv->GetLength(&argc);
   }
-
   bool dialog = (argc != 0);
-  return OpenWindowJSInternal(aParent, aUrl, aName, aFeatures, dialog, 
-                              argsArray, false, _retval);
+
+  return OpenWindowInternal(aParent, aUrl, aName, aFeatures,
+                            /* calledFromJS = */ false, dialog,
+                            /* navigate = */ true, argv, _retval);
 }
 
 struct SizeSpec {
@@ -423,38 +441,46 @@ struct SizeSpec {
 };
 
 NS_IMETHODIMP
-nsWindowWatcher::OpenWindowJS(nsIDOMWindow *aParent,
+nsWindowWatcher::OpenWindow2(nsIDOMWindow *aParent,
                               const char *aUrl,
                               const char *aName,
                               const char *aFeatures,
+                              bool aCalledFromScript,
                               bool aDialog,
-                              nsIArray *argv,
+                              bool aNavigate,
+                              nsISupports *aArguments,
                               nsIDOMWindow **_retval)
 {
-  if (argv) {
-    PRUint32 argc;
-    nsresult rv = argv->GetLength(&argc);
-    NS_ENSURE_SUCCESS(rv, rv);
+  nsCOMPtr<nsIArray> argv = ConvertArgsToArray(aArguments);
 
-    // For compatibility with old code, no arguments implies that we shouldn't
-    // create an arguments object on the new window at all.
-    if (argc == 0)
-      argv = nullptr;
+  PRUint32 argc = 0;
+  if (argv) {
+    argv->GetLength(&argc);
   }
 
-  return OpenWindowJSInternal(aParent, aUrl, aName, aFeatures, aDialog,
-                              argv, true, _retval);
+  // This is extremely messed up, but this behavior is necessary because
+  // callers lie about whether they're a dialog window and whether they're
+  // called from script.  Fixing this is bug 779939.
+  bool dialog = aDialog;
+  if (!aCalledFromScript) {
+    dialog = argc > 0;
+  }
+
+  return OpenWindowInternal(aParent, aUrl, aName, aFeatures,
+                            aCalledFromScript, dialog,
+                            aNavigate, argv, _retval);
 }
 
 nsresult
-nsWindowWatcher::OpenWindowJSInternal(nsIDOMWindow *aParent,
-                                      const char *aUrl,
-                                      const char *aName,
-                                      const char *aFeatures,
-                                      bool aDialog,
-                                      nsIArray *argv,
-                                      bool aCalledFromJS,
-                                      nsIDOMWindow **_retval)
+nsWindowWatcher::OpenWindowInternal(nsIDOMWindow *aParent,
+                                    const char *aUrl,
+                                    const char *aName,
+                                    const char *aFeatures,
+                                    bool aCalledFromJS,
+                                    bool aDialog,
+                                    bool aNavigate,
+                                    nsIArray *argv,
+                                    nsIDOMWindow **_retval)
 {
   nsresult                        rv = NS_OK;
   bool                            nameSpecified,
@@ -523,7 +549,7 @@ nsWindowWatcher::OpenWindowJSInternal(nsIDOMWindow *aParent,
   // callee context onto the context stack so that
   // CalculateChromeFlags() sees the actual caller when doing its
   // security checks.
-  chromeFlags = CalculateChromeFlags(features.get(), featuresSpecified,
+  chromeFlags = CalculateChromeFlags(aParent, features.get(), featuresSpecified,
                                      aDialog, uriToLoadIsChrome,
                                      hasChromeParent);
 
@@ -574,6 +600,18 @@ nsWindowWatcher::OpenWindowJSInternal(nsIDOMWindow *aParent,
     // nsIWindowProvider for one.  In either case, we'll want to set the right
     // name on it.
     windowNeedsName = true;
+
+    // If the parent trying to open a new window is sandboxed,
+    // this is not allowed and we fail here.
+    if (aParent) {
+      nsCOMPtr<nsIDOMDocument> domdoc;
+      aParent->GetDocument(getter_AddRefs(domdoc));
+      nsCOMPtr<nsIDocument> doc = do_QueryInterface(domdoc);
+
+      if (doc && (doc->GetSandboxFlags() & SANDBOXED_NAVIGATION)) {
+        return NS_ERROR_FAILURE;
+      }
+    }
 
     // Now check whether it's ok to ask a window provider for a window.  Don't
     // do it if we're opening a dialog or if our parent is a chrome window or
@@ -864,7 +902,7 @@ nsWindowWatcher::OpenWindowJSInternal(nsIDOMWindow *aParent,
     }
   }
 
-  if (uriToLoad) { // get the script principal and pass it to docshell
+  if (uriToLoad && aNavigate) { // get the script principal and pass it to docshell
     JSContextAutoPopper contextGuard;
 
     cx = GetJSContextFromCallStack();
@@ -1389,6 +1427,7 @@ nsWindowWatcher::URIfromURL(const char *aURL,
 
 /**
  * Calculate the chrome bitmask from a string list of features.
+ * @param aParent the opener window
  * @param aFeatures a string containing a list of named chrome features
  * @param aNullFeatures true if aFeatures was a null pointer (which fact
  *                      is lost by its conversion to a string in the caller)
@@ -1396,7 +1435,8 @@ nsWindowWatcher::URIfromURL(const char *aURL,
  * @return the chrome bitmask
  */
 // static
-PRUint32 nsWindowWatcher::CalculateChromeFlags(const char *aFeatures,
+PRUint32 nsWindowWatcher::CalculateChromeFlags(nsIDOMWindow *aParent,
+                                               const char *aFeatures,
                                                bool aFeaturesSpecified,
                                                bool aDialog,
                                                bool aChromeURL,
@@ -1563,6 +1603,17 @@ PRUint32 nsWindowWatcher::CalculateChromeFlags(const char *aFeatures,
   if (!(chromeFlags & nsIWebBrowserChrome::CHROME_OPENAS_CHROME)) {
     // Remove the dependent flag if we're not opening as chrome
     chromeFlags &= ~nsIWebBrowserChrome::CHROME_DEPENDENT;
+  }
+
+  // Disable CHROME_OPENAS_DIALOG if the window is inside <iframe mozbrowser>.
+  // It's up to the embedder to interpret what dialog=1 means.
+  nsCOMPtr<nsIDocShell> docshell = do_GetInterface(aParent);
+  if (docshell) {
+    bool belowContentBoundary = false;
+    docshell->GetIsBelowContentBoundary(&belowContentBoundary);
+    if (belowContentBoundary) {
+      chromeFlags &= ~nsIWebBrowserChrome::CHROME_OPENAS_DIALOG;
+    }
   }
 
   return chromeFlags;

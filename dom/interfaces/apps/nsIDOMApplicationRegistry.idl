@@ -52,6 +52,12 @@ interface mozIDOMApplicationMgmt : nsISupports
   nsIDOMDOMRequest getAll();
 
   /**
+   * the request will return the applications acquired from all origins but
+   * which are not launchable (e.g. by not being natively installed), or null.
+   */
+  nsIDOMDOMRequest getNotInstalled();
+
+  /**
    * event listener to get notified of application installs. Only settable by
    * privileged callers.
    * the event will be a mozIDOMApplicationEvent
@@ -74,7 +80,10 @@ interface mozIDOMApplicationRegistry : nsISupports
    *
    * @param manifestUrl : the URL of the webapps manifest.
    * @param parameters  : A structure with optional information.
-   *                      { receipts: ... } will be used to specify the payment receipts for this installation.
+   *                      {
+   *                       receipts: ...    Will be used to specify the payment receipts for this installation.
+   *                       categories: ...  Will be used to specify the categories of the webapp.
+   *                      }
    * @returns           : A DOMRequest object, returning the app object in |result| if install succeeds.
    */
   nsIDOMDOMRequest install(in DOMString manifestUrl, [optional] in jsval parameters);
@@ -90,17 +99,14 @@ interface mozIDOMApplicationRegistry : nsISupports
   nsIDOMDOMRequest getInstalled();
 
   /**
-   * the request will return the applications acquired from this origin but which
-   * are not launchable (e.g. by not being natively installed), or null.
-   */
-  nsIDOMDOMRequest getNotInstalled();
-
-  /**
    * Install a packaged web app.
    *
    * @param packageUrl : the URL of the webapps manifest.
    * @param parameters : A structure with optional information.
-   *                     { receipts: ... } will be used to specify the payment receipts for this installation.
+   *                      {
+   *                       receipts: ...    Will be used to specify the payment receipts for this installation.
+   *                       categories: ...  Will be used to specify the categories of the webapp.
+   *                      }
    * @returns          : A DOMRequest object, returning the app object in |result| if install succeeds.
    */
   nsIDOMDOMRequest installPackage(in DOMString packageUrl, [optional] in jsval parameters);

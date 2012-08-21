@@ -17,7 +17,8 @@
 #include "nsCOMPtr.h"
 #include "prlog.h"
 #include "prio.h"
-#include "nsIIPCSerializable.h"
+#include "nsIIPCSerializableInputStream.h"
+#include "nsIIPCSerializableObsolete.h"
 
 template<class CharType> class nsLineBuffer;
 
@@ -34,7 +35,7 @@ public:
 
 protected:
     nsresult Close();
-    nsresult Available(PRUint32* _retval);
+    nsresult Available(PRUint64* _retval);
     nsresult Read(char* aBuf, PRUint32 aCount, PRUint32* _retval);
     nsresult ReadSegments(nsWriteSegmentFun aWriter, void* aClosure,
                           PRUint32 aCount, PRUint32* _retval);
@@ -102,16 +103,18 @@ protected:
 class nsFileInputStream : public nsFileStreamBase,
                           public nsIFileInputStream,
                           public nsILineInputStream,
-                          public nsIIPCSerializable
+                          public nsIIPCSerializableObsolete,
+                          public nsIIPCSerializableInputStream
 {
 public:
     NS_DECL_ISUPPORTS_INHERITED
     NS_DECL_NSIFILEINPUTSTREAM
     NS_DECL_NSILINEINPUTSTREAM
-    NS_DECL_NSIIPCSERIALIZABLE
+    NS_DECL_NSIIPCSERIALIZABLEOBSOLETE
+    NS_DECL_NSIIPCSERIALIZABLEINPUTSTREAM
 
     NS_IMETHOD Close();
-    NS_IMETHOD Available(PRUint32* _retval)
+    NS_IMETHOD Available(PRUint64* _retval)
     {
         return nsFileStreamBase::Available(_retval);
     }
@@ -131,9 +134,11 @@ public:
     NS_IMETHOD Seek(PRInt32 aWhence, PRInt64 aOffset);
 
     nsFileInputStream()
+      : mIOFlags(0), mPerm(0)
     {
         mLineBuffer = nullptr;
     }
+
     virtual ~nsFileInputStream() 
     {
         Close();
@@ -176,12 +181,18 @@ class nsPartialFileInputStream : public nsFileInputStream,
                                  public nsIPartialFileInputStream
 {
 public:
+    using nsFileInputStream::Init;
     NS_DECL_ISUPPORTS_INHERITED
     NS_DECL_NSIPARTIALFILEINPUTSTREAM
-    NS_DECL_NSIIPCSERIALIZABLE
+    NS_DECL_NSIIPCSERIALIZABLEOBSOLETE
+    NS_DECL_NSIIPCSERIALIZABLEINPUTSTREAM
+
+    nsPartialFileInputStream()
+      : mStart(0), mLength(0), mPosition(0)
+    { }
 
     NS_IMETHOD Tell(PRInt64 *aResult);
-    NS_IMETHOD Available(PRUint32 *aResult);
+    NS_IMETHOD Available(PRUint64 *aResult);
     NS_IMETHOD Read(char* aBuf, PRUint32 aCount, PRUint32* aResult);
     NS_IMETHOD Seek(PRInt32 aWhence, PRInt64 aOffset);
 
@@ -189,8 +200,8 @@ public:
     Create(nsISupports *aOuter, REFNSIID aIID, void **aResult);
 
 private:
-    PRUint32 TruncateSize(PRUint32 aSize) {
-          return (PRUint32)NS_MIN<PRUint64>(mLength - mPosition, aSize);
+    PRUint64 TruncateSize(PRUint64 aSize) {
+          return NS_MIN<PRUint64>(mLength - mPosition, aSize);
     }
 
     PRUint64 mStart;

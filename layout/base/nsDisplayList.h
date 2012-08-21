@@ -23,7 +23,7 @@
 #include "nsRegion.h"
 #include "FrameLayerBuilder.h"
 #include "nsThemeConstants.h"
-#include "ImageLayers.h"
+#include "nsLayoutUtils.h"
 
 #include "mozilla/StandardInteger.h"
 
@@ -35,6 +35,13 @@ class nsRenderingContext;
 class nsDeviceContext;
 class nsDisplayTableItem;
 class nsDisplayItem;
+
+namespace mozilla {
+namespace layers {
+class ImageLayer;
+class ImageContainer;
+} //namepsace
+} //namepsace
 
 /*
  * An nsIFrame can have many different visual parts. For example an image frame
@@ -1177,7 +1184,8 @@ public:
     PAINT_DEFAULT = 0,
     PAINT_USE_WIDGET_LAYERS = 0x01,
     PAINT_FLUSH_LAYERS = 0x02,
-    PAINT_EXISTING_TRANSACTION = 0x04
+    PAINT_EXISTING_TRANSACTION = 0x04,
+    PAINT_NO_COMPOSITE = 0x08
   };
   void PaintRoot(nsDisplayListBuilder* aBuilder, nsRenderingContext* aCtx,
                  PRUint32 aFlags) const;
@@ -1590,11 +1598,7 @@ private:
 class nsDisplayBackground : public nsDisplayItem {
 public:
   nsDisplayBackground(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame);
-#ifdef NS_BUILD_REFCNT_LOGGING
-  virtual ~nsDisplayBackground() {
-    MOZ_COUNT_DTOR(nsDisplayBackground);
-  }
-#endif
+  virtual ~nsDisplayBackground();
 
   virtual LayerState GetLayerState(nsDisplayListBuilder* aBuilder,
                                    LayerManager* aManager,
@@ -1948,6 +1952,8 @@ public:
   {
     return mozilla::LAYER_ACTIVE;
   }
+  virtual bool TryMerge(nsDisplayListBuilder* aBuilder, nsDisplayItem* aItem);
+
   NS_DISPLAY_DECL_NAME("FixedPosition", TYPE_FIXED_POSITION)
 
 protected:
@@ -2427,6 +2433,9 @@ class nsCharClipDisplayItem : public nsDisplayItem {
 public:
   nsCharClipDisplayItem(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame)
     : nsDisplayItem(aBuilder, aFrame), mLeftEdge(0), mRightEdge(0) {}
+
+  nsCharClipDisplayItem(nsIFrame* aFrame)
+    : nsDisplayItem(nullptr, aFrame, nsPoint()) {}
 
   struct ClipEdges {
     ClipEdges(const nsDisplayItem& aItem,

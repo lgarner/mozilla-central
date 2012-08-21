@@ -54,7 +54,7 @@ nsNodeInfoManager::GetNodeInfoInnerHashValue(const void *key)
 }
 
 
-PRIntn
+int
 nsNodeInfoManager::NodeInfoInnerKeyCompare(const void *key1, const void *key2)
 {
   NS_ASSERTION(key1 && key2, "Null key passed to NodeInfoInnerKeyCompare!");
@@ -183,8 +183,8 @@ nsNodeInfoManager::Init(nsIDocument *aDocument)
 }
 
 // static
-PRIntn
-nsNodeInfoManager::DropNodeInfoDocument(PLHashEntry *he, PRIntn hashIndex, void *arg)
+int
+nsNodeInfoManager::DropNodeInfoDocument(PLHashEntry *he, int hashIndex, void *arg)
 {
   static_cast<nsINodeInfo*>(he->value)->mDocument = nullptr;
   return HT_ENUMERATE_NEXT;
@@ -210,7 +210,7 @@ nsNodeInfoManager::GetNodeInfo(nsIAtom *aName, nsIAtom *aPrefix,
                                PRInt32 aNamespaceID, PRUint16 aNodeType,
                                nsIAtom* aExtraName /* = nullptr */)
 {
-  CHECK_VALID_NODEINFO(aNodeType, aName, aNamespaceID, aExtraName);
+  CheckValidNodeInfo(aNodeType, aName, aNamespaceID, aExtraName);
 
   nsINodeInfo::nsNodeInfoInner tmpKey(aName, aPrefix, aNamespaceID, aNodeType,
                                       aExtraName);
@@ -256,7 +256,7 @@ nsNodeInfoManager::GetNodeInfo(const nsAString& aName, nsIAtom *aPrefix,
 #ifdef DEBUG
   {
     nsCOMPtr<nsIAtom> nameAtom = do_GetAtom(aName);
-    CHECK_VALID_NODEINFO(aNodeType, nameAtom, aNamespaceID, nullptr);
+    CheckValidNodeInfo(aNodeType, nameAtom, aNamespaceID, nullptr);
   }
 #endif
 

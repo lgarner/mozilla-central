@@ -36,6 +36,8 @@ pref("browser.cache.disk.enable",           true);
 pref("browser.cache.disk.smart_size.first_run", true);
 // Does the user want smart-sizing?
 pref("browser.cache.disk.smart_size.enabled", true);
+// Which max value should we use for smart-sizing?
+pref("browser.cache.disk.smart_size.use_old_max", true);
 // Size (in KB) explicitly set by the user. Used when smart_size.enabled == false
 pref("browser.cache.disk.capacity",         256000);
 // Max-size (in KB) for entries in disk cache. Set to -1 for no limit.
@@ -236,8 +238,13 @@ pref("gfx.content.azure.enabled", true);
 pref("gfx.canvas.azure.enabled", true);
 pref("gfx.canvas.azure.backends", "cg");
 #else
+#ifdef ANDROID
+pref("gfx.canvas.azure.enabled", true);
+pref("gfx.canvas.azure.backends", "cairo");
+#else
 pref("gfx.canvas.azure.enabled", false);
 pref("gfx.canvas.azure.backends", "cairo");
+#endif
 #endif
 #endif
 
@@ -1373,40 +1380,46 @@ pref("mousewheel.acceleration.factor", 10);
 pref("mousewheel.system_scroll_override_on_root_content.vertical.factor", 200);
 pref("mousewheel.system_scroll_override_on_root_content.horizontal.factor", 200);
 
-// 0=lines, 1=pages, 2=history , 3=text size
-pref("mousewheel.withnokey.action",0);
-pref("mousewheel.withnokey.numlines",6);
-pref("mousewheel.withnokey.sysnumlines",true);
-pref("mousewheel.withcontrolkey.action",0);
-pref("mousewheel.withcontrolkey.numlines",1);
-pref("mousewheel.withcontrolkey.sysnumlines",true);
-// mousewheel.withshiftkey, see the Mac note below.
-pref("mousewheel.withshiftkey.action",0);
-pref("mousewheel.withshiftkey.numlines",1);
-pref("mousewheel.withshiftkey.sysnumlines",true);
-pref("mousewheel.withaltkey.action",2);
-pref("mousewheel.withaltkey.numlines",1);
-pref("mousewheel.withaltkey.sysnumlines",false);
-pref("mousewheel.withmetakey.action",0);
-pref("mousewheel.withmetakey.numlines",1);
-pref("mousewheel.withmetakey.sysnumlines",true);
+// mousewheel.*.action can specify the action when you use mosue wheel.
+// When no modifier keys are pressed or two or more modifires are pressed,
+// .default is used.
+// 0: Nothing happens
+// 1: Scrolling contents
+// 2: Go back or go forward, in your history
+// 3: Zoom in or out.
+pref("mousewheel.default.action", 1);
+pref("mousewheel.with_alt.action", 2);
+pref("mousewheel.with_control.action", 3);
+pref("mousewheel.with_meta.action", 1);  // command key on Mac
+pref("mousewheel.with_shift.action", 1);
+pref("mousewheel.with_win.action", 1);
 
-// activate horizontal scrolling by default
-pref("mousewheel.horizscroll.withnokey.action",0);
-pref("mousewheel.horizscroll.withnokey.numlines",1);
-pref("mousewheel.horizscroll.withnokey.sysnumlines",true);
-pref("mousewheel.horizscroll.withcontrolkey.action",0);
-pref("mousewheel.horizscroll.withcontrolkey.numlines",1);
-pref("mousewheel.horizscroll.withcontrolkey.sysnumlines",true);
-pref("mousewheel.horizscroll.withshiftkey.action",0);
-pref("mousewheel.horizscroll.withshiftkey.numlines",1);
-pref("mousewheel.horizscroll.withshiftkey.sysnumlines",true);
-pref("mousewheel.horizscroll.withaltkey.action",2);
-pref("mousewheel.horizscroll.withaltkey.numlines",-1);
-pref("mousewheel.horizscroll.withaltkey.sysnumlines",false);
-pref("mousewheel.horizscroll.withmetakey.action",0);
-pref("mousewheel.horizscroll.withmetakey.numlines",1);
-pref("mousewheel.horizscroll.withmetakey.sysnumlines",true);
+// mousewheel.*.delta_multiplier_* can specify the value muliplied by the delta
+// value.  The values will be used after divided by 100.  I.e., 100 means 1.0,
+// -100 means -1.0.  If the values were negative, the direction would be
+// reverted.  The absolue value must be 100 or larger.
+pref("mousewheel.default.delta_multiplier_x", 100);
+pref("mousewheel.default.delta_multiplier_y", 100);
+pref("mousewheel.default.delta_multiplier_z", 100);
+pref("mousewheel.with_alt.delta_multiplier_x", 100);
+pref("mousewheel.with_alt.delta_multiplier_y", 100);
+pref("mousewheel.with_alt.delta_multiplier_z", 100);
+pref("mousewheel.with_control.delta_multiplier_x", 100);
+pref("mousewheel.with_control.delta_multiplier_y", 100);
+pref("mousewheel.with_control.delta_multiplier_z", 100);
+pref("mousewheel.with_meta.delta_multiplier_x", 100);  // command key on Mac
+pref("mousewheel.with_meta.delta_multiplier_y", 100);  // command key on Mac
+pref("mousewheel.with_meta.delta_multiplier_z", 100);  // command key on Mac
+pref("mousewheel.with_shift.delta_multiplier_x", 100);
+pref("mousewheel.with_shift.delta_multiplier_y", 100);
+pref("mousewheel.with_shift.delta_multiplier_z", 100);
+pref("mousewheel.with_win.delta_multiplier_x", 100);
+pref("mousewheel.with_win.delta_multiplier_y", 100);
+pref("mousewheel.with_win.delta_multiplier_z", 100);
+
+// If line-height is lower than this value (in device pixels), 1 line scroll
+// scrolls this height.
+pref("mousewheel.min_line_scroll_amount", 5);
 
 // These define the smooth scroll behavior (min ms, max ms) for different triggers
 // Some triggers:
@@ -1656,17 +1669,6 @@ pref("dom.ipc.plugins.java.enabled", false);
 
 pref("dom.ipc.plugins.flash.subprocess.crashreporter.enabled", true);
 
-#ifndef ANDROID
-#ifndef XP_MACOSX
-#ifdef XP_UNIX
-// Linux plugins using Xt instead of Xembed don't work out-of-process yet.
-pref("dom.ipc.plugins.enabled.libvlcplugin.so", false);
-pref("dom.ipc.plugins.enabled.nppdf.so", false);
-pref("dom.ipc.plugins.enabled.602plugin.so", false);
-#endif
-#endif
-#endif
-
 pref("dom.ipc.processCount", 1);
 
 pref("svg.smil.enabled", true);
@@ -1752,6 +1754,29 @@ pref("font.size.inflation.minTwips", 0);
  * A value of 0 means there's no character length threshold.
  */
 pref("font.size.inflation.lineThreshold", 400);
+
+/*
+ * Defines the font size inflation mapping intercept parameter.
+ *
+ * Font size inflation computes a minimum font size, m, based on
+ * other preferences (see font.size.inflation.minTwips and
+ * font.size.inflation.emPerLine, above) and the width of the
+ * frame in which the text resides. Using this minimum, a specified
+ * font size, s, is mapped to an inflated font size, i, using an
+ * equation that varies depending on the value of the font size
+ * inflation mapping intercept parameter, P:
+ *
+ * If the intercept parameter is negative, then the following mapping
+ * function is used:
+ *
+ * i = m + s
+ *
+ * If the intercept parameter is non-negative, then the mapping function
+ * is a function such that its graph meets the graph of i = s at the
+ * point where both i and s are (1 + P/2) * m for values of s that are
+ * large enough. This means that when s=0, i is always equal to m.
+ */
+pref("font.size.inflation.mappingIntercept", 1);
 
 #ifdef XP_WIN
 
@@ -3477,9 +3502,6 @@ pref("image.mem.decode_bytes_at_a_time", 4096);
 // The longest time we can spend in an iteration of an async decode
 pref("image.mem.max_ms_before_yield", 5);
 
-// The maximum source data size for which we auto sync decode
-pref("image.mem.max_bytes_for_sync_decode", 150000);
-
 // The maximum amount of decoded image data we'll willingly keep around (we
 // might keep around more than this, but we'll try to get down to this value).
 pref("image.mem.max_decoded_image_kb", 51200);
@@ -3522,6 +3544,7 @@ pref("layers.acceleration.draw-fps", false);
 // Whether to animate simple opacity and transforms on the compositor
 pref("layers.offmainthreadcomposition.animate-opacity", false);
 pref("layers.offmainthreadcomposition.animate-transform", false);
+pref("layers.offmainthreadcomposition.log-animations", false);
 
 #ifdef MOZ_X11
 #ifdef MOZ_WIDGET_GTK2
@@ -3548,7 +3571,7 @@ pref("layers.prefer-d3d9", false);
 pref("geo.enabled", true);
 
 // Enable/Disable the orientation API for content
-pref("device.motion.enabled", true);
+pref("device.sensors.enabled", true);
 
 // Enable/Disable the device storage API for content
 pref("device.storage.enabled", false);
@@ -3615,7 +3638,6 @@ pref("dom.sms.whitelist", "");
 
 // WebContacts
 pref("dom.mozContacts.enabled", false);
-pref("dom.mozContacts.whitelist", "");
 
 // WebAlarms
 pref("dom.mozAlarms.enabled", false);
@@ -3660,3 +3682,7 @@ pref("memory.low_memory_notification_interval_ms", 10000);
 pref("memory.ghost_window_timeout_seconds", 60);
 
 pref("social.enabled", false);
+
+// Disable idle observer fuzz, because only privileged content can access idle
+// observers (bug 780507).
+pref("dom.idle-observers-api.fuzz_time.disabled", true);

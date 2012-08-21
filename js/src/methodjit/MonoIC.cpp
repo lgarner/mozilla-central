@@ -245,16 +245,16 @@ class EqualityCompiler : public BaseCompiler
 
         RegisterID tmp = ic.tempReg;
 
-        /* JSString::isAtom === (lengthAndFlags & ATOM_MASK == 0) */
-        Imm32 atomMask(JSString::ATOM_MASK);
+        /* JSString::isAtom === (lengthAndFlags & ATOM_BIT) */
+        Imm32 atomBit(JSString::ATOM_BIT);
 
         masm.load32(Address(lvr.dataReg(), JSString::offsetOfLengthAndFlags()), tmp);
-        Jump lhsNotAtomized = masm.branchTest32(Assembler::NonZero, tmp, atomMask);
+        Jump lhsNotAtomized = masm.branchTest32(Assembler::Zero, tmp, atomBit);
         linkToStub(lhsNotAtomized);
 
         if (!rvr.isConstant()) {
             masm.load32(Address(rvr.dataReg(), JSString::offsetOfLengthAndFlags()), tmp);
-            Jump rhsNotAtomized = masm.branchTest32(Assembler::NonZero, tmp, atomMask);
+            Jump rhsNotAtomized = masm.branchTest32(Assembler::Zero, tmp, atomBit);
             linkToStub(rhsNotAtomized);
         }
 
@@ -342,7 +342,8 @@ class EqualityCompiler : public BaseCompiler
     bool update()
     {
         if (!ic.generated) {
-            Assembler masm;
+            SPSInstrumentation sps(&f);
+            Assembler masm(&sps);
             Value rval = f.regs.sp[-1];
             Value lval = f.regs.sp[-2];
 
@@ -579,7 +580,7 @@ class CallCompiler : public BaseCompiler
         masm.loadPtr(Address(t0, JSScript::offsetOfMJITInfo()), t0);
         Jump hasNoJitInfo = masm.branchPtr(Assembler::Equal, t0, ImmPtr(NULL));
         size_t offset = JSScript::JITScriptSet::jitHandleOffset(callingNew,
-                                                                f.cx->compartment->needsBarrier());
+                                                                f.cx->compartment->compileBarriers());
         masm.loadPtr(Address(t0, offset), t0);
         Jump hasNoJitCode = masm.branchPtr(Assembler::BelowOrEqual, t0,
                                            ImmPtr(JSScript::JITScriptHandle::UNJITTABLE));
@@ -664,7 +665,7 @@ class CallCompiler : public BaseCompiler
     bool patchInlinePath(JSScript *script, JSObject *obj)
     {
         JS_ASSERT(ic.frameSize.isStatic());
-        JITScript *jit = script->getJIT(callingNew, f.cx->compartment->needsBarrier());
+        JITScript *jit = script->getJIT(callingNew, f.cx->compartment->compileBarriers());
 
         /* Very fast path. */
         Repatcher repatch(f.chunk());
@@ -770,7 +771,7 @@ class CallCompiler : public BaseCompiler
             return false;
 
         if (callingNew)
-            args.thisv().setMagic(JS_IS_CONSTRUCTING);
+            args.setThis(MagicValue(JS_IS_CONSTRUCTING));
 
         RecompilationMonitor monitor(cx);
 

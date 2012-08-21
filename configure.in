@@ -194,11 +194,11 @@ if test -n "$gonkdir" ; then
 
     CPPFLAGS="-DANDROID -isystem $gonkdir/bionic/libc/$ARCH_DIR/include -isystem $gonkdir/bionic/libc/include/ -isystem $gonkdir/bionic/libc/kernel/common -isystem $gonkdir/bionic/libc/kernel/$ARCH_DIR -isystem $gonkdir/bionic/libm/include -I$gonkdir/frameworks/base/opengl/include -I$gonkdir/frameworks/base/native/include -I$gonkdir/hardware/libhardware/include -I$gonkdir/hardware/libhardware_legacy/include -I$gonkdir/system -I$gonkdir/system/core/include -isystem $gonkdir/bionic -I$gonkdir/frameworks/base/include -I$gonkdir/external/dbus $CPPFLAGS -I$gonkdir/frameworks/base/services/sensorservice -I$gonkdir/frameworks/base/services/camera"
     CFLAGS="-mandroid -fno-short-enums -fno-exceptions $CFLAGS"
-    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions $CXXFLAGS $STLPORT_CPPFLAGS"
-    LIBS="$LIBS $STLPORT_LIBS"
-
+    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions -Wno-psabi $CXXFLAGS $STLPORT_CPPFLAGS"
     dnl Add -llog by default, since we use it all over the place.
-    LDFLAGS="-mandroid -L$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib -Wl,-rpath-link=$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib --sysroot=$gonkdir/out/target/product/$GONK_PRODUCT/obj/ -llog $LDFLAGS"
+    LIBS="$LIBS -llog $STLPORT_LIBS"
+
+    LDFLAGS="-mandroid -L$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib -Wl,-rpath-link=$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib --sysroot=$gonkdir/out/target/product/$GONK_PRODUCT/obj/ $LDFLAGS"
 
     dnl prevent cross compile section from using these flags as host flags
     if test -z "$HOST_CPPFLAGS" ; then
@@ -891,7 +891,7 @@ dnl Check for MacOS deployment target version
 dnl ========================================================
 
 MOZ_ARG_ENABLE_STRING(macos-target,
-                      [  --enable-macos-target=VER (default=10.5)
+                      [  --enable-macos-target=VER (default=10.6)
                           Set the minimum MacOS version needed at runtime],
                       [_MACOSX_DEPLOYMENT_TARGET=$enableval])
 
@@ -903,14 +903,7 @@ case "$target" in
     else
         dnl No value specified on the command line or in the environment,
         dnl use architecture minimum.
-        case "${target_cpu}" in
-          i*86)
-            export MACOSX_DEPLOYMENT_TARGET=10.5
-            ;;
-          x86_64)
-            export MACOSX_DEPLOYMENT_TARGET=10.6
-            ;;
-        esac
+        export MACOSX_DEPLOYMENT_TARGET=10.6
     fi
     ;;
 esac
@@ -1991,16 +1984,6 @@ case "$target" in
     LDFLAGS=$_SAVE_LDFLAGS
 
     MOZ_FIX_LINK_PATHS='-Wl,-executable_path,$(LIBXUL_DIST)/bin'
-    ;;
-
-*-freebsd*)
-    if test `test -x /usr/bin/objformat && /usr/bin/objformat || echo elf` != "elf"; then
-	DLL_SUFFIX=".so.1.0"
-	DSO_LDOPTS="-shared"
-    fi
-    if test ! "$GNU_CC"; then
-	DSO_LDOPTS="-Bshareable $DSO_LDOPTS"
-    fi
     ;;
 
 ia64*-hpux*)
@@ -3194,11 +3177,9 @@ then
 	    *-*-freebsd*)
 			AC_DEFINE(_REENTRANT)
 			AC_DEFINE(_THREAD_SAFE)
-			dnl -pthread links in -lc_r, so don't specify it explicitly.
+			dnl -pthread links in -lpthread, so don't specify it explicitly.
 			if test "$ac_cv_have_dash_pthread" = "yes"; then
 				_PTHREAD_LDFLAGS="-pthread"
-			else
-				_PTHREAD_LDFLAGS="-lc_r"
 			fi
 			;;
 
@@ -4354,7 +4335,7 @@ if test -z "$gonkdir" ; then
         android_min_api_level=13
         ;;
     mobile/android)
-        android_min_api_level=14
+        android_min_api_level=16
         ;;
     esac
 
@@ -4800,13 +4781,13 @@ if test "$MOZ_ENABLE_GTK2" -o "$MOZ_ENABLE_QT"
 then
     AC_SUBST(MOZ_PANGO)
 
-    PKG_CHECK_MODULES(_PANGOCHK, pango >= $PANGO_VERSION)
-
-    PKG_CHECK_MODULES(MOZ_PANGO, pango >= $PANGO_VERSION pangoft2 >= $PANGO_VERSION pangocairo >= $PANGO_VERSION)
-    AC_SUBST(MOZ_PANGO_CFLAGS)
-    AC_SUBST(MOZ_PANGO_LIBS)
     if test "$MOZ_PANGO"
     then
+        PKG_CHECK_MODULES(_PANGOCHK, pango >= $PANGO_VERSION)
+
+        PKG_CHECK_MODULES(MOZ_PANGO, pango >= $PANGO_VERSION pangoft2 >= $PANGO_VERSION pangocairo >= $PANGO_VERSION)
+        AC_SUBST(MOZ_PANGO_CFLAGS)
+        AC_SUBST(MOZ_PANGO_LIBS)
         AC_DEFINE(MOZ_PANGO)
     else
         PKG_CHECK_MODULES(FT2, freetype2 > 6.1.0)
@@ -5292,8 +5273,13 @@ if test -n "$MOZ_WEBM"; then
 fi;
 
 dnl ========================================================
-dnl = Disable media plugin support
+dnl = Enable media plugin support
 dnl ========================================================
+if test "$OS_TARGET" = Android -a x"$MOZ_WIDGET_TOOLKIT" != x"gonk"; then
+  dnl Enable support on android by default
+  MOZ_MEDIA_PLUGINS=1
+fi
+
 MOZ_ARG_ENABLE_BOOL(media-plugins,
 [  --enable-media-plugins  Enable support for media plugins],
     MOZ_MEDIA_PLUGINS=1,
@@ -5316,20 +5302,25 @@ if test -n "$MOZ_MEDIA_NAVIGATOR"; then
 fi
 
 dnl ========================================================
-dnl = Enable building OMX media plugin (B2G)
+dnl = Enable building OMX media plugin (B2G or Android)
 dnl ========================================================
+if test "$OS_TARGET" = Android -a x"$MOZ_WIDGET_TOOLKIT" != x"gonk"; then
+  dnl Enable support on android by default
+  MOZ_OMX_PLUGIN=1
+fi
+
 MOZ_ARG_ENABLE_BOOL(omx-plugin,
 [  --enable-omx-plugin      Enable building OMX plugin (B2G)],
     MOZ_OMX_PLUGIN=1,
     MOZ_OMX_PLUGIN=)
 
 if test -n "$MOZ_OMX_PLUGIN"; then
-    if test "$OS_TARGET" = "Android" -a -n "$gonkdir"; then
-        dnl Only allow building OMX plugin on Gonk (B2G)
+    if test "$OS_TARGET" = "Android"; then
+        dnl Only allow building OMX plugin on Gonk (B2G) or Android
         AC_DEFINE(MOZ_OMX_PLUGIN)
     else
-       dnl fail if we're not building on Gonk
-       AC_MSG_ERROR([OMX media plugin can only be built on B2G])
+       dnl fail if we're not building on Gonk or Android
+       AC_MSG_ERROR([OMX media plugin can only be built on B2G or Android])
     fi
 fi
 
@@ -5563,6 +5554,26 @@ if test -n "$MOZ_SYDNEYAUDIO" -a "$OS_TARGET" = "Linux"; then
 fi
 
 dnl ========================================================
+dnl = Enable PulseAudio
+dnl ========================================================
+
+MOZ_ARG_ENABLE_BOOL(pulseaudio,
+[  --enable-pulseaudio          Enable PulseAudio support (experimental)],
+MOZ_PULSEAUDIO=1,
+MOZ_PULSEAUDIO=)
+
+if test -n "$MOZ_PULSEAUDIO"; then
+    AC_DEFINE(MOZ_CUBEB)
+    PKG_CHECK_MODULES(MOZ_PULSEAUDIO, libpulse, ,
+         [echo "$MOZ_PULSEAUDIO_PKG_ERRORS"
+          AC_MSG_ERROR([pulseaudio audio backend requires libpulse package])])
+fi
+
+AC_SUBST(MOZ_PULSEAUDIO)
+AC_SUBST(MOZ_PULSEAUDIO_CFLAGS)
+AC_SUBST(MOZ_PULSEAUDIO_LIBS)
+
+dnl ========================================================
 dnl = Enable GStreamer
 dnl ========================================================
 MOZ_ARG_ENABLE_BOOL(gstreamer,
@@ -5771,7 +5782,7 @@ case $target in
 i?86-*-mingw*|x86_64-*-mingw*)
   MOZ_CRASHREPORTER=1
   ;;
-i?86-apple-darwin*|powerpc-apple-darwin*|x86_64-apple-darwin*)
+i?86-apple-darwin*|x86_64-apple-darwin*)
   MOZ_CRASHREPORTER=1
   ;;
 i?86-*-linux*|x86_64-*-linux*|arm-*-linux*)
@@ -5795,7 +5806,7 @@ MOZ_ARG_DISABLE_BOOL(crashreporter,
 if test -n "$MOZ_CRASHREPORTER"; then
    AC_DEFINE(MOZ_CRASHREPORTER)
 
-  if (test "$OS_TARGET" = "Linux" -o "$OS_ARCH" = "SunOS") && \
+  if test "$OS_TARGET" = "Linux" -o "$OS_ARCH" = "SunOS" && \
     test -z "$SKIP_LIBRARY_CHECKS"; then
     PKG_CHECK_MODULES(MOZ_GTHREAD, gthread-2.0)
     AC_SUBST(MOZ_GTHREAD_CFLAGS)
@@ -5804,7 +5815,7 @@ if test -n "$MOZ_CRASHREPORTER"; then
     MOZ_CHECK_HEADERS([curl/curl.h], [], [AC_MSG_ERROR([Couldn't find curl/curl.h which is required for the crash reporter.  Use --disable-crashreporter to disable the crash reporter.])])
   fi
 
-  if (test "$OS_ARCH" != "$HOST_OS_ARCH"); then
+  if test "$OS_ARCH" != "$HOST_OS_ARCH"; then
     AC_MSG_ERROR([Breakpad tools do not support compiling on $HOST_OS_ARCH while targeting $OS_ARCH.  Use --disable-crashreporter.])
   fi
 
@@ -6970,7 +6981,11 @@ else
   *-android*|*-linuxandroid*)
     AC_DEFINE(MOZ_MEMORY_LINUX)
     AC_DEFINE(MOZ_MEMORY_ANDROID)
-    _WRAP_MALLOC=1
+    if test -z "$gonkdir"; then
+      _WRAP_MALLOC=1
+    else
+      AC_DEFINE(MOZ_MEMORY_GONK)
+    fi
     MOZ_GLUE_LDFLAGS=
     ;;
   *-*linux*)
@@ -7688,7 +7703,7 @@ MOZ_ARG_DISABLE_BOOL(md,
    fi])
 if test "$_cpp_md_flag"; then
   COMPILER_DEPEND=1
-  _DEPEND_CFLAGS='$(filter-out %/.pp,-MD -MF $(MDDEPDIR)/$(@F).pp)'
+  _DEPEND_CFLAGS='$(filter-out %/.pp,-MMD -MF $(MDDEPDIR)/$(@F).pp)'
   dnl Sun Studio on Solaris use -xM instead of -MD, see config/rules.mk
   if test "$SOLARIS_SUNPRO_CC"; then
     _DEPEND_CFLAGS=
@@ -7710,9 +7725,6 @@ else
     fi
     AC_SUBST(CL_INCLUDES_PREFIX)
     rm -f dummy-hello.c
-    dnl cl.py provides dependency generation for MSVC
-    CC_WRAPPER='$(PYTHON) -O $(topsrcdir)/build/cl.py'
-    CXX_WRAPPER='$(PYTHON) -O $(topsrcdir)/build/cl.py'
     COMPILER_DEPEND=1
   fi
 fi
@@ -7721,9 +7733,6 @@ MDDEPDIR='.deps'
 AC_SUBST(MOZ_AUTO_DEPS)
 AC_SUBST(COMPILER_DEPEND)
 AC_SUBST(MDDEPDIR)
-AC_SUBST(CC_WRAPPER)
-AC_SUBST(CXX_WRAPPER)
-
 
 dnl ========================================================
 dnl =
@@ -7800,17 +7809,6 @@ MOZ_ENABLE_SKIA=1,
 MOZ_ENABLE_SKIA=)
 
 if test "$USE_FC_FREETYPE"; then
-    PKG_CHECK_MODULES(_FONTCONFIG, fontconfig,
-    [
-        if test "$MOZ_PANGO"; then
-            MOZ_PANGO_CFLAGS="$MOZ_PANGO_CFLAGS $_FONTCONFIG_CFLAGS"
-            MOZ_PANGO_LIBS="$MOZ_PANGO_LIBS $_FONTCONFIG_LIBS"
-        else
-            FT2_CFLAGS="$FT2_CFLAGS $_FONTCONFIG_CFLAGS"
-            FT2_LIBS="$FT2_LIBS $_FONTCONFIG_LIBS"
-        fi
-    ])
-
     if test "$COMPILE_ENVIRONMENT"; then
         dnl ========================================================
         dnl = Check for freetype2 and its functionality
@@ -7855,6 +7853,17 @@ if test "$USE_FC_FREETYPE"; then
     else
         AC_DEFINE(HAVE_FONTCONFIG_FCFREETYPE_H)
     fi
+
+    PKG_CHECK_MODULES(_FONTCONFIG, fontconfig,
+    [
+        if test "$MOZ_PANGO"; then
+            MOZ_PANGO_CFLAGS="$MOZ_PANGO_CFLAGS $_FONTCONFIG_CFLAGS"
+            MOZ_PANGO_LIBS="$MOZ_PANGO_LIBS $_FONTCONFIG_LIBS"
+        else
+            FT2_CFLAGS="$FT2_CFLAGS $_FONTCONFIG_CFLAGS"
+            FT2_LIBS="$FT2_LIBS $_FONTCONFIG_LIBS"
+        fi
+    ])
 fi
 
 dnl ========================================================
@@ -8654,10 +8663,8 @@ dnl ========================================================
 
 if test "$OS_ARCH" = "Darwin"; then
   AC_DEFINE(XP_UNIX)
-  AC_DEFINE(UNIX_ASYNC_DNS)
 elif test "$OS_ARCH" != "WINNT" -a "$OS_ARCH" != "OS2"; then
   AC_DEFINE(XP_UNIX)
-  AC_DEFINE(UNIX_ASYNC_DNS)
 fi
 
 if test "$MOZ_DEBUG"; then
@@ -9002,7 +9009,6 @@ if test -z "$MOZ_NATIVE_NSPR"; then
 fi
 ac_configure_args="$ac_configure_args --with-dist-dir=../../dist"
 ac_configure_args="$ac_configure_args --prefix=$dist"
-ac_configure_args="$ac_configure_args --with-sync-build-files=$_topsrcdir"
 if test "$MOZ_MEMORY"; then
    ac_configure_args="$ac_configure_args --enable-jemalloc"
 fi

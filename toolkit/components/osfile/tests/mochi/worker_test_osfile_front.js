@@ -15,10 +15,13 @@ self.onmessage = function onmessage_start(msg) {
   };
   try {
     test_init();
+    test_unicode();
+    test_offsetby();
     test_open_existing_file();
     test_open_non_existing_file();
     test_copy_existing_file();
     test_read_write_file();
+    test_position();
     test_move_file();
     test_iter_dir();
     test_info();
@@ -48,6 +51,81 @@ function isnot(a, b, description) {
 function test_init() {
   ok(true, "Starting test_init");
   importScripts("resource:///modules/osfile.jsm");
+}
+
+
+function test_unicode() {
+  ok(true, "Starting test_unicode");
+  function test_go_round(encoding, sentence)  {
+    let bytes = new OS.Shared.Type.uint32_t.implementation();
+    let pBytes = bytes.address();
+    ok(true, "test_unicode: testing encoding of " + sentence + " with encoding " + encoding);
+    let encoded = OS.Shared.Utils.Strings.encodeAll(encoding, sentence, pBytes);
+    let decoded = OS.Shared.Utils.Strings.decodeAll(encoding, encoded, bytes);
+    isnot(decoded, null, "test_unicode: Decoding returned a string");
+    is(decoded.length, sentence.length, "test_unicode: Decoding + encoding returns strings with the same length");
+    is(decoded, sentence, "test_unicode: Decoding + encoding returns the same string");
+  }
+  let tests = ["This is a simple test","àáâäèéêëíìîïòóôöùúûüçß","骥䥚ぶ 䤦べ祌褦鋨 きょげヒャ蟥誨 もゴ 栩を愦 堦馺ぢょ䰯蟤 禺つみゃ期楥 勩谨障り䶥 蟤れ, 訦き モじゃむ㧦ゔ 勩谨障り䶥 堥駪グェ 竨ぢゅ嶥鏧䧦 捨ヴョに䋯ざ 䦧樚 焯じゅ妦 っ勯杯 堦馺ぢょ䰯蟤 滩シャ饥鎌䧺 珦ひゃ, ざやぎ えゐ へ簯ホゥ馯夦 槎褤せ檨壌","Νισλ αλικυιδ περτινασια ναμ ετ, νε ιρασυνδια νεγλεγενθυρ ηας, νο νυμκυαμ εφφισιενδι φις. Εως μινιμυμ ελειφενδ ατ, κυωτ μαλυισετ φυλπυτατε συμ ιδ."];
+  let encodings = ["utf-8", "utf-16"];
+  for each (let encoding in encodings) {
+    for each (let i in tests) {
+      test_go_round(encoding, i);
+    }
+    test_go_round(encoding, tests.join());
+  }
+  ok(true, "test_unicode: complete");
+}
+
+function test_offsetby() {
+  ok(true, "Starting test_offsetby");
+
+  // Initialize one array
+  let LENGTH = 1024;
+  let buf = new ArrayBuffer(LENGTH);
+  let view = new Uint8Array(buf);
+  let i;
+  for (i = 0; i < LENGTH; ++i) {
+    view[i] = i;
+  }
+
+  // Walk through the array with offsetBy by 8 bits
+  let uint8 = OS.Shared.Type.uint8_t.in_ptr.implementation(buf);
+  for (i = 0; i < LENGTH; ++i) {
+    let value = OS.Shared.offsetBy(uint8, i).contents;
+    if (value != i%256) {
+      is(value, i % 256, "test_offsetby: Walking through array with offsetBy (8 bits)");
+      break;
+    }
+  }
+
+  // Walk again by 16 bits
+  let uint16 = OS.Shared.Type.uint16_t.in_ptr.implementation(buf);
+  let view2 = new Uint16Array(buf);
+  for (i = 0; i < LENGTH/2; ++i) {
+    let value = OS.Shared.offsetBy(uint16, i).contents;
+    if (value != view2[i]) {
+      is(value, view2[i], "test_offsetby: Walking through array with offsetBy (16 bits)");
+      break;
+    }
+  }
+
+  // Ensure that offsetBy(..., 0) is idempotent
+  let startptr = OS.Shared.offsetBy(uint8, 0);
+  let startptr2 = OS.Shared.offsetBy(startptr, 0);
+  is(startptr.toString(), startptr2.toString(), "test_offsetby: offsetBy(..., 0) is idmpotent");
+
+  // Ensure that offsetBy(ptr, ...) does not work if ptr is a void*
+  let ptr = ctypes.voidptr_t(0);
+  let exn;
+  try {
+    OS.Shared.Utils.offsetBy(ptr, 1);
+  } catch (x) {
+    exn = x;
+  }
+  ok(!!exn, "test_offsetby: rejected offsetBy with void*");
+
+  ok(true, "test_offsetby: complete");
 }
 
 
@@ -192,8 +270,17 @@ function test_move_file()
 
   ok(true, "test_move_file: Move complete");
 
-  // 3. Check
+  // 3. Check that destination exists
   compare_files("test_move_file", src_file_name, tmp2_file_name);
+
+  // 4. Check that original file does not exist anymore
+  let exn;
+  try {
+    OS.File.open(tmp_file_name);
+  } catch (x) {
+    exn = x;
+  }
+  ok(!!exn, "test_move_file: Original file has been removed");
 
   ok(true, "test_move_file: Cleaning up");
   OS.File.remove(tmp2_file_name);
@@ -240,15 +327,15 @@ function test_iter_dir()
 
     if (OS.Win) {
       let year = new Date().getFullYear();
-      let creation = entry.winCreationTime;
+      let creation = entry.winCreationDate;
       ok(creation, "test_iter_dir: Windows creation date exists: " + creation);
       ok(creation.getFullYear() >= year -  1 && creation.getFullYear() <= year, "test_iter_dir: consistent creation date");
 
-      let lastWrite = entry.winLastWriteTime;
+      let lastWrite = entry.winLastWriteDate;
       ok(lastWrite, "test_iter_dir: Windows lastWrite date exists: " + lastWrite);
       ok(lastWrite.getFullYear() >= year - 1 && lastWrite.getFullYear() <= year, "test_iter_dir: consistent lastWrite date");
 
-      let lastAccess = entry.winLastAccessTime;
+      let lastAccess = entry.winLastAccessDate;
       ok(lastAccess, "test_iter_dir: Windows lastAccess date exists: " + lastAccess);
       ok(lastAccess.getFullYear() >= year - 1 && lastAccess.getFullYear() <= year, "test_iter_dir: consistent lastAccess date");
     }
@@ -259,6 +346,35 @@ function test_iter_dir()
   ok(true, "test_iter_dir: Cleaning up");
   iterator.close();
   ok(true, "test_iter_dir: Complete");
+}
+
+function test_position() {
+  ok(true, "test_position: Starting");
+
+  ok("POS_START" in OS.File, "test_position: POS_START exists");
+  ok("POS_CURRENT" in OS.File, "test_position: POS_CURRENT exists");
+  ok("POS_END" in OS.File, "test_position: POS_END exists");
+
+  let ARBITRARY_POSITION = 321;
+  let src_file_name = "chrome/toolkit/components/osfile/tests/mochi/worker_test_osfile_unix.js";
+
+
+  let file = OS.File.open(src_file_name);
+  is(file.getPosition(), 0, "test_position: Initial position is 0");
+
+  let size = 0 + file.stat().size; // Hack: We can remove this 0 + once 776259 has landed
+
+  file.setPosition(ARBITRARY_POSITION, OS.File.POS_START);
+  is(file.getPosition(), ARBITRARY_POSITION, "test_position: Setting position from start");
+
+  file.setPosition(-ARBITRARY_POSITION, OS.File.POS_END);
+  is(file.getPosition(), size - ARBITRARY_POSITION, "test_position: Setting position from end");
+
+  file.setPosition(ARBITRARY_POSITION, OS.File.POS_CURRENT);
+  is(file.getPosition(), size, "test_position: Setting position from current");
+
+  file.close();
+  ok(true, "test_position: Complete");
 }
 
 function test_info() {

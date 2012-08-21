@@ -80,6 +80,7 @@ static const char *sExtensionNames[] = {
     "GL_OES_EGL_image",
     "GL_OES_EGL_sync",
     "GL_OES_EGL_image_external",
+    "GL_EXT_packed_depth_stencil",
     nullptr
 };
 
@@ -1995,6 +1996,18 @@ GetOptimalReadFormats(GLContext* gl, GLenum& format, GLenum& type) {
         format = LOCAL_GL_BGRA;
         type = LOCAL_GL_UNSIGNED_INT_8_8_8_8_REV;
     }
+}
+
+void
+GLContext::ReadScreenIntoImageSurface(gfxImageSurface* dest)
+{
+    GLuint boundFB = 0;
+    fGetIntegerv(LOCAL_GL_FRAMEBUFFER_BINDING, (GLint*)&boundFB);
+    fBindFramebuffer(LOCAL_GL_FRAMEBUFFER, 0);
+
+    ReadPixelsIntoImageSurface(0, 0, dest->Width(), dest->Height(), dest);
+
+    fBindFramebuffer(LOCAL_GL_FRAMEBUFFER, boundFB);
 }
 
 void

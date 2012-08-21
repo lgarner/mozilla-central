@@ -7,9 +7,9 @@
 
 #include "mozilla/layers/PLayers.h"
 #include "mozilla/layers/ShadowLayers.h"
-#include "mozilla/layers/ImageBridgeChild.h" // TODO: temp
 
 #include "ImageLayers.h"
+#include "ImageContainer.h"
 #include "Layers.h"
 #include "gfxPlatform.h"
 #include "ReadbackLayer.h"
@@ -26,6 +26,8 @@ typedef FrameMetrics::ViewID ViewID;
 const ViewID FrameMetrics::NULL_SCROLL_ID = 0;
 const ViewID FrameMetrics::ROOT_SCROLL_ID = 1;
 const ViewID FrameMetrics::START_SCROLL_ID = 2;
+
+PRUint8 gLayerManagerLayerBuilder;
 
 #ifdef MOZ_LAYERS_HAVE_LOG
 FILE*
@@ -241,16 +243,20 @@ Layer::Layer(LayerManager* aManager, void* aImplData) :
 Layer::~Layer()
 {}
 
-void
-Layer::AddAnimation(const Animation& aAnimation)
+Animation*
+Layer::AddAnimation(TimeStamp aStart, TimeDuration aDuration, float aIterations,
+                    int aDirection, nsCSSProperty aProperty, const AnimationData& aData)
 {
-  if (!AsShadowableLayer() || !AsShadowableLayer()->HasShadow())
-    return;
+  Animation* anim = mAnimations.AppendElement();
+  anim->startTime() = aStart;
+  anim->duration() = aDuration;
+  anim->numIterations() = aIterations;
+  anim->direction() = aDirection;
+  anim->property() = aProperty;
+  anim->data() = aData;
 
-  MOZ_ASSERT(aAnimation.segments().Length() >= 1);
-
-  mAnimations.AppendElement(aAnimation);
   Mutated();
+  return anim;
 }
 
 void
@@ -373,6 +379,10 @@ CreateCSSValueList(const InfallibleTArray<TransformFunction>& aFunctions)
         NS_ASSERTION(false, "All functions should be implemented?");
     }
   }
+  if (aFunctions.Length() == 0) {
+    result = new nsCSSValueList();
+    result->mValue.SetNoneValue();
+  }
   return result.forget();
 }
 
@@ -382,9 +392,8 @@ Layer::SetAnimations(const AnimationArray& aAnimations)
   mAnimations = aAnimations;
   mAnimationData.Clear();
   for (PRUint32 i = 0; i < mAnimations.Length(); i++) {
-    AnimData data;
-    InfallibleTArray<css::ComputedTimingFunction*>* functions =
-      &data.mFunctions;
+    AnimData* data = mAnimationData.AppendElement();
+    InfallibleTArray<css::ComputedTimingFunction*>& functions = data->mFunctions;
     nsTArray<AnimationSegment> segments = mAnimations.ElementAt(i).segments();
     for (PRUint32 j = 0; j < segments.Length(); j++) {
       TimingFunction tf = segments.ElementAt(j).sampleFn();
@@ -405,56 +414,34 @@ Layer::SetAnimations(const AnimationArray& aAnimations)
           break;
         }
       }
-      functions->AppendElement(ctf);
+      functions.AppendElement(ctf);
     }
 
     // Precompute the nsStyleAnimation::Values that we need if this is a transform
     // animation.
-    InfallibleTArray<nsStyleAnimation::Value>* startValues =
-      &data.mStartValues;
-    InfallibleTArray<nsStyleAnimation::Value>* endValues =
-      &data.mEndValues;
+    InfallibleTArray<nsStyleAnimation::Value>& startValues = data->mStartValues;
+    InfallibleTArray<nsStyleAnimation::Value>& endValues = data->mEndValues;
     for (PRUint32 j = 0; j < mAnimations[i].segments().Length(); j++) {
       const AnimationSegment& segment = mAnimations[i].segments()[j];
+      nsStyleAnimation::Value* startValue = startValues.AppendElement();
+      nsStyleAnimation::Value* endValue = endValues.AppendElement();
       if (segment.endState().type() == Animatable::TArrayOfTransformFunction) {
         const InfallibleTArray<TransformFunction>& startFunctions =
           segment.startState().get_ArrayOfTransformFunction();
-        nsStyleAnimation::Value startValue;
-        nsCSSValueList* startList;
-        if (startFunctions.Length() > 0) {
-          startList = CreateCSSValueList(startFunctions);
-        } else {
-          startList = new nsCSSValueList();
-          startList->mValue.SetNoneValue();
-        }
-        startValue.SetAndAdoptCSSValueListValue(startList, nsStyleAnimation::eUnit_Transform);
-        startValues->AppendElement(startValue);
+        startValue->SetAndAdoptCSSValueListValue(CreateCSSValueList(startFunctions),
+                                                 nsStyleAnimation::eUnit_Transform);
 
         const InfallibleTArray<TransformFunction>& endFunctions =
           segment.endState().get_ArrayOfTransformFunction();
-        nsStyleAnimation::Value endValue;
-        nsCSSValueList* endList;
-        if (endFunctions.Length() > 0) {
-          endList = CreateCSSValueList(endFunctions);
-        } else {
-          endList = new nsCSSValueList();
-          endList->mValue.SetNoneValue();
-        }
-        endValue.SetAndAdoptCSSValueListValue(endList, nsStyleAnimation::eUnit_Transform);
-        endValues->AppendElement(endValue);
+        endValue->SetAndAdoptCSSValueListValue(CreateCSSValueList(endFunctions),
+                                               nsStyleAnimation::eUnit_Transform);
       } else {
-        NS_ASSERTION(segment.endState().type() == Animatable::TOpacity,
+        NS_ASSERTION(segment.endState().type() == Animatable::Tfloat,
                      "Unknown Animatable type");
-        nsStyleAnimation::Value startValue;
-        startValue.SetFloatValue(segment.startState().get_Opacity().value());
-        startValues->AppendElement(startValue);
-
-        nsStyleAnimation::Value endValue;
-        endValue.SetFloatValue(segment.endState().get_Opacity().value());
-        endValues->AppendElement(endValue);
+        startValue->SetFloatValue(segment.startState().get_float());
+        endValue->SetFloatValue(segment.endState().get_float());
       }
     }
-    mAnimationData.AppendElement(data);
   }
 
   Mutated();
@@ -871,17 +858,21 @@ void WriteSnapshotToDumpFile(LayerManager* aManager, gfxASurface* aSurf)
 #endif
 
 void
-Layer::Dump(FILE* aFile, const char* aPrefix)
+Layer::Dump(FILE* aFile, const char* aPrefix, bool aDumpHtml)
 {
-  fprintf(aFile, "<li><a id=\"%p\" ", this);
+  if (aDumpHtml) {
+    fprintf(aFile, "<li><a id=\"%p\" ", this);
 #ifdef MOZ_DUMP_PAINTING
-  if (GetType() == TYPE_CONTAINER || GetType() == TYPE_THEBES) {
-    WriteSnapshotLinkToDumpFile(this, aFile);
-  }
+    if (GetType() == TYPE_CONTAINER || GetType() == TYPE_THEBES) {
+      WriteSnapshotLinkToDumpFile(this, aFile);
+    }
 #endif
-  fprintf(aFile, ">");
+    fprintf(aFile, ">");
+  }
   DumpSelf(aFile, aPrefix);
-  fprintf(aFile, "</a>");
+  if (aDumpHtml) {
+    fprintf(aFile, "</a>");
+  }
 
   if (Layer* mask = GetMaskLayer()) {
     nsCAutoString pfx(aPrefix);
@@ -892,14 +883,20 @@ Layer::Dump(FILE* aFile, const char* aPrefix)
   if (Layer* kid = GetFirstChild()) {
     nsCAutoString pfx(aPrefix);
     pfx += "  ";
-    fprintf(aFile, "<ul>");
+    if (aDumpHtml) {
+      fprintf(aFile, "<ul>");
+    }
     kid->Dump(aFile, pfx.get());
-    fprintf(aFile, "</ul>");
+    if (aDumpHtml) {
+      fprintf(aFile, "</ul>");
+    }
   }
 
-  fprintf(aFile, "</li>");
+  if (aDumpHtml) {
+    fprintf(aFile, "</li>");
+  }
   if (Layer* next = GetNextSibling())
-    next->Dump(aFile, aPrefix);
+    next->Dump(aFile, aPrefix, aDumpHtml);
 }
 
 void
@@ -1033,7 +1030,7 @@ nsACString&
 RefLayer::PrintInfo(nsACString& aTo, const char* aPrefix)
 {
   ContainerLayer::PrintInfo(aTo, aPrefix);
-  if (-1 != mId) {
+  if (0 != mId) {
     AppendToString(aTo, mId, " [id=", "]");
   }
   return aTo;
@@ -1059,30 +1056,42 @@ ReadbackLayer::PrintInfo(nsACString& aTo, const char* aPrefix)
 // LayerManager
 
 void
-LayerManager::Dump(FILE* aFile, const char* aPrefix)
+LayerManager::Dump(FILE* aFile, const char* aPrefix, bool aDumpHtml)
 {
   FILE* file = FILEOrDefault(aFile);
 
-  fprintf(file, "<ul><li><a ");
 #ifdef MOZ_DUMP_PAINTING
-  WriteSnapshotLinkToDumpFile(this, file);
+  if (aDumpHtml) {
+    fprintf(file, "<ul><li><a ");
+    WriteSnapshotLinkToDumpFile(this, file);
+    fprintf(file, ">");
+  }
 #endif
-  fprintf(file, ">");
   DumpSelf(file, aPrefix);
 #ifdef MOZ_DUMP_PAINTING
-  fprintf(file, "</a>");
+  if (aDumpHtml) {
+    fprintf(file, "</a>");
+  }
 #endif
 
   nsCAutoString pfx(aPrefix);
   pfx += "  ";
   if (!GetRoot()) {
-    fprintf(file, "%s(null)</li></ul>", pfx.get());
+    fprintf(file, "%s(null)", pfx.get());
+    if (aDumpHtml) {
+      fprintf(file, "</li></ul>");
+    }
     return;
   }
 
-  fprintf(file, "<ul>");
-  GetRoot()->Dump(file, pfx.get());
-  fprintf(file, "</ul></li></ul>");
+  if (aDumpHtml) {
+    fprintf(file, "<ul>");
+  }
+  GetRoot()->Dump(file, pfx.get(), aDumpHtml);
+  if (aDumpHtml) {
+    fprintf(file, "</ul></li></ul>");
+  }
+  fputc('\n', file);
 }
 
 void
@@ -1161,7 +1170,7 @@ PrintInfo(nsACString& aTo, ShadowLayer* aShadowLayer)
 
 #else  // !MOZ_LAYERS_HAVE_LOG
 
-void Layer::Dump(FILE* aFile, const char* aPrefix) {}
+void Layer::Dump(FILE* aFile, const char* aPrefix, bool aDumpHtml) {}
 void Layer::DumpSelf(FILE* aFile, const char* aPrefix) {}
 void Layer::Log(const char* aPrefix) {}
 void Layer::LogSelf(const char* aPrefix) {}
@@ -1197,7 +1206,7 @@ nsACString&
 ReadbackLayer::PrintInfo(nsACString& aTo, const char* aPrefix)
 { return aTo; }
 
-void LayerManager::Dump(FILE* aFile, const char* aPrefix) {}
+void LayerManager::Dump(FILE* aFile, const char* aPrefix, bool aDumpHtml) {}
 void LayerManager::DumpSelf(FILE* aFile, const char* aPrefix) {}
 void LayerManager::Log(const char* aPrefix) {}
 void LayerManager::LogSelf(const char* aPrefix) {}

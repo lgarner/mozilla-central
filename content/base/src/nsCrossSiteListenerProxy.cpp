@@ -6,7 +6,7 @@
 #include "nsCrossSiteListenerProxy.h"
 #include "nsIChannel.h"
 #include "nsIHttpChannel.h"
-#include "nsDOMError.h"
+#include "nsError.h"
 #include "nsContentUtils.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsNetUtil.h"
@@ -743,10 +743,10 @@ nsCORSListenerProxy::UpdateChannel(nsIChannel* aChannel, bool aAllowDataURI)
   }
 
   if (!mHasBeenCrossSite &&
-      NS_SUCCEEDED(mRequestingPrincipal->CheckMayLoad(uri, false)) &&
+      NS_SUCCEEDED(mRequestingPrincipal->CheckMayLoad(uri, false, false)) &&
       (originalURI == uri ||
        NS_SUCCEEDED(mRequestingPrincipal->CheckMayLoad(originalURI,
-                                                       false)))) {
+                                                       false, false)))) {
     return NS_OK;
   }
 

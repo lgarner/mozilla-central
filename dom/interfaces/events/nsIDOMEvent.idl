@@ -22,6 +22,11 @@ class nsInvalidateRequestList;
 namespace IPC {
 class Message;
 }
+namespace mozilla {
+namespace widget {
+class WheelEvent;
+} // namespace widget
+} // namespace mozilla
 %}
 
 /**
@@ -267,6 +272,8 @@ NS_NewDOMMouseEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContex
 nsresult
 NS_NewDOMMouseScrollEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsInputEvent *aEvent);
 nsresult
+NS_NewDOMWheelEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, mozilla::widget::WheelEvent *aEvent);
+nsresult
 NS_NewDOMDragEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsDragEvent *aEvent);
 nsresult
 NS_NewDOMKeyboardEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsKeyEvent *aEvent);
@@ -274,8 +281,6 @@ nsresult
 NS_NewDOMCompositionEvent(nsIDOMEvent** aInstancePtrResult, nsPresContext* aPresContext, class nsCompositionEvent *aEvent);
 nsresult
 NS_NewDOMMutationEvent(nsIDOMEvent** aResult, nsPresContext* aPresContext, class nsMutationEvent* aEvent);
-nsresult
-NS_NewDOMPopupBlockedEvent(nsIDOMEvent** aResult, nsPresContext* aPresContext, nsEvent* aEvent);
 nsresult
 NS_NewDOMDeviceMotionEvent(nsIDOMEvent** aResult, nsPresContext* aPresContext, nsEvent* aEvent);
 nsresult

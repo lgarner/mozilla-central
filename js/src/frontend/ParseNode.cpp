@@ -12,6 +12,7 @@
 
 #include "frontend/ParseMaps-inl.h"
 #include "frontend/ParseNode-inl.h"
+#include "frontend/Parser-inl.h"
 
 using namespace js;
 using namespace js::frontend;
@@ -122,9 +123,6 @@ ParseNodeAllocator::freeNode(ParseNode *pn)
      */
     JS_ASSERT(!pn->isUsed());
     JS_ASSERT(!pn->isDefn());
-
-    if (pn->isArity(PN_NAMESET) && pn->pn_names.hasMap())
-        pn->pn_names.releaseMap(cx);
 
 #ifdef DEBUG
     /* Poison the node, to catch attempts to use it without initializing it. */
@@ -299,9 +297,9 @@ ParseNodeAllocator::prepareNodeForMutation(ParseNode *pn)
  * reallocation.
  *
  * Note that all functions in |pn| that are not enclosed by other functions
- * in |pn| must be direct children of |tc|, because we only clean up |tc|'s
+ * in |pn| must be direct children of |pc|, because we only clean up |pc|'s
  * function and method lists. You must not reach into a function and
- * recycle some part of it (unless you've updated |tc|->functionList, the
+ * recycle some part of it (unless you've updated |pc|->functionList, the
  * way js_FoldConstants does).
  */
 ParseNode *
@@ -424,15 +422,15 @@ ParseNode::newBinaryOrAppend(ParseNodeKind kind, JSOp op, ParseNode *left, Parse
 }
 
 // Nb: unlike most functions that are passed a Parser, this one gets a
-// SharedContext passed in separately, because in this case |tc| may not equal
-// |parser->tc|.
+// SharedContext passed in separately, because in this case |pc| may not equal
+// |parser->pc|.
 NameNode *
-NameNode::create(ParseNodeKind kind, JSAtom *atom, Parser *parser, TreeContext *tc)
+NameNode::create(ParseNodeKind kind, JSAtom *atom, Parser *parser, ParseContext *pc)
 {
     ParseNode *pn = ParseNode::create(kind, PN_NAME, parser);
     if (pn) {
         pn->pn_atom = atom;
-        ((NameNode *)pn)->initCommon(tc);
+        ((NameNode *)pn)->initCommon(pc);
     }
     return (NameNode *)pn;
 }
@@ -462,9 +460,9 @@ Definition::kindString(Kind kind)
 static ParseNode *
 CloneParseTree(ParseNode *opn, Parser *parser)
 {
-    TreeContext *tc = parser->tc;
+    ParseContext *pc = parser->pc;
 
-    JS_CHECK_RECURSION(tc->sc->context, return NULL);
+    JS_CHECK_RECURSION(pc->sc->context, return NULL);
 
     ParseNode *pn = parser->new_<ParseNode>(opn->getKind(), opn->getOp(), opn->getArity(),
                                             opn->pn_pos);
@@ -479,7 +477,7 @@ CloneParseTree(ParseNode *opn, Parser *parser)
 
       case PN_FUNC:
         NULLCHECK(pn->pn_funbox =
-                  parser->newFunctionBox(opn->pn_funbox->object, pn, tc, opn->pn_funbox->strictModeState));
+                  parser->newFunctionBox(opn->pn_funbox->object, pn, pc, opn->pn_funbox->strictModeState));
         NULLCHECK(pn->pn_body = CloneParseTree(opn->pn_body, parser));
         pn->pn_cookie = opn->pn_cookie;
         pn->pn_dflags = opn->pn_dflags;
@@ -541,11 +539,6 @@ CloneParseTree(ParseNode *opn, Parser *parser)
                 LinkUseToDef(opn, (Definition *) pn);
             }
         }
-        break;
-
-      case PN_NAMESET:
-        pn->pn_names = opn->pn_names;
-        NULLCHECK(pn->pn_tree = CloneParseTree(opn->pn_tree, parser));
         break;
 
       case PN_NULLARY:

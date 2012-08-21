@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "nsError.h"
 #include "nsHtml5TreeOpExecutor.h"
 #include "nsScriptLoader.h"
 #include "nsIMarkupDocumentViewer.h"
@@ -145,7 +146,7 @@ nsHtml5TreeOpExecutor::DidBuildModel(bool aTerminated)
   // This comes from nsXMLContentSink and nsHTMLContentSink
   // If this parser has been marked as broken, treat the end of parse as
   // forced termination.
-  DidBuildModelImpl(aTerminated || IsBroken());
+  DidBuildModelImpl(aTerminated || NS_FAILED(IsBroken()));
 
   if (!mLayoutStarted) {
     // We never saw the body, and layout never got started. Force
@@ -479,7 +480,7 @@ nsHtml5TreeOpExecutor::RunFlushLoop()
       return;
     }
 
-    if (IsBroken()) {
+    if (NS_FAILED(IsBroken())) {
       return;
     }
 
@@ -935,7 +936,7 @@ nsHtml5TreeOpExecutor::Reset()
   mFlushState = eNotFlushing;
   mRunFlushLoopOnStack = false;
   MOZ_ASSERT(!mReadingFromStage);
-  MOZ_ASSERT(!mBroken);
+  MOZ_ASSERT(NS_SUCCEEDED(mBroken));
 }
 
 void

@@ -6,12 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/Util.h"
-#include "BasicLayers.h"
 
-#include <QtOpenGL/QGLWidget>
-#include <QtOpenGL/QGLContext>
-// Solve conflict of qgl.h and GLDefs.h
-#define GLdouble_defined 1
 #include <QApplication>
 #include <QDesktopWidget>
 #include <QtGui/QCursor>
@@ -27,6 +22,7 @@
 #include <QStyleOptionGraphicsItem>
 #include <QPaintEngine>
 #include <QMimeData>
+#include "mozqglwidgetwrapper.h"
 
 #include <QtCore/QDebug>
 #include <QtCore/QEvent>
@@ -68,6 +64,7 @@ using namespace QtMobility;
 #include "nsQtKeyUtils.h"
 #include "mozilla/Services.h"
 #include "mozilla/Preferences.h"
+#include "nsIWidgetListener.h"
 
 #include "nsIStringBundle.h"
 #include "nsGfxCIID.h"
@@ -86,6 +83,7 @@ using namespace QtMobility;
 #include "gfxImageSurface.h"
 
 #include "nsIDOMSimpleGestureEvent.h" //Gesture support
+#include "nsIDOMWheelEvent.h"
 
 #if MOZ_PLATFORM_MAEMO > 5
 #include "nsIDOMWindow.h"
@@ -104,6 +102,7 @@ static Atom sPluginIMEAtom = nullptr;
 #endif //MOZ_X11
 
 #include "Layers.h"
+#include "BasicLayers.h"
 #include "LayerManagerOGL.h"
 #include "nsFastStartupQt.h"
 
@@ -658,6 +657,8 @@ nsWindow::SetFocus(bool aRaise)
     else
         realFocusItem->setFocus(Qt::OtherFocusReason);
 
+    // XXXndeakin why is this here? It should dispatch only when the OS
+    // notifies us.
     DispatchActivateEvent();
 
     return NS_OK;
@@ -991,34 +992,23 @@ GetSurfaceForQWidget(QWidget* aDrawable)
 }
 #endif
 
-static void
-DispatchDidPaint(nsIWidget* aWidget)
-{
-    nsEventStatus status;
-    nsPaintEvent didPaintEvent(true, NS_DID_PAINT, aWidget);
-    aWidget->DispatchEvent(&didPaintEvent, status);
-}
-
-nsEventStatus
+bool
 nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, QWidget* aWidget)
 {
     if (mIsDestroyed) {
         LOG(("Expose event on destroyed window [%p] window %p\n",
              (void *)this, mWidget));
-        return nsEventStatus_eIgnore;
+        return false;
     }
 
-    // Dispatch WILL_PAINT to allow scripts etc. to run before we
-    // dispatch PAINT
+    // Call WillPaintWindow to allow scripts etc. to run before we paint
     {
-        nsEventStatus status;
-        nsPaintEvent willPaintEvent(true, NS_WILL_PAINT, this);
-        willPaintEvent.willSendDidPaint = true;
-        DispatchEvent(&willPaintEvent, status);
+        if (mWidgetListener)
+            mWidgetListener->WillPaintWindow(this, true);
     }
 
     if (!mWidget)
-        return nsEventStatus_eIgnore;
+        return false;
 
     QRectF r;
     if (aOption)
@@ -1032,7 +1022,7 @@ nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, Q
     if (!mDirtyScrollArea.isEmpty())
         mDirtyScrollArea = QRegion();
 
-    nsEventStatus status;
+    bool painted = false;
     nsIntRect rect(r.x(), r.y(), r.width(), r.height());
 
     nsFastStartup* startup = nsFastStartup::GetSingleton();
@@ -1042,13 +1032,9 @@ nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, Q
 
     if (GetLayerManager(nullptr)->GetBackendType() == mozilla::layers::LAYERS_OPENGL) {
         aPainter->beginNativePainting();
-        nsPaintEvent event(true, NS_PAINT, this);
-        event.willSendDidPaint = true;
-        event.refPoint.x = r.x();
-        event.refPoint.y = r.y();
-        event.region = nsIntRegion(rect);
+        nsIntRegion region(rect);
         static_cast<mozilla::layers::LayerManagerOGL*>(GetLayerManager(nullptr))->
-            SetClippingRegion(event.region);
+            SetClippingRegion(region);
 
         gfxMatrix matr;
         matr.Translate(gfxPoint(aPainter->transform().dx(), aPainter->transform().dy()));
@@ -1060,10 +1046,12 @@ nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, Q
             SetWorldTransform(matr);
 #endif //MOZ_ENABLE_QTMOBILITY
 
-        status = DispatchEvent(&event);
+        if (mWidgetListener)
+          painted = mWidgetListener->PaintWindow(this, region, true, true);
         aPainter->endNativePainting();
-        DispatchDidPaint(this);
-        return status;
+        if (mWidgetListener)
+          mWidgetListener->DidPaintWindow();
+        return painted;
     }
 
     gfxQtPlatform::RenderMode renderMode = gfxQtPlatform::GetPlatform()->GetRenderMode();
@@ -1073,7 +1061,7 @@ nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, Q
     if (renderMode == gfxQtPlatform::RENDER_BUFFERED) {
         // Prepare offscreen buffers iamge or xlib, depends from paintEngineType
         if (!UpdateOffScreenBuffers(depth, QSize(r.width(), r.height())))
-            return nsEventStatus_eIgnore;
+            return false;
 
         targetSurface = gBufferSurface;
 
@@ -1083,13 +1071,13 @@ nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, Q
 #endif
     } else if (renderMode == gfxQtPlatform::RENDER_DIRECT) {
         if (!UpdateOffScreenBuffers(depth, aWidget->size(), aWidget)) {
-            return nsEventStatus_eIgnore;
+            return false;
         }
         targetSurface = gBufferSurface;
     }
 
     if (NS_UNLIKELY(!targetSurface))
-        return nsEventStatus_eIgnore;
+        return false;
 
     nsRefPtr<gfxContext> ctx = new gfxContext(targetSurface);
 
@@ -1112,24 +1100,22 @@ nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, Q
       ctx->SetMatrix(matr);
     }
 
-    nsPaintEvent event(true, NS_PAINT, this);
-    event.willSendDidPaint = true;
-    event.refPoint.x = rect.x;
-    event.refPoint.y = rect.y;
-    event.region = nsIntRegion(rect);
     {
         AutoLayerManagerSetup
             setupLayerManager(this, ctx, mozilla::layers::BUFFER_NONE);
-        status = DispatchEvent(&event);
+        if (mWidgetListener) {
+          nsIntRegion region(rect);
+          painted = mWidgetListener->PaintWindow(this, region, true, true);
+        }
     }
 
     // DispatchEvent can Destroy us (bug 378273), avoid doing any paint
     // operations below if that happened - it will lead to XError and exit().
     if (NS_UNLIKELY(mIsDestroyed))
-        return status;
+        return painted;
 
-    if (status == nsEventStatus_eIgnore)
-        return status;
+    if (!painted)
+        return false;
 
     LOGDRAW(("[%p] draw done\n", this));
 
@@ -1192,10 +1178,11 @@ nsWindow::DoPaint(QPainter* aPainter, const QStyleOptionGraphicsItem* aOption, Q
 
     ctx = nullptr;
     targetSurface = nullptr;
-    DispatchDidPaint(this);
+    if (mWidgetListener)
+      mWidgetListener->DidPaintWindow();
 
     // check the return value!
-    return status;
+    return painted;
 }
 
 nsEventStatus
@@ -1205,7 +1192,7 @@ nsWindow::OnMoveEvent(QGraphicsSceneHoverEvent *aEvent)
         aEvent->pos().x(),  aEvent->pos().y()));
 
     // can we shortcut?
-    if (!mWidget)
+    if (!mWidget || !mWidgetListener)
         return nsEventStatus_eIgnore;
 
     if ((mBounds.x == aEvent->pos().x() &&
@@ -1214,14 +1201,8 @@ nsWindow::OnMoveEvent(QGraphicsSceneHoverEvent *aEvent)
         return nsEventStatus_eIgnore;
     }
 
-    nsGUIEvent event(true, NS_MOVE, this);
-
-    event.refPoint.x = aEvent->pos().x();
-    event.refPoint.y = aEvent->pos().y();
-
-    // XXX mozilla will invalidate the entire window after this move
-    // complete.  wtf?
-    return DispatchEvent(&event);
+    bool moved = mWidgetListener->WindowMoved(this, aEvent->pos().x(), aEvent->pos().y());
+    return moved ? nsEventStatus_eConsumeNoDefault : nsEventStatus_eIgnore;
 }
 
 nsEventStatus
@@ -1246,12 +1227,10 @@ nsWindow::OnResizeEvent(QGraphicsSceneResizeEvent *aEvent)
 nsEventStatus
 nsWindow::OnCloseEvent(QCloseEvent *aEvent)
 {
-    nsGUIEvent event(true, NS_XUL_CLOSE, this);
-
-    event.refPoint.x = 0;
-    event.refPoint.y = 0;
-
-    return DispatchEvent(&event);
+    if (!mWidgetListener)
+        return nsEventStatus_eIgnore;
+    mWidgetListener->RequestWindowClose(this);
+    return nsEventStatus_eConsumeNoDefault;
 }
 
 nsEventStatus
@@ -1935,35 +1914,38 @@ nsEventStatus
 nsWindow::OnScrollEvent(QGraphicsSceneWheelEvent *aEvent)
 {
     // check to see if we should rollup
-    nsMouseScrollEvent event(true, NS_MOUSE_SCROLL, this);
+    WheelEvent wheelEvent(true, NS_WHEEL_WHEEL, this);
+    wheelEvent.deltaMode = nsIDOMWheelEvent::DOM_DELTA_LINE;
+
+    // negative values for aEvent->delta indicate downward scrolling;
+    // this is opposite Gecko usage.
+    // TODO: Store the unused delta values due to fraction round and add it
+    //       to next event.  The stored values should be reset by other
+    //       direction scroll event.
+    PRInt32 delta = (int)(aEvent->delta() / WHEEL_DELTA) * -3;
 
     switch (aEvent->orientation()) {
     case Qt::Vertical:
-        event.scrollFlags = nsMouseScrollEvent::kIsVertical;
+        wheelEvent.deltaY = wheelEvent.lineOrPageDeltaY = delta;
         break;
     case Qt::Horizontal:
-        event.scrollFlags = nsMouseScrollEvent::kIsHorizontal;
+        wheelEvent.deltaX = wheelEvent.lineOrPageDeltaX = delta;
         break;
     default:
         Q_ASSERT(0);
         break;
     }
 
-    // negative values for aEvent->delta indicate downward scrolling;
-    // this is opposite Gecko usage.
+    wheelEvent.refPoint.x = nscoord(aEvent->scenePos().x());
+    wheelEvent.refPoint.y = nscoord(aEvent->scenePos().y());
 
-    event.delta = (int)(aEvent->delta() / WHEEL_DELTA) * -3;
+    wheelEvent.InitBasicModifiers(aEvent->modifiers() & Qt::ControlModifier,
+                                  aEvent->modifiers() & Qt::AltModifier,
+                                  aEvent->modifiers() & Qt::ShiftModifier,
+                                  aEvent->modifiers() & Qt::MetaModifier);
+    wheelEvent.time = 0;
 
-    event.refPoint.x = nscoord(aEvent->scenePos().x());
-    event.refPoint.y = nscoord(aEvent->scenePos().y());
-
-    event.InitBasicModifiers(aEvent->modifiers() & Qt::ControlModifier,
-                             aEvent->modifiers() & Qt::AltModifier,
-                             aEvent->modifiers() & Qt::ShiftModifier,
-                             aEvent->modifiers() & Qt::MetaModifier);
-    event.time            = 0;
-
-    return DispatchEvent(&event);
+    return DispatchEvent(&wheelEvent);
 }
 
 
@@ -2081,7 +2063,7 @@ nsWindow::OnGestureEvent(QGestureEvent* event, bool &handled) {
             mPinchEvent.needDispatch = false;
 
             double distance = DistanceBetweenPoints(swipe->hotSpot(), mPinchEvent.touchPoint) * 2;
-            PRFloat64 delta = distance - mPinchEvent.startDistance;
+            double delta = distance - mPinchEvent.startDistance;
 
             DispatchGestureEvent(NS_SIMPLE_GESTURE_MAGNIFY, 0, delta / 2, hotspot);
 
@@ -2131,12 +2113,7 @@ nsWindow::DistanceBetweenPoints(const QPointF &aFirstPoint, const QPointF &aSeco
 void
 nsWindow::ThemeChanged()
 {
-    nsGUIEvent event(true, NS_THEMECHANGED, this);
-
-    DispatchEvent(&event);
-
-    // do nothing
-    return;
+    NotifyThemeChanged();
 }
 
 nsEventStatus
@@ -2223,7 +2200,6 @@ nsresult
 nsWindow::Create(nsIWidget        *aParent,
                  nsNativeWidget    aNativeParent,
                  const nsIntRect  &aRect,
-                 EVENT_CALLBACK    aHandleEventFunction,
                  nsDeviceContext *aContext,
                  nsWidgetInitData *aInitData)
 {
@@ -2242,7 +2218,7 @@ nsWindow::Create(nsIWidget        *aParent,
     }
 
     // initialize all the common bits of this class
-    BaseCreate(baseParent, aRect, aHandleEventFunction, aContext, aInitData);
+    BaseCreate(baseParent, aRect, aContext, aInitData);
 
     // and do our common creation
     mParent = aParent;
@@ -2276,14 +2252,12 @@ nsWindow::Create(nsIWidget        *aParent,
 
 already_AddRefed<nsIWidget>
 nsWindow::CreateChild(const nsIntRect&  aRect,
-                      EVENT_CALLBACK    aHandleEventFunction,
                       nsDeviceContext* aContext,
                       nsWidgetInitData* aInitData,
                       bool              /*aForceUseIWidgetParent*/)
 {
     //We need to force parent widget, otherwise GetTopLevelWindow doesn't work
     return nsBaseWidget::CreateChild(aRect,
-                                     aHandleEventFunction,
                                      aContext,
                                      aInitData,
                                      true); // Force parent
@@ -2604,8 +2578,7 @@ nsPopupWindow::~nsPopupWindow()
 NS_IMETHODIMP_(bool)
 nsWindow::HasGLContext()
 {
-    QGraphicsView *view = qobject_cast<QGraphicsView*>(GetViewWidget());
-    return view && qobject_cast<QGLWidget*>(view->viewport());
+    return MozQGLWidgetWrapper::hasGLContext(qobject_cast<QGraphicsView*>(GetViewWidget()));
 }
 
 MozQWidget*
@@ -2847,17 +2820,15 @@ nsWindow::GetDPI()
 void
 nsWindow::DispatchActivateEvent(void)
 {
-    nsGUIEvent event(true, NS_ACTIVATE, this);
-    nsEventStatus status;
-    DispatchEvent(&event, status);
+    if (mWidgetListener)
+      mWidgetListener->WindowActivated();
 }
 
 void
 nsWindow::DispatchDeactivateEvent(void)
 {
-    nsGUIEvent event(true, NS_DEACTIVATE, this);
-    nsEventStatus status;
-    DispatchEvent(&event, status);
+    if (mWidgetListener)
+      mWidgetListener->WindowDeactivated();
 }
 
 void
@@ -2879,21 +2850,14 @@ nsWindow::DispatchDeactivateEventOnTopLevelWindow(void)
 void
 nsWindow::DispatchResizeEvent(nsIntRect &aRect, nsEventStatus &aStatus)
 {
-    nsSizeEvent event(true, NS_SIZE, this);
-
-    event.windowSize = &aRect;
-    event.refPoint.x = aRect.x;
-    event.refPoint.y = aRect.y;
-    event.mWinWidth = aRect.width;
-    event.mWinHeight = aRect.height;
-
-    nsEventStatus status;
-    DispatchEvent(&event, status); 
+    aStatus = nsEventStatus_eIgnore;
+    if (mWidgetListener &&
+        mWidgetListener->WindowResized(this, aRect.width, aRect.height))
+      aStatus = nsEventStatus_eConsumeNoDefault;
 }
 
 NS_IMETHODIMP
-nsWindow::DispatchEvent(nsGUIEvent *aEvent,
-                              nsEventStatus &aStatus)
+nsWindow::DispatchEvent(nsGUIEvent *aEvent, nsEventStatus &aStatus)
 {
 #ifdef DEBUG
     debug_DumpEvent(stdout, aEvent->widget, aEvent,
@@ -2903,8 +2867,8 @@ nsWindow::DispatchEvent(nsGUIEvent *aEvent,
     aStatus = nsEventStatus_eIgnore;
 
     // send it to the standard callback
-    if (mEventCallback)
-        aStatus = (* mEventCallback)(aEvent);
+    if (mWidgetListener)
+      aStatus = mWidgetListener->HandleEvent(aEvent, mUseAttachedEvents);
 
     return NS_OK;
 }
@@ -3108,10 +3072,7 @@ nsWindow::OnDestroy(void)
     mParent = nullptr;
 
     nsCOMPtr<nsIWidget> kungFuDeathGrip = this;
-
-    nsGUIEvent event(true, NS_DESTROY, this);
-    nsEventStatus status;
-    DispatchEvent(&event, status);
+    NotifyWindowDestroyed();
 }
 
 bool
@@ -3307,12 +3268,7 @@ nsWindow::GetGLFrameBufferFormat()
 {
     if (mLayerManager &&
         mLayerManager->GetBackendType() == mozilla::layers::LAYERS_OPENGL) {
-        // On maemo the hardware fb has RGB format.
-#ifdef MOZ_PLATFORM_MAEMO
-        return LOCAL_GL_RGB;
-#else
-        return LOCAL_GL_RGBA;
-#endif
+        return MozQGLWidgetWrapper::isRGBAContext() ? LOCAL_GL_RGBA : LOCAL_GL_RGB;
     }
     return LOCAL_GL_NONE;
 }

@@ -580,6 +580,7 @@ nsListControlFrame::ReflowAsDropdown(nsPresContext*           aPresContext,
     if (above <= 0 && below <= 0) {
       state.SetComputedHeight(heightOfARow);
       mNumDisplayRows = 1;
+      mDropdownCanGrow = GetNumberOfOptions() > 1;
     } else {
       nscoord bp = aReflowState.mComputedBorderPadding.TopBottom();
       nscoord availableHeight = NS_MAX(above, below) - bp;
@@ -1093,7 +1094,7 @@ nsListControlFrame::OnOptionSelected(PRInt32 aIndex, bool aSelected)
   return NS_OK;
 }
 
-PRIntn
+int
 nsListControlFrame::GetSkipSides() const
 {    
     // Don't skip any sides during border rendering

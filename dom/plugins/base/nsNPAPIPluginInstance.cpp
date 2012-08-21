@@ -88,15 +88,12 @@ class SharedPluginTexture {
 public:
   NS_INLINE_DECL_REFCOUNTING(SharedPluginTexture)
 
-  SharedPluginTexture() :
-    mCurrentHandle(0), mNeedNewImage(false), mLock("SharedPluginTexture.mLock")
+  SharedPluginTexture() : mLock("SharedPluginTexture.mLock")
   {
   }
 
   ~SharedPluginTexture()
   {
-    // This will be destroyed in the compositor (as it normally is)
-    mCurrentHandle = 0;
   }
 
   TextureInfo Lock()
@@ -115,9 +112,7 @@ public:
   }
 
   void Release(TextureInfo& aTextureInfo)
-  {
-    mNeedNewImage = true;
- 
+  { 
     mTextureInfo = aTextureInfo;
     mLock.Unlock();
   } 
@@ -126,33 +121,25 @@ public:
   {
     MutexAutoLock lock(mLock);
 
-    if (!mNeedNewImage)
-      return mCurrentHandle;
-
     if (!EnsureGLContext())
       return 0;
-
-    mNeedNewImage = false;
 
     if (mTextureInfo.mWidth == 0 || mTextureInfo.mHeight == 0)
       return 0;
 
-    mCurrentHandle = sPluginContext->CreateSharedHandle(TextureImage::ThreadShared, (void*)mTextureInfo.mTexture, GLContext::TextureID);
+    SharedTextureHandle handle = sPluginContext->CreateSharedHandle(TextureImage::ThreadShared, (void*)mTextureInfo.mTexture, GLContext::TextureID);
 
     // We want forget about this now, so delete the texture. Assigning it to zero
     // ensures that we create a new one in Lock()
     sPluginContext->fDeleteTextures(1, &mTextureInfo.mTexture);
     mTextureInfo.mTexture = 0;
     
-    return mCurrentHandle;
+    return handle;
   }
 
 private:
   TextureInfo mTextureInfo;
-  SharedTextureHandle mCurrentHandle;
  
-  bool mNeedNewImage;
-
   Mutex mLock;
 };
 
@@ -170,7 +157,6 @@ nsNPAPIPluginInstance::nsNPAPIPluginInstance()
     mDrawingModel(kDefaultDrawingModel),
 #ifdef MOZ_WIDGET_ANDROID
     mANPDrawingModel(0),
-    mOnScreen(true),
     mFullScreenOrientation(dom::eScreenOrientation_LandscapePrimary),
     mWakeLocked(false),
     mFullScreen(false),
@@ -190,6 +176,9 @@ nsNPAPIPluginInstance::nsNPAPIPluginInstance()
     mUsePluginLayersPref(true)
 #else
     mUsePluginLayersPref(false)
+#endif
+#ifdef MOZ_WIDGET_ANDROID
+  , mOnScreen(true)
 #endif
 {
   mNPP.pdata = NULL;
@@ -1000,7 +989,7 @@ nsSurfaceTexture* nsNPAPIPluginInstance::CreateSurfaceTexture()
 void nsNPAPIPluginInstance::OnSurfaceTextureFrameAvailable()
 {
   if (mRunning == RUNNING && mOwner)
-    RedrawPlugin();
+    AndroidBridge::Bridge()->ScheduleComposite();
 }
 
 void* nsNPAPIPluginInstance::AcquireContentWindow()
@@ -1118,11 +1107,10 @@ nsNPAPIPluginInstance::GetJSObject(JSContext *cx, JSObject** outObject)
   return NS_OK;
 }
 
-nsresult
+void
 nsNPAPIPluginInstance::SetCached(bool aCache)
 {
   mCached = aCache;
-  return NS_OK;
 }
 
 bool

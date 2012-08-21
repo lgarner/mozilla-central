@@ -164,7 +164,7 @@ GetCairoSurfaceForSourceSurface(SourceSurface *aSurface)
   return surf;
 }
 
-// Never returns NULL. As such, you must always pass in Cairo-compatible
+// Never returns nullptr. As such, you must always pass in Cairo-compatible
 // patterns, most notably gradients with a GradientStopCairo.
 // The pattern returned must have cairo_pattern_destroy() called on it by the
 // caller.
@@ -275,7 +275,7 @@ NeedIntermediateSurface(const Pattern& aPattern, const DrawOptions& aOptions)
 }
 
 DrawTargetCairo::DrawTargetCairo()
-  : mContext(NULL)
+  : mContext(nullptr)
 {
 }
 
@@ -318,7 +318,7 @@ DrawTargetCairo::Flush()
 }
 
 void
-DrawTargetCairo::PrepareForDrawing(cairo_t* aContext, const Path* aPath /* = NULL */)
+DrawTargetCairo::PrepareForDrawing(cairo_t* aContext, const Path* aPath /* = nullptr */)
 {
   WillChange(aPath);
 }
@@ -347,7 +347,6 @@ DrawTargetCairo::DrawSurface(SourceSurface *aSurface,
   cairo_pattern_set_filter(pat, GfxFilterToCairoFilter(aSurfOptions.mFilter));
   cairo_pattern_set_extend(pat, CAIRO_EXTEND_PAD);
 
-  cairo_save(mContext);
   cairo_translate(mContext, aDest.X(), aDest.Y());
 
   if (OperatorAffectsUncoveredAreas(aOptions.mCompositionOp) ||
@@ -355,10 +354,7 @@ DrawTargetCairo::DrawSurface(SourceSurface *aSurface,
     cairo_push_group(mContext);
       cairo_new_path(mContext);
       cairo_rectangle(mContext, 0, 0, aDest.Width(), aDest.Height());
-      //TODO[nrc] remove comments if test ok
-      //cairo_clip(mContext);
       cairo_set_source(mContext, pat);
-      //cairo_paint(mContext);
       cairo_fill(mContext);
     cairo_pop_group_to_source(mContext);
   } else {
@@ -371,8 +367,6 @@ DrawTargetCairo::DrawSurface(SourceSurface *aSurface,
   cairo_set_operator(mContext, GfxOpToCairoOp(aOptions.mCompositionOp));
 
   cairo_paint_with_alpha(mContext, aOptions.mAlpha);
-
-  cairo_restore(mContext);
 
   cairo_pattern_destroy(pat);
 }
@@ -397,7 +391,7 @@ DrawTargetCairo::DrawSurfaceWithShadow(SourceSurface *aSurface,
 
   AlphaBoxBlur blur(extents, IntSize(0, 0),
                     AlphaBoxBlur::CalculateBlurRadius(Point(aSigma, aSigma)),
-                    NULL, NULL);
+                    nullptr, nullptr);
   if (!blur.GetData()) {
     return;
   }
@@ -449,10 +443,7 @@ DrawTargetCairo::DrawSurfaceWithShadow(SourceSurface *aSurface,
     cairo_push_group(mContext);
       cairo_new_path(mContext);
       cairo_rectangle(mContext, 0, 0, width, height);
-      //TODO[nrc] remove comments if test ok
-      //cairo_clip(mContext);
       cairo_set_source(mContext, pat);
-      //cairo_paint(mContext);
       cairo_fill(mContext);
     cairo_pop_group_to_source(mContext);
   } else {
@@ -549,8 +540,6 @@ DrawTargetCairo::CopySurface(SourceSurface *aSurface,
 
   cairo_surface_t* surf = static_cast<SourceSurfaceCairo*>(aSurface)->GetSurface();
 
-  cairo_save(mContext);
-
   cairo_identity_matrix(mContext);
 
   cairo_set_source_surface(mContext, surf, aDest.x - aSource.x, aDest.y - aSource.y);
@@ -560,8 +549,6 @@ DrawTargetCairo::CopySurface(SourceSurface *aSurface,
   cairo_new_path(mContext);
   cairo_rectangle(mContext, aDest.x, aDest.y, aSource.width, aSource.height);
   cairo_fill(mContext);
-
-  cairo_restore(mContext);
 }
 
 void
@@ -569,15 +556,11 @@ DrawTargetCairo::ClearRect(const Rect& aRect)
 {
   AutoPrepareForDrawing prep(this, mContext);
 
-  cairo_save(mContext);
-
   cairo_new_path(mContext);
   cairo_set_operator(mContext, CAIRO_OPERATOR_CLEAR);
   cairo_rectangle(mContext, aRect.X(), aRect.Y(),
                   aRect.Width(), aRect.Height());
   cairo_fill(mContext);
-
-  cairo_restore(mContext);
 }
 
 void
@@ -803,7 +786,7 @@ DrawTargetCairo::CreateSourceSurfaceFromNativeSurface(const NativeSurface &aSurf
     }
   }
 
-  return NULL;
+  return nullptr;
 }
 
 TemporaryRef<DrawTarget>
@@ -819,7 +802,7 @@ DrawTargetCairo::CreateSimilarDrawTarget(const IntSize &aSize, SurfaceFormat aFo
     return target;
   }
 
-  return NULL;
+  return nullptr;
 }
 
 bool
@@ -841,7 +824,7 @@ DrawTargetCairo::GetNativeSurface(NativeSurfaceType aType)
     return cairo_get_target(mContext);
   }
 
-  return NULL;
+  return nullptr;
 }
 
 void
@@ -874,7 +857,7 @@ DrawTargetCairo::RemoveSnapshot(SourceSurfaceCairo* aSnapshot)
 }
 
 void
-DrawTargetCairo::WillChange(const Path* aPath /* = NULL */)
+DrawTargetCairo::WillChange(const Path* aPath /* = nullptr */)
 {
   if (!mSnapshots.empty()) {
     for (std::vector<SourceSurfaceCairo*>::iterator iter = mSnapshots.begin();
@@ -888,7 +871,7 @@ DrawTargetCairo::WillChange(const Path* aPath /* = NULL */)
   if (mPathObserver &&
       (!aPath || !mPathObserver->ContainsPath(aPath))) {
     mPathObserver->PathWillChange();
-    mPathObserver = NULL;
+    mPathObserver = nullptr;
   }
 }
 

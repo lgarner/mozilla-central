@@ -12,12 +12,12 @@
 #include "StreamNotifyParent.h"
 #include "npfunctions.h"
 #include "nsAutoPtr.h"
-#include "mozilla/unused.h"
 #include "gfxASurface.h"
 #include "gfxContext.h"
 #include "gfxPlatform.h"
 #include "gfxSharedImageSurface.h"
 #include "nsNPAPIPluginInstance.h"
+#include "mozilla/StandardInteger.h" // for intptr_t
 #ifdef MOZ_X11
 #include "gfxXlibSurface.h"
 #endif
@@ -25,6 +25,7 @@
 #include "gfxColor.h"
 #include "gfxUtils.h"
 #include "nsNPAPIPluginInstance.h"
+#include "Layers.h"
 
 #if defined(OS_WIN)
 #include <windowsx.h>
@@ -222,10 +223,10 @@ PluginInstanceParent::AnswerNPN_GetValue_NPNVnetscapeWindow(NativeWindowHandle* 
 #elif defined(XP_MACOSX)
     intptr_t id;
 #elif defined(ANDROID)
-#warning Need Android impl
+    // TODO: Need Android impl
     int id;
 #elif defined(MOZ_WIDGET_QT)
-#  warning Need Qt non X impl
+    // TODO: Need Qt non X impl
     int id;
 #else
 #warning Implement me
@@ -331,9 +332,11 @@ bool
 PluginInstanceParent::AnswerNPN_SetValue_NPPVpluginWindow(
     const bool& windowed, NPError* result)
 {
-    NPBool isWindowed = windowed;
+    // Yes, we are passing a boolean as a void*.  We have to cast to intptr_t
+    // first to avoid gcc warnings about casting to a pointer from a
+    // non-pointer-sized integer.
     *result = mNPNIface->setvalue(mNPP, NPPVpluginWindowBool,
-                                  (void*)isWindowed);
+                                  (void*)(intptr_t)windowed);
     return true;
 }
 
@@ -341,9 +344,8 @@ bool
 PluginInstanceParent::AnswerNPN_SetValue_NPPVpluginTransparent(
     const bool& transparent, NPError* result)
 {
-    NPBool isTransparent = transparent;
     *result = mNPNIface->setvalue(mNPP, NPPVpluginTransparentBool,
-                                  (void*)isTransparent);
+                                  (void*)(intptr_t)transparent);
     return true;
 }
 
@@ -352,7 +354,7 @@ PluginInstanceParent::AnswerNPN_SetValue_NPPVpluginUsesDOMForCursor(
     const bool& useDOMForCursor, NPError* result)
 {
     *result = mNPNIface->setvalue(mNPP, NPPVpluginUsesDOMForCursorBool,
-                                  (void*)(NPBool)useDOMForCursor);
+                                  (void*)(intptr_t)useDOMForCursor);
     return true;
 }
 
@@ -405,7 +407,7 @@ PluginInstanceParent::AnswerNPN_SetValue_NPPVpluginDrawingModel(
 
         mDrawingModel = drawingModel;
         *result = mNPNIface->setvalue(mNPP, NPPVpluginDrawingModel,
-                                        (void*)drawingModel);
+                                      reinterpret_cast<void*>(static_cast<uintptr_t>(drawingModel)));
 
 
         if (*result != NPERR_NO_ERROR) {
@@ -449,7 +451,7 @@ PluginInstanceParent::AnswerNPN_SetValue_NPPVpluginDrawingModel(
 
         mDrawingModel = drawingModel;
         *result = mNPNIface->setvalue(mNPP, NPPVpluginDrawingModel,
-                                      (void*)drawingModel);
+                                      (void*)(intptr_t)drawingModel);
 
         if (mRemoteImageDataShmem.IsWritable()) {
             container->SetRemoteImageData(nullptr, nullptr);
@@ -653,6 +655,12 @@ PluginInstanceParent::RecvShow(const NPRect& updatedRect,
     }
 
     mFrontSurface = surface;
+    if (!surface) {
+      ImageContainer* container = GetImageContainer();
+      if (container) {
+        container->SetCurrentImage(nullptr);
+      }
+    }
     RecvNPN_InvalidateRect(updatedRect);
 
     PLUGIN_LOG_DEBUG(("   (RecvShow invalidated for surface %p)",
@@ -723,10 +731,10 @@ PluginInstanceParent::GetImageContainer(ImageContainer** aContainer)
 #endif
         return NS_ERROR_NOT_AVAILABLE;
 
-    Image::Format format = Image::CAIRO_SURFACE;
+    ImageFormat format = CAIRO_SURFACE;
 #ifdef XP_MACOSX
     if (ioSurface) {
-        format = Image::MAC_IO_SURFACE;
+        format = MAC_IO_SURFACE;
     }
 #endif
 
@@ -750,7 +758,7 @@ PluginInstanceParent::GetImageContainer(ImageContainer** aContainer)
 
 #ifdef XP_MACOSX
     if (ioSurface) {
-        NS_ASSERTION(image->GetFormat() == Image::MAC_IO_SURFACE, "Wrong format?");
+        NS_ASSERTION(image->GetFormat() == MAC_IO_SURFACE, "Wrong format?");
         MacIOSurfaceImage* ioImage = static_cast<MacIOSurfaceImage*>(image.get());
         MacIOSurfaceImage::Data ioData;
         ioData.mIOSurface = ioSurface;
@@ -763,7 +771,7 @@ PluginInstanceParent::GetImageContainer(ImageContainer** aContainer)
     }
 #endif
 
-    NS_ASSERTION(image->GetFormat() == Image::CAIRO_SURFACE, "Wrong format?");
+    NS_ASSERTION(image->GetFormat() == CAIRO_SURFACE, "Wrong format?");
     CairoImage* pluginImage = static_cast<CairoImage*>(image.get());
     CairoImage::Data cairoData;
     cairoData.mSurface = mFrontSurface;
@@ -1020,7 +1028,7 @@ PluginInstanceParent::NPP_SetWindow(const NPWindow* aWindow)
         if (mDrawingModel == NPDrawingModelCoreAnimation || 
             mDrawingModel == NPDrawingModelInvalidatingCoreAnimation) {
             mIOSurface = MacIOSurface::CreateIOSurface(window.width, window.height);
-        } else if (mShWidth * mShHeight != window.width * window.height) {
+        } else if (uint32_t(mShWidth * mShHeight) != window.width * window.height) {
             if (mShWidth != 0 && mShHeight != 0) {
                 DeallocShmem(mShSurface);
                 mShWidth = 0;

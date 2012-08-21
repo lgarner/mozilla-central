@@ -10,6 +10,7 @@
 #include "gfxSharedImageSurface.h"
 #include "gfxImageSurface.h"
 #include "gfxUtils.h"
+#include "gfxPlatform.h"
 #include "nsXULAppAPI.h"
 #include "RenderTrace.h"
 #include "sampler.h"
@@ -136,19 +137,23 @@ BasicLayerManager::~BasicLayerManager()
 }
 
 void
-BasicLayerManager::SetDefaultTarget(gfxContext* aContext,
-                                    BufferMode aDoubleBuffering,
-                                    ScreenRotation aRotation)
+BasicLayerManager::SetDefaultTarget(gfxContext* aContext)
 {
   NS_ASSERTION(!InTransaction(),
                "Must set default target outside transaction");
   mDefaultTarget = aContext;
+}
+
+void
+BasicLayerManager::SetDefaultTargetConfiguration(BufferMode aDoubleBuffering, ScreenRotation aRotation)
+{
   mDoubleBuffering = aDoubleBuffering;
 }
 
 void
 BasicLayerManager::BeginTransaction()
 {
+  mInTransaction = true;
   mUsingDefaultTarget = true;
   BeginTransactionWithTarget(mDefaultTarget);
 }
@@ -201,6 +206,8 @@ BasicLayerManager::PopGroupToSourceWithCachedSurface(gfxContext *aTarget, gfxCon
 void
 BasicLayerManager::BeginTransactionWithTarget(gfxContext* aTarget)
 {
+  mInTransaction = true;
+
 #ifdef MOZ_LAYERS_HAVE_LOG
   MOZ_LAYERS_LOG(("[----- BeginTransaction"));
   Log();
@@ -387,6 +394,8 @@ BasicLayerManager::EndTransaction(DrawThebesLayerCallback aCallback,
                                   void* aCallbackData,
                                   EndTransactionFlags aFlags)
 {
+  mInTransaction = false;
+
   EndTransactionInternal(aCallback, aCallbackData, aFlags);
 }
 
@@ -398,6 +407,7 @@ BasicLayerManager::AbortTransaction()
   mPhase = PHASE_NONE;
 #endif
   mUsingDefaultTarget = false;
+  mInTransaction = false;
 }
 
 bool
@@ -420,6 +430,12 @@ BasicLayerManager::EndTransactionInternal(DrawThebesLayerCallback aCallback,
   RenderTraceLayers(aLayer, "FF00");
 
   mTransactionIncomplete = false;
+
+  if (aFlags & END_NO_COMPOSITE) {
+    // TODO: We should really just set mTarget to null and make sure we can handle that further down the call chain
+    nsRefPtr<gfxASurface> surf = gfxPlatform::GetPlatform()->CreateOffscreenSurface(gfxIntSize(1, 1), gfxASurface::CONTENT_COLOR);
+    mTarget = new gfxContext(surf);
+  }
 
   if (mTarget && mRoot && !(aFlags & END_NO_IMMEDIATE_REDRAW)) {
     nsIntRect clipRect;
@@ -450,9 +466,19 @@ BasicLayerManager::EndTransactionInternal(DrawThebesLayerCallback aCallback,
       }
     }
 
-    PaintLayer(mTarget, mRoot, aCallback, aCallbackData, nullptr);
-    if (mWidget) {
-      FlashWidgetUpdateArea(mTarget);
+    if (aFlags & END_NO_COMPOSITE) {
+      if (IsRetained()) {
+        // Clip the destination out so that we don't draw to it, and
+        // only end up validating ThebesLayers.
+        mTarget->Clip(gfxRect(0, 0, 0, 0));
+        PaintLayer(mTarget, mRoot, aCallback, aCallbackData, nullptr);
+      }
+      // If we're not retained, then don't composite means do nothing at all.
+    } else {
+      PaintLayer(mTarget, mRoot, aCallback, aCallbackData, nullptr);
+      if (mWidget) {
+        FlashWidgetUpdateArea(mTarget);
+      }
     }
 
     if (!mTransactionIncomplete) {
@@ -508,13 +534,15 @@ BasicLayerManager::FlashWidgetUpdateArea(gfxContext *aContext)
 }
 
 bool
-BasicLayerManager::EndEmptyTransaction()
+BasicLayerManager::EndEmptyTransaction(EndTransactionFlags aFlags)
 {
+  mInTransaction = false;
+
   if (!mRoot) {
     return false;
   }
 
-  return EndTransactionInternal(nullptr, nullptr);
+  return EndTransactionInternal(nullptr, nullptr, aFlags);
 }
 
 void
@@ -950,11 +978,9 @@ BasicShadowLayerManager::GetMaxTextureSize() const
 }
 
 void
-BasicShadowLayerManager::SetDefaultTarget(gfxContext* aContext,
-                                          BufferMode aDoubleBuffering,
-                                          ScreenRotation aRotation)
+BasicShadowLayerManager::SetDefaultTargetConfiguration(BufferMode aDoubleBuffering, ScreenRotation aRotation)
 {
-  BasicLayerManager::SetDefaultTarget(aContext, aDoubleBuffering, aRotation);
+  BasicLayerManager::SetDefaultTargetConfiguration(aDoubleBuffering, aRotation);
   mTargetRotation = aRotation;
   if (mWidget) {
     mTargetBounds = mWidget->GetNaturalBounds();
@@ -1039,9 +1065,9 @@ BasicShadowLayerManager::EndTransaction(DrawThebesLayerCallback aCallback,
 }
 
 bool
-BasicShadowLayerManager::EndEmptyTransaction()
+BasicShadowLayerManager::EndEmptyTransaction(EndTransactionFlags aFlags)
 {
-  if (!BasicLayerManager::EndEmptyTransaction()) {
+  if (!BasicLayerManager::EndEmptyTransaction(aFlags)) {
     // Return without calling ForwardTransaction. This leaves the
     // ShadowLayerForwarder transaction open; the following
     // EndTransaction will complete it.

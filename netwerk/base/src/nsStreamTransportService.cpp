@@ -7,7 +7,7 @@
 #include "nsNetSegmentUtils.h"
 #include "nsTransportUtils.h"
 #include "nsStreamUtils.h"
-#include "nsNetError.h"
+#include "nsError.h"
 #include "nsNetCID.h"
 
 #include "nsIServiceManager.h"
@@ -163,7 +163,7 @@ nsInputStreamTransport::Close()
 }
 
 NS_IMETHODIMP
-nsInputStreamTransport::Available(PRUint32 *result)
+nsInputStreamTransport::Available(PRUint64 *result)
 {
     return NS_ERROR_NOT_IMPLEMENTED;
 }

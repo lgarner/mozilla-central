@@ -16,6 +16,8 @@ Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
 Cu.import('resource://gre/modules/Webapps.jsm');
 Cu.import('resource://gre/modules/AlarmService.jsm');
 Cu.import('resource://gre/modules/ActivitiesService.jsm');
+Cu.import('resource://gre/modules/PermissionPromptHelper.jsm');
+Cu.import('resource://gre/modules/ObjectWrapper.jsm');
 
 XPCOMUtils.defineLazyServiceGetter(Services, 'env',
                                    '@mozilla.org/process/environment;1',
@@ -44,32 +46,13 @@ XPCOMUtils.defineLazyGetter(this, 'DebuggerServer', function() {
   return DebuggerServer;
 });
 
+XPCOMUtils.defineLazyGetter(this, "ppmm", function() {
+  return Cc["@mozilla.org/parentprocessmessagemanager;1"]
+         .getService(Ci.nsIFrameMessageManager);
+});
+
 function getContentWindow() {
   return shell.contentBrowser.contentWindow;
-}
-
-// FIXME Bug 707625
-// Please don't add more permissions here.
-// XXX never grant 'content-camera' to non-gaia apps
-function addPermissions(urls) {
-  let permissions = [
-    'indexedDB-unlimited', 'webapps-manage', 'offline-app', 'pin-app',
-    'websettings-read', 'websettings-readwrite',
-    'content-camera', 'wifi-manage', 'desktop-notification',
-    'geolocation', 'device-storage', 'alarms'
-  ];
-
-  urls.forEach(function(url) {
-    url = url.trim();
-    if (url) {
-      let uri = Services.io.newURI(url, null, null);
-      let allow = Ci.nsIPermissionManager.ALLOW_ACTION;
-
-      permissions.forEach(function(permission) {
-        Services.perms.add(uri, permission, allow);
-      });
-    }
-  });
 }
 
 var shell = {
@@ -161,13 +144,6 @@ var shell = {
       dump('Error setting master volume: ' + e + '\n');
     }
 
-    let domains = "";
-    try {
-      domains = Services.prefs.getCharPref('b2g.privileged.domains');
-    } catch(e) {}
-
-    addPermissions(domains.split(","));
-
     CustomEventManager.init();
     WebappsHelper.init();
 
@@ -180,6 +156,8 @@ var shell = {
     });
 
     this.contentBrowser.src = homeURL;
+
+    ppmm.addMessageListener("content-handler", this);
   },
 
   stop: function shell_stop() {
@@ -190,6 +168,7 @@ var shell = {
     window.removeEventListener('mozfullscreenchange', this);
     window.removeEventListener('sizemodechange', this);
     this.contentBrowser.removeEventListener('mozbrowserloadstart', this, true);
+    ppmm.removeMessageListener("content-handler", this);
 
 #ifndef MOZ_WIDGET_GONK
     delete Services.audioManager;
@@ -329,13 +308,30 @@ var shell = {
         break;
     }
   },
+
   sendEvent: function shell_sendEvent(content, type, details) {
     let event = content.document.createEvent('CustomEvent');
     event.initCustomEvent(type, true, true, details ? details : {});
     content.dispatchEvent(event);
   },
+
   sendChromeEvent: function shell_sendChromeEvent(details) {
-    this.sendEvent(getContentWindow(), "mozChromeEvent", details);
+    this.sendEvent(getContentWindow(), "mozChromeEvent",
+                   ObjectWrapper.wrap(details, getContentWindow()));
+  },
+
+  receiveMessage: function shell_receiveMessage(message) {
+    if (message.name != 'content-handler') {
+      return;
+    }
+    let handler = message.json;
+    new MozActivity({
+      name: 'view',
+      data: {
+        type: handler.type,
+        url: handler.url
+      }
+    });
   }
 };
 
@@ -378,14 +374,15 @@ Services.obs.addObserver(function onSystemMessage(subject, topic, data) {
     type: 'open-app',
     url: msg.uri,
     origin: origin,
-    manifest: msg.manifest
+    manifest: msg.manifest,
+    isActivity: (msg.type == 'activity'),
+    target: msg.target
   });
 }, 'system-messages-open-app', false);
 
 Services.obs.addObserver(function(aSubject, aTopic, aData) {
-  shell.sendEvent(shell.contentBrowser.contentWindow,
-                  "mozChromeEvent", { type: "fullscreenoriginchange",
-                                      fullscreenorigin: aData } );
+  shell.sendChromeEvent({ type: "fullscreenoriginchange",
+                          fullscreenorigin: aData });
 }, "fullscreen-origin-change", false);
 
 (function Repl() {
@@ -632,17 +629,6 @@ window.addEventListener('ContentStart', function ss_onContentStart() {
   });
 });
 
-Services.obs.addObserver(function ContentHandler(subject, topic, data) {
-  let handler = JSON.parse(data);
-  new MozActivity({
-    name: 'view',
-    data: {
-      type: handler.type,
-      url: handler.url
-    }
-  });
-}, 'content-handler', false);
-
 (function geolocationStatusTracker() {
   let gGeolocationActiveCount = 0;
 
@@ -662,4 +648,25 @@ Services.obs.addObserver(function ContentHandler(subject, topic, data) {
       });
     }
 }, "geolocation-device-events", false);
+})();
+
+(function recordingStatusTracker() {
+  let gRecordingActiveCount = 0;
+
+  Services.obs.addObserver(function(aSubject, aTopic, aData) {
+    let oldCount = gRecordingActiveCount;
+    if (aData == "starting") {
+      gRecordingActiveCount += 1;
+    } else if (aData == "shutdown") {
+      gRecordingActiveCount -= 1;
+    }
+
+    // We need to track changes from 1 <-> 0
+    if (gRecordingActiveCount + oldCount == 1) {
+      shell.sendChromeEvent({
+        type: 'recording-status',
+        active: (gRecordingActiveCount == 1)
+      });
+    }
+}, "recording-device-events", false);
 })();

@@ -68,7 +68,7 @@ public:
 
     virtual PBrowserChild* AllocPBrowser(const PRUint32& aChromeFlags,
                                          const bool& aIsBrowserElement,
-                                         const PRUint32& aAppId);
+                                         const AppId& aAppId);
     virtual bool DeallocPBrowser(PBrowserChild*);
 
     virtual PDeviceStorageRequestChild* AllocPDeviceStorageRequest(const DeviceStorageParams&);
@@ -163,6 +163,7 @@ public:
     virtual bool RecvLastPrivateDocShellDestroyed();
 
     virtual bool RecvFilePathUpdate(const nsString& path, const nsCString& reason);
+    virtual bool RecvFileSystemUpdate(const nsString& aFsName, const nsString& aName, const PRInt32& aState);
 
 #ifdef ANDROID
     gfxIntSize GetScreenSize() { return mScreenSize; }
@@ -189,9 +190,6 @@ private:
 
     InfallibleTArray<nsAutoPtr<AlertObserver> > mAlertObservers;
     nsRefPtr<ConsoleListener> mConsoleListener;
-#ifdef ANDROID
-    gfxIntSize mScreenSize;
-#endif
 
     /**
      * An ID unique to the process containing our corresponding
@@ -203,6 +201,10 @@ private:
     PRUint64 mID;
 
     AppInfo mAppInfo;
+
+#ifdef ANDROID
+    gfxIntSize mScreenSize;
+#endif
 
     static ContentChild* sSingleton;
 

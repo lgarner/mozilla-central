@@ -16,6 +16,10 @@
 #include "GLContextProvider.h"
 #include "gfxPlatform.h"
 
+#ifdef XP_MACOSX
+#include "mozilla/gfx/MacIOSurface.h"
+#endif
+
 #ifdef XP_WIN
 #include "gfxWindowsSurface.h"
 #include "WGLLibrary.h"
@@ -207,10 +211,9 @@ CanvasLayerOGL::UpdateSurface()
       nsRefPtr<gfxImageSurface> updatedAreaImageSurface =
         GetTempSurface(size, gfxASurface::ImageFormatARGB32);
 
-      mCanvasGLContext->ReadPixelsIntoImageSurface(0, 0,
-                                                   mBounds.width,
-                                                   mBounds.height,
-                                                   updatedAreaImageSurface);
+      updatedAreaImageSurface->Flush();
+      mCanvasGLContext->ReadScreenIntoImageSurface(updatedAreaImageSurface);
+      updatedAreaImageSurface->MarkDirty();
 
       updatedAreaSurface = updatedAreaImageSurface;
     }
@@ -229,6 +232,9 @@ CanvasLayerOGL::RenderLayer(int aPreviousDestination,
                             const nsIntPoint& aOffset)
 {
   UpdateSurface();
+  if (mOGLManager->CompositingDisabled()) {
+    return;
+  }
   FireDidTransactionCallback();
 
   mOGLManager->MakeCurrent();
@@ -365,7 +371,23 @@ ShadowCanvasLayerOGL::Swap(const CanvasSurface& aNewFront,
     return;
   }
 
-  if (IsValidSharedTexDescriptor(aNewFront)) {
+  if (nsRefPtr<TextureImage> texImage =
+      ShadowLayerManager::OpenDescriptorForDirectTexturing(
+        gl(), aNewFront.get_SurfaceDescriptor(), LOCAL_GL_CLAMP_TO_EDGE)) {
+
+    if (mTexImage &&
+        (mTexImage->GetSize() != texImage->GetSize() ||
+         mTexImage->GetContentType() != texImage->GetContentType())) {
+      mTexImage = nullptr;
+      DestroyFrontBuffer();
+    }
+
+    mTexImage = texImage;
+    *aNewBack = IsSurfaceDescriptorValid(mFrontBufferDescriptor) ?
+                CanvasSurface(mFrontBufferDescriptor) : CanvasSurface(null_t());
+    mFrontBufferDescriptor = aNewFront;
+    mNeedsYFlip = needYFlip;
+  } else if (IsValidSharedTexDescriptor(aNewFront)) {
     MakeTextureIfNeeded(gl(), mTexture);
     if (!IsValidSharedTexDescriptor(mFrontBufferDescriptor)) {
       mFrontBufferDescriptor = SharedTextureDescriptor(TextureImage::ThreadShared, 0, nsIntSize(0, 0), false);
@@ -430,6 +452,9 @@ ShadowCanvasLayerOGL::RenderLayer(int aPreviousFrameBuffer,
     return;
   }
 
+  if (mOGLManager->CompositingDisabled()) {
+    return;
+  }
   mOGLManager->MakeCurrent();
 
   gfx3DMatrix effectiveTransform = GetEffectiveTransform();

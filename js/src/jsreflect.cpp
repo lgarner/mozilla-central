@@ -27,7 +27,6 @@
 
 #include "frontend/Parser.h"
 #include "frontend/TokenStream.h"
-#include "frontend/TreeContext.h"
 #include "vm/RegExpObject.h"
 
 #include "jsscriptinlines.h"
@@ -172,7 +171,7 @@ class NodeBuilder
         RootedValue funv(cx);
         for (unsigned i = 0; i < AST_LIMIT; i++) {
             const char *name = callbackNames[i];
-            JSAtom *atom = js_Atomize(cx, name, strlen(name));
+            JSAtom *atom = Atomize(cx, name, strlen(name));
             if (!atom)
                 return false;
             RootedId id(cx, AtomToId(atom));
@@ -186,7 +185,7 @@ class NodeBuilder
 
             if (!funv.isObject() || !funv.toObject().isFunction()) {
                 js_ReportValueErrorFlags(cx, JSREPORT_ERROR, JSMSG_NOT_FUNCTION,
-                                         JSDVG_SEARCH_STACK, funv, NULL, NULL, NULL);
+                                         JSDVG_SEARCH_STACK, funv, NullPtr(), NULL, NULL);
                 return false;
             }
 
@@ -283,9 +282,9 @@ class NodeBuilder
 
     bool atomValue(const char *s, Value *dst) {
         /*
-         * Bug 575416: instead of js_Atomize, lookup constant atoms in tbl file
+         * Bug 575416: instead of Atomize, lookup constant atoms in tbl file
          */
-        JSAtom *atom = js_Atomize(cx, s, strlen(s));
+        JSAtom *atom = Atomize(cx, s, strlen(s));
         if (!atom)
             return false;
 
@@ -417,9 +416,9 @@ class NodeBuilder
             val.setNull();
 
         /*
-         * Bug 575416: instead of js_Atomize, lookup constant atoms in tbl file
+         * Bug 575416: instead of Atomize, lookup constant atoms in tbl file
          */
-        JSAtom *atom = js_Atomize(cx, name, strlen(name));
+        JSAtom *atom = Atomize(cx, name, strlen(name));
         if (!atom)
             return false;
 
@@ -1595,10 +1594,10 @@ NodeBuilder::xmlPI(Value target, Value contents, TokenPos *pos, Value *dst)
 
 class ASTSerializer
 {
-    JSContext     *cx;
-    Parser        *parser;
-    NodeBuilder   builder;
-    uint32_t      lineno;
+    JSContext           *cx;
+    Parser              *parser;
+    NodeBuilder         builder;
+    DebugOnly<uint32_t> lineno;
 
     Value atomContents(JSAtom *atom) {
         return StringValue(atom ? atom : cx->runtime->atomState.emptyAtom);
@@ -1681,8 +1680,12 @@ class ASTSerializer
 
   public:
     ASTSerializer(JSContext *c, bool l, char const *src, uint32_t ln)
-        : cx(c), builder(c, l, src), lineno(ln) {
-    }
+        : cx(c)
+        , builder(c, l, src)
+#ifdef DEBUG
+        , lineno(ln)
+#endif
+    {}
 
     bool init(JSObject *userobj) {
         return builder.init(userobj);
@@ -2271,6 +2274,9 @@ ASTSerializer::statement(ParseNode *pn, Value *dst)
                builder.xmlDefaultNamespace(ns, &pn->pn_pos, dst);
       }
 #endif
+
+      case PNK_NOP:
+        return builder.emptyStatement(&pn->pn_pos, dst);
 
       default:
         LOCAL_NOT_REACHED("unexpected statement type");
@@ -3008,17 +3014,13 @@ ASTSerializer::function(ParseNode *pn, ASTType type, Value *dst)
     NodeVector args(cx);
     NodeVector defaults(cx);
 
-    ParseNode *argsAndBody = pn->pn_body->isKind(PNK_UPVARS)
-                             ? pn->pn_body->pn_tree
-                             : pn->pn_body;
-
     Value body;
     Value rest;
     if (func->hasRest())
         rest.setUndefined();
     else
         rest.setNull();
-    return functionArgsAndBody(argsAndBody, args, defaults, &body, &rest) &&
+    return functionArgsAndBody(pn->pn_body, args, defaults, &body, &rest) &&
         builder.function(type, &pn->pn_pos, id, args, defaults, body,
                          rest, isGenerator, isExpression, dst);
 }
@@ -3180,12 +3182,12 @@ reflect_parse(JSContext *cx, uint32_t argc, jsval *vp)
 
     JSObject *builder = NULL;
 
-    Value arg = argc > 1 ? JS_ARGV(cx, vp)[1] : UndefinedValue();
+    RootedValue arg(cx, argc > 1 ? JS_ARGV(cx, vp)[1] : UndefinedValue());
 
     if (!arg.isNullOrUndefined()) {
         if (!arg.isObject()) {
             js_ReportValueErrorFlags(cx, JSREPORT_ERROR, JSMSG_UNEXPECTED_TYPE,
-                                     JSDVG_SEARCH_STACK, arg, NULL, "not an object", NULL);
+                                     JSDVG_SEARCH_STACK, arg, NullPtr(), "not an object", NULL);
             return JS_FALSE;
         }
 
@@ -3242,7 +3244,7 @@ reflect_parse(JSContext *cx, uint32_t argc, jsval *vp)
         if (!prop.isNullOrUndefined()) {
             if (!prop.isObject()) {
                 js_ReportValueErrorFlags(cx, JSREPORT_ERROR, JSMSG_UNEXPECTED_TYPE,
-                                         JSDVG_SEARCH_STACK, prop, NULL, "not an object", NULL);
+                                         JSDVG_SEARCH_STACK, prop, NullPtr(), "not an object", NULL);
                 return JS_FALSE;
             }
             builder = &prop.toObject();

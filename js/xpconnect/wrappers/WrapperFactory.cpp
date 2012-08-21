@@ -229,6 +229,15 @@ WrapperFactory::PrepareForWrapping(JSContext *cx, JSObject *scope, JSObject *obj
 
                 // Ok, must be case (1). Fall through and create a new wrapper.
             }
+
+            // Nasty hack for late-breaking bug 781476. This will confuse identity checks,
+            // but it's probably better than any of our alternatives.
+            if (!AccessCheck::isChrome(js::GetObjectCompartment(scope)) &&
+                 AccessCheck::subsumes(js::GetObjectCompartment(scope),
+                                       js::GetObjectCompartment(obj)))
+            {
+                return DoubleWrap(cx, obj, flags);
+            }
         }
     }
 
@@ -614,11 +623,14 @@ WrapperFactory::WrapForSameCompartmentXray(JSContext *cx, JSObject *obj)
     if (!wrapperObj)
         return NULL;
 
-    // Make the holder.
-    JSObject *xrayHolder = XrayUtils::createHolder(cx, obj, parent);
-    if (!xrayHolder)
-        return nullptr;
-    js::SetProxyExtra(wrapperObj, 0, js::ObjectValue(*xrayHolder));
+    // Make the holder. Note that this is currently for WNs only until we fix
+    // bug 761704.
+    if (type == XrayForWrappedNative) {
+        JSObject *xrayHolder = XrayUtils::createHolder(cx, obj, parent);
+        if (!xrayHolder)
+            return nullptr;
+        js::SetProxyExtra(wrapperObj, 0, js::ObjectValue(*xrayHolder));
+    }
     return wrapperObj;
 }
 

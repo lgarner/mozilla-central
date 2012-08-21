@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-let SocialService = Cu.import("resource://gre/modules/SocialService.jsm", {}).SocialService;
-
 function test() {
   waitForExplicitFinish();
 
@@ -13,10 +11,8 @@ function test() {
     workerURL: "https://example1.com/worker.js",
     iconURL: "chrome://branding/content/icon48.png"
   };
-  runSocialTestWithProvider(manifest, function () {
-    runSocialTests(tests, undefined, undefined, function () {
-      SocialService.removeProvider(Social.provider.origin, finish);
-    });
+  runSocialTestWithProvider(manifest, function (finishcb) {
+    runSocialTests(tests, undefined, undefined, finishcb);
   });
 }
 
@@ -66,7 +62,7 @@ var tests = {
     ok(userButton.hidden, "username is not visible");
     let ambience = document.getElementById("social-status-iconbox").firstChild;
     while (ambience) {
-      ok(ambience.collapsed, "ambient icon is collapsed");
+      ok(ambience.collapsed, "ambient icon (" + ambience.id + ") is collapsed");
       ambience = ambience.nextSibling;
     }
     

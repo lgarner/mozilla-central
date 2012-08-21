@@ -252,6 +252,10 @@ struct ArenaLists {
         return arenaLists[thingKind].head;
     }
 
+    ArenaHeader *getFirstArenaToSweep(AllocKind thingKind) const {
+        return arenaListsToSweep[thingKind];
+    }
+
     bool arenaListsAreEmpty() const {
         for (size_t i = 0; i != FINALIZE_LIMIT; ++i) {
             /*
@@ -1117,6 +1121,9 @@ RunDebugGC(JSContext *cx);
 
 void
 SetDeterministicGC(JSContext *cx, bool enabled);
+
+void
+SetValidateGC(JSContext *cx, bool enabled);
 
 const int ZealPokeValue = 1;
 const int ZealAllocValue = 2;

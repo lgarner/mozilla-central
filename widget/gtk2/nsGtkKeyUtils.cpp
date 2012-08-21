@@ -618,6 +618,7 @@ KeymapWrapper::InitInputEvent(nsInputEvent& aInputEvent,
     switch(aInputEvent.eventStructType) {
         case NS_MOUSE_EVENT:
         case NS_MOUSE_SCROLL_EVENT:
+        case NS_WHEEL_EVENT:
         case NS_DRAG_EVENT:
         case NS_SIMPLE_GESTURE_EVENT:
         case NS_MOZTOUCH_EVENT:
@@ -834,7 +835,7 @@ KeymapWrapper::GuessGDKKeyval(PRUint32 aDOMKeyCode)
         case NS_VK_NUMPAD9:   return GDK_KP_9;
         // other prinable keys
         case NS_VK_SPACE:               return GDK_space;
-        case NS_VK_COLON:               return GDK_comma;
+        case NS_VK_COLON:               return GDK_colon;
         case NS_VK_SEMICOLON:           return GDK_semicolon;
         case NS_VK_LESS_THAN:           return GDK_less;
         case NS_VK_EQUALS:              return GDK_equal;

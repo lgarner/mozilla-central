@@ -13,8 +13,14 @@ USING_FILE_NAMESPACE
 
 NS_IMPL_THREADSAFE_ISUPPORTS0(ArchiveItem)
 
+ArchiveItem::ArchiveItem()
+{
+  MOZ_COUNT_CTOR(ArchiveItem);
+}
+
 ArchiveItem::~ArchiveItem()
 {
+  MOZ_COUNT_DTOR(ArchiveItem);
 }
 
 
@@ -93,7 +99,7 @@ ArchiveReaderEvent::ShareMainThread()
 
         // Just to be sure, if something goes wrong, the mimetype is an empty string:
         nsCString type;
-        if (GetType(ext, type) == NS_OK)
+        if (NS_SUCCEEDED(GetType(ext, type)))
           item->SetType(type);
       }
 

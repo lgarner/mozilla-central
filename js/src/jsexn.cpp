@@ -260,7 +260,7 @@ InitExnPrivate(JSContext *cx, HandleObject exnObject, HandleString message,
     Vector<JSStackTraceStackElem> frames(cx);
     {
         SuppressErrorsGuard seg(cx);
-        for (ScriptFrameIter i(cx); !i.done(); ++i) {
+        for (NonBuiltinScriptFrameIter i(cx); !i.done(); ++i) {
             StackFrame *fp = i.fp();
 
             /*
@@ -560,7 +560,7 @@ Exception(JSContext *cx, unsigned argc, Value *vp)
     }
 
     /* Find the scripted caller. */
-    ScriptFrameIter iter(cx);
+    NonBuiltinScriptFrameIter iter(cx);
 
     /* XXX StackIter should not point directly to scripts. */
     SkipRoot skip(cx, &iter);
@@ -686,7 +686,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
     JS_CHECK_RECURSION(cx, return false);
     CallArgs args = CallArgsFromVp(argc, vp);
 
-    RootedObject obj(cx, ToObject(cx, &args.thisv()));
+    RootedObject obj(cx, ToObject(cx, args.thisv()));
     if (!obj)
         return false;
 

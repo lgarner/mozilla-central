@@ -417,7 +417,7 @@ extern JS_PUBLIC_API(uintptr_t *)
 JS_GetFunctionLocalNameArray(JSContext *cx, JSFunction *fun, void **markp)
 {
     BindingVector bindings(cx);
-    if (!GetOrderedBindings(cx, fun->script()->bindings, &bindings))
+    if (!FillBindingVector(fun->script()->bindings, &bindings))
         return NULL;
 
     /* Munge data into the API this method implements.  Avert your eyes! */
@@ -430,7 +430,7 @@ JS_GetFunctionLocalNameArray(JSContext *cx, JSFunction *fun, void **markp)
     }
 
     for (size_t i = 0; i < bindings.length(); i++)
-        names[i] = reinterpret_cast<uintptr_t>(bindings[i].maybeName);
+        names[i] = reinterpret_cast<uintptr_t>(bindings[i].name());
 
     return names;
 }
@@ -695,7 +695,9 @@ JS_GetScriptFilename(JSContext *cx, JSScript *script)
 JS_PUBLIC_API(const jschar *)
 JS_GetScriptSourceMap(JSContext *cx, JSScript *script)
 {
-    return script->hasSourceMap ? script->getSourceMap() : NULL;
+    ScriptSource *source = script->scriptSource();
+    JS_ASSERT(source);
+    return source->hasSourceMap() ? source->sourceMap() : NULL;
 }
 
 JS_PUBLIC_API(unsigned)
@@ -846,12 +848,14 @@ JS_GetPropertyDescArray(JSContext *cx, JSObject *obj_, JSPropertyDescArray *pda)
             return false;
 
         for (i = 0; i < props.length(); ++i) {
+            pd[i].id = JSVAL_NULL;
+            pd[i].value = JSVAL_NULL;
             if (!js_AddRoot(cx, &pd[i].id, NULL))
                 goto bad;
             pd[i].id = IdToValue(props[i]);
             if (!js_AddRoot(cx, &pd[i].value, NULL))
                 goto bad;
-            if (!Proxy::get(cx, obj, obj, props[i], &pd[i].value))
+            if (!Proxy::get(cx, obj, obj, props.handleAt(i), MutableHandleValue::fromMarkedLocation(&pd[i].value)))
                 goto bad;
         }
 
@@ -881,6 +885,9 @@ JS_GetPropertyDescArray(JSContext *cx, JSObject *obj_, JSPropertyDescArray *pda)
     if (!pd)
         return false;
     for (Shape::Range r = obj->lastProperty()->all(); !r.empty(); r.popFront()) {
+        pd[i].id = JSVAL_NULL;
+        pd[i].value = JSVAL_NULL;
+        pd[i].alias = JSVAL_NULL;
         if (!js_AddRoot(cx, &pd[i].id, NULL))
             goto bad;
         if (!js_AddRoot(cx, &pd[i].value, NULL))

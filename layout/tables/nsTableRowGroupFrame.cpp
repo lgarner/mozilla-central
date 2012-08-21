@@ -231,10 +231,10 @@ nsTableRowGroupFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                                aLists, item, DisplayRows);
 }
 
-PRIntn
+int
 nsTableRowGroupFrame::GetSkipSides() const
 {
-  PRIntn skip = 0;
+  int skip = 0;
   if (nullptr != GetPrevInFlow()) {
     skip |= 1 << NS_SIDE_TOP;
   }
@@ -1337,6 +1337,8 @@ nsTableRowGroupFrame::Reflow(nsPresContext*           aPresContext,
 /* virtual */ void
 nsTableRowGroupFrame::DidSetStyleContext(nsStyleContext* aOldStyleContext)
 {
+  nsContainerFrame::DidSetStyleContext(aOldStyleContext);
+
   if (!aOldStyleContext) //avoid this on init
     return;
      

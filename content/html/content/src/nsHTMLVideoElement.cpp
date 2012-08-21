@@ -12,7 +12,7 @@
 #include "nsGenericHTMLElement.h"
 #include "nsGkAtoms.h"
 #include "nsSize.h"
-#include "nsDOMError.h"
+#include "nsError.h"
 #include "nsNodeInfoManager.h"
 #include "plbase64.h"
 #include "nsNetUtil.h"
@@ -20,6 +20,7 @@
 #include "nsXPCOMStrings.h"
 #include "prlock.h"
 #include "nsThreadUtils.h"
+#include "ImageContainer.h"
 
 #include "nsIScriptSecurityManager.h"
 #include "nsIXPConnect.h"

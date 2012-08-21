@@ -172,6 +172,10 @@ pref("browser.xul.error_pages.enabled", true);
 // disable color management
 pref("gfx.color_management.mode", 0);
 
+//prefer Azure/Cairo canvas
+pref("gfx.canvas.azure.enabled", true);
+pref("gfx.canvas.azure.backends", "cairo");
+
 // don't allow JS to move and resize existing windows
 pref("dom.disable_window_move_resize", true);
 
@@ -345,6 +349,9 @@ pref("urlclassifier.alternate_error_page", "blocked");
 // The number of random entries to send with a gethash request.
 pref("urlclassifier.gethashnoise", 4);
 
+// Randomize all UrlClassifier data with a per-client key.
+pref("urlclassifier.randomizeclient", true);
+
 // The list of tables that use the gethash request to confirm partial results.
 pref("urlclassifier.gethashtables", "goog-phish-shavar,goog-malware-shavar");
 
@@ -352,9 +359,6 @@ pref("urlclassifier.gethashtables", "goog-phish-shavar,goog-malware-shavar");
 // a gethash request will be forced to check that the result is still in
 // the database.
 pref("urlclassifier.confirm-age", 2700);
-
-// Maximum size of the sqlite3 cache during an update, in bytes
-pref("urlclassifier.updatecachemax", 4194304);
 
 // URL for checking the reason for a malware warning.
 pref("browser.safebrowsing.malware.reportURL", "http://safebrowsing.clients.google.com/safebrowsing/diagnostic?client=%NAME%&hl=%LOCALE%&site=");
@@ -502,6 +506,9 @@ pref("dom.disable_window_print", true);
 // Disable window.showModalDialog
 pref("dom.disable_window_showModalDialog", true);
 
+// Enable new experimental html forms
+pref("dom.experimental_forms", true);
+
 // Turns on gralloc-based direct texturing for Gonk
 pref("gfx.gralloc.enabled", false);
 
@@ -510,6 +517,13 @@ pref("javascript.options.mem.log", true);
 
 // Increase mark slice time from 10ms to 30ms
 pref("javascript.options.mem.gc_incremental_slice_ms", 30);
+
+pref("javascript.options.mem.gc_high_frequency_heap_growth_max", 120);
+pref("javascript.options.mem.gc_high_frequency_heap_growth_min", 101);
+pref("javascript.options.mem.gc_high_frequency_high_limit_mb", 40);
+pref("javascript.options.mem.gc_high_frequency_low_limit_mb", 10);
+pref("javascript.options.mem.gc_low_frequency_heap_growth", 105);
+pref("javascript.options.mem.high_water_mark", 16);
 
 // Show/Hide scrollbars when active/inactive
 pref("ui.showHideScrollbars", 1);
@@ -525,3 +539,12 @@ pref("hal.processPriorityManager.gonk.backgroundOomAdjust", 2);
 pref("hal.processPriorityManager.gonk.masterNice", -1);
 pref("hal.processPriorityManager.gonk.foregroundNice", 0);
 pref("hal.processPriorityManager.gonk.backgroundNice", 10);
+
+// Enable pre-launching content processes for improved startup time
+// (hiding latency).
+pref("dom.ipc.processPrelauch.enabled", true);
+// Wait this long before pre-launching a new subprocess.
+pref("dom.ipc.processPrelauch.delayMs", 1000);
+
+// Ignore the "dialog=1" feature in window.open.
+pref("dom.disable_window_open_dialog_feature", true);

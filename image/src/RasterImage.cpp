@@ -6,7 +6,7 @@
 #include "base/histogram.h"
 #include "nsComponentManagerUtils.h"
 #include "imgIContainerObserver.h"
-#include "ImageErrors.h"
+#include "nsError.h"
 #include "Decoder.h"
 #include "imgIDecoderObserver.h"
 #include "RasterImage.h"
@@ -17,7 +17,8 @@
 #include "prmem.h"
 #include "prenv.h"
 #include "ImageLogging.h"
-#include "ImageLayers.h"
+#include "ImageContainer.h"
+#include "Layers.h"
 
 #include "nsPNGDecoder.h"
 #include "nsGIFDecoder2.h"
@@ -55,7 +56,6 @@ static PRLogModuleInfo *gCompressedImageAccountingLog = PR_NewLogModule ("Compre
 static bool gInitializedPrefCaches = false;
 static PRUint32 gDecodeBytesAtATime = 0;
 static PRUint32 gMaxMSBeforeYield = 0;
-static PRUint32 gMaxBytesForSyncDecode = 0;
 
 static void
 InitPrefCaches()
@@ -64,8 +64,6 @@ InitPrefCaches()
                                "image.mem.decode_bytes_at_a_time", 200000);
   Preferences::AddUintVarCache(&gMaxMSBeforeYield,
                                "image.mem.max_ms_before_yield", 400);
-  Preferences::AddUintVarCache(&gMaxBytesForSyncDecode,
-                               "image.mem.max_bytes_for_sync_decode", 150000);
   gInitializedPrefCaches = true;
 }
 
@@ -96,7 +94,7 @@ InitPrefCaches()
 #define CONTAINER_ENSURE_SUCCESS(status)      \
   PR_BEGIN_MACRO                              \
   nsresult _status = status; /* eval once */  \
-  if (_status) {                              \
+  if (NS_FAILED(_status)) {                   \
     LOG_CONTAINER_ERROR;                      \
     DoError();                                \
     return _status;                           \
@@ -480,18 +478,8 @@ RasterImage::ExtractFrame(PRUint32 aWhichFrame,
   img->mHasBeenDecoded = true;
   img->mFrameDecodeFlags = aFlags & DECODE_FLAGS_MASK;
 
-  if (img->mFrameDecodeFlags != mFrameDecodeFlags) {
-    // if we can't discard, then we're screwed; we have no way
-    // to re-decode.  Similarly if we aren't allowed to do a sync
-    // decode.
-    if (!(aFlags & FLAG_SYNC_DECODE))
-      return NS_ERROR_NOT_AVAILABLE;
-    if (!CanForciblyDiscard() || mDecoder || mAnim)
-      return NS_ERROR_NOT_AVAILABLE;
-    ForceDiscard();
-
-    mFrameDecodeFlags = img->mFrameDecodeFlags;
-  }
+  if (!ApplyDecodeFlags(aFlags))
+    return NS_ERROR_NOT_AVAILABLE;
   
   // If a synchronous decode was requested, do it
   if (aFlags & FLAG_SYNC_DECODE) {
@@ -768,19 +756,8 @@ RasterImage::CopyFrame(PRUint32 aWhichFrame,
 
   nsresult rv;
 
-  PRUint32 desiredDecodeFlags = aFlags & DECODE_FLAGS_MASK;
-  if (desiredDecodeFlags != mFrameDecodeFlags) {
-    // if we can't discard, then we're screwed; we have no way
-    // to re-decode.  Similarly if we aren't allowed to do a sync
-    // decode.
-    if (!(aFlags & FLAG_SYNC_DECODE))
-      return NS_ERROR_NOT_AVAILABLE;
-    if (!CanForciblyDiscard() || mDecoder || mAnim)
-      return NS_ERROR_NOT_AVAILABLE;
-    ForceDiscard();
-
-    mFrameDecodeFlags = desiredDecodeFlags;
-  }
+  if (!ApplyDecodeFlags(aFlags))
+    return NS_ERROR_NOT_AVAILABLE;
 
   // If requested, synchronously flush any data we have lying around to the decoder
   if (aFlags & FLAG_SYNC_DECODE) {
@@ -841,24 +818,8 @@ RasterImage::GetFrame(PRUint32 aWhichFrame,
 
   nsresult rv = NS_OK;
 
-  if (mDecoded) {
-    // If we have decoded data, and it is not a perfect match for what we are
-    // looking for, we must discard to be able to generate the proper data.
-    PRUint32 desiredDecodeFlags = aFlags & DECODE_FLAGS_MASK;
-    if (desiredDecodeFlags != mFrameDecodeFlags) {
-      // if we can't discard, then we're screwed; we have no way
-      // to re-decode.  Similarly if we aren't allowed to do a sync
-      // decode.
-      if (!(aFlags & FLAG_SYNC_DECODE))
-        return NS_ERROR_NOT_AVAILABLE;
-      if (!CanForciblyDiscard() || mDecoder || mAnim)
-        return NS_ERROR_NOT_AVAILABLE;
-  
-      ForceDiscard();
-  
-      mFrameDecodeFlags = desiredDecodeFlags;
-    }
-  }
+  if (!ApplyDecodeFlags(aFlags))
+    return NS_ERROR_NOT_AVAILABLE;
 
   // If the caller requested a synchronous decode, do it
   if (aFlags & FLAG_SYNC_DECODE) {
@@ -922,7 +883,7 @@ RasterImage::GetImageContainer(ImageContainer **_retval)
   mImageContainer = LayerManager::CreateImageContainer();
   
   // Now create a CairoImage to display the surface.
-  layers::Image::Format cairoFormat = layers::Image::CAIRO_SURFACE;
+  ImageFormat cairoFormat = CAIRO_SURFACE;
   nsRefPtr<layers::Image> image = mImageContainer->CreateImage(&cairoFormat, 1);
   NS_ASSERTION(image, "Failed to create Image");
 
@@ -1083,6 +1044,27 @@ RasterImage::InternalAddFrame(PRUint32 framenum,
   EvaluateAnimation();
   
   return rv;
+}
+
+bool
+RasterImage::ApplyDecodeFlags(PRUint32 aNewFlags)
+{
+  if (mFrameDecodeFlags == (aNewFlags & DECODE_FLAGS_MASK))
+    return true; // Not asking very much of us here.
+
+  if (mDecoded) {
+    // if we can't discard, then we're screwed; we have no way
+    // to re-decode.  Similarly if we aren't allowed to do a sync
+    // decode.
+    if (!(aNewFlags & FLAG_SYNC_DECODE))
+      return false;
+    if (!CanForciblyDiscard() || mDecoder || mAnim)
+      return false;
+    ForceDiscard();
+  }
+
+  mFrameDecodeFlags = aNewFlags & DECODE_FLAGS_MASK;
+  return true;
 }
 
 nsresult
@@ -1531,7 +1513,7 @@ RasterImage::AddSourceData(const char *aBuffer, PRUint32 aCount)
 /* Note!  buf must be declared as char buf[9]; */
 // just used for logging and hashing the header
 static void
-get_header_str (char *buf, char *data, PRSize data_len)
+get_header_str (char *buf, char *data, size_t data_len)
 {
   int i;
   int n;
@@ -2478,9 +2460,13 @@ RasterImage::RequestDecode()
   if (mBytesDecoded == mSourceData.Length())
     return NS_OK;
 
-  // If it's a smallish image, it's not worth it to do things async
-  if (!mDecoded && !mInDecoder && mHasSourceData && (mSourceData.Length() < gMaxBytesForSyncDecode))
-    return SyncDecode();
+  // If we can do decoding now, do so.  Small images will decode completely,
+  // large images will decode a bit and post themselves to the event loop
+  // to finish decoding.
+  if (!mDecoded && !mInDecoder && mHasSourceData) {
+    DecodeWorker::Singleton()->DecodeABitOf(this);
+    return NS_OK;
+  }
 
   // If we get this far, dispatch the worker. We do this instead of starting
   // any immediate decoding to guarantee that all our decode notifications are
@@ -2910,6 +2896,25 @@ RasterImage::DecodeWorker::RequestDecode(RasterImage* aImg)
 {
   AddDecodeRequest(&aImg->mDecodeRequest);
   EnsurePendingInEventLoop();
+}
+
+void
+RasterImage::DecodeWorker::DecodeABitOf(RasterImage* aImg)
+{
+  TimeStamp eventStart = TimeStamp::Now();
+
+  do {
+    DecodeSomeOfImage(aImg);
+
+    // If we aren't yet finished decoding and we have more data in hand, add
+    // this request to the back of the priority list.
+    if (aImg->mDecoder &&
+        !aImg->mError &&
+        !aImg->IsDecodeFinished() &&
+        aImg->mSourceData.Length() > aImg->mBytesDecoded) {
+      RequestDecode(aImg);
+    }
+  } while ((TimeStamp::Now() - eventStart).ToMilliseconds() <= gMaxMSBeforeYield);
 }
 
 void

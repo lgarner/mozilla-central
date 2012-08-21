@@ -60,12 +60,13 @@
 #include "nsIContentPolicy.h"
 #include "nsContentPolicyUtils.h"
 #include "nsEventStates.h"
-#include "nsLayoutErrors.h"
+#include "nsError.h"
 #include "nsBidiUtils.h"
 #include "nsBidiPresUtils.h"
 
 #include "gfxRect.h"
 #include "ImageLayers.h"
+#include "ImageContainer.h"
 
 #include "mozilla/Preferences.h"
 #include "mozilla/Util.h" // for DebugOnly
@@ -1743,10 +1744,10 @@ nsImageFrame::List(FILE* out, PRInt32 aIndent) const
 }
 #endif
 
-PRIntn
+int
 nsImageFrame::GetSkipSides() const
 {
-  PRIntn skip = 0;
+  int skip = 0;
   if (nullptr != GetPrevInFlow()) {
     skip |= 1 << NS_SIDE_TOP;
   }

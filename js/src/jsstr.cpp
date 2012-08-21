@@ -23,7 +23,6 @@
 #include <string.h>
 #include "jstypes.h"
 #include "jsutil.h"
-#include "jshash.h"
 #include "jsprf.h"
 #include "jsapi.h"
 #include "jsarray.h"
@@ -42,6 +41,7 @@
 #include "jsversion.h"
 
 #include "builtin/RegExp.h"
+#include "js/HashTable.h"
 #include "vm/GlobalObject.h"
 #include "vm/NumericConversions.h"
 #include "vm/RegExpObject.h"
@@ -440,7 +440,7 @@ ThisToStringForStringProto(JSContext *cx, CallReceiver call)
             Rooted<jsid> id(cx, NameToId(cx->runtime->atomState.toStringAtom));
             if (ClassMethodIsNative(cx, obj, &StringClass, id, js_str_toString)) {
                 JSString *str = obj->asString().unbox();
-                call.thisv().setString(str);
+                call.setThis(StringValue(str));
                 return str;
             }
         }
@@ -454,11 +454,11 @@ ThisToStringForStringProto(JSContext *cx, CallReceiver call)
     if (!str)
         return NULL;
 
-    call.thisv().setString(str);
+    call.setThis(StringValue(str));
     return str;
 }
 
-static bool
+JS_ALWAYS_INLINE bool
 IsString(const Value &v)
 {
     return v.isString() || (v.isObject() && v.toObject().hasClass(&StringClass));
@@ -484,7 +484,7 @@ str_quote(JSContext *cx, unsigned argc, Value *vp)
     return true;
 }
 
-static bool
+JS_ALWAYS_INLINE bool
 str_toSource_impl(JSContext *cx, CallArgs args)
 {
     JS_ASSERT(IsString(args.thisv()));
@@ -508,16 +508,16 @@ str_toSource_impl(JSContext *cx, CallArgs args)
     return true;
 }
 
-static JSBool
+JSBool
 str_toSource(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod(cx, IsString, str_toSource_impl, args);
+    return CallNonGenericMethod<IsString, str_toSource_impl>(cx, args);
 }
 
 #endif /* JS_HAS_TOSOURCE */
 
-static bool
+JS_ALWAYS_INLINE bool
 str_toString_impl(JSContext *cx, CallArgs args)
 {
     JS_ASSERT(IsString(args.thisv()));
@@ -532,7 +532,7 @@ JSBool
 js_str_toString(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod(cx, IsString, str_toString_impl, args);
+    return CallNonGenericMethod<IsString, str_toString_impl>(cx, args);
 }
 
 /*
@@ -1022,7 +1022,7 @@ StringMatch(const jschar *text, uint32_t textlen,
 static const size_t sRopeMatchThresholdRatioLog2 = 5;
 
 /*
- * RopeMatch takes the text to search, the patern to search for in the text.
+ * RopeMatch takes the text to search and the pattern to search for in the text.
  * RopeMatch returns false on OOM and otherwise returns the match index through
  * the 'match' outparam (-1 for not found).
  */
@@ -1148,6 +1148,9 @@ str_contains(JSContext *cx, unsigned argc, Value *vp)
     if (!text)
         return false;
 
+    // XXX fix for moving GC.
+    SkipRoot skip(cx, &text);
+
     if (args.hasDefined(1)) {
         // Step 4
         double posDouble;
@@ -1186,6 +1189,7 @@ str_indexOf(JSContext *cx, unsigned argc, Value *vp)
 
     uint32_t patlen = patstr->length();
     const jschar *pat = patstr->chars();
+    SkipRoot skipPat(cx, &pat);
 
     uint32_t start;
     if (args.length() > 1) {
@@ -1324,6 +1328,9 @@ str_startsWith(JSContext *cx, unsigned argc, Value *vp)
     if (!text)
         return false;
 
+    // XXX fix for moving GC.
+    SkipRoot skip(cx, &text);
+
     if (args.hasDefined(1)) {
         // Step 4
         double posDouble;
@@ -1366,6 +1373,9 @@ str_endsWith(JSContext *cx, unsigned argc, Value *vp)
     const jschar *text = str->getChars(cx);
     if (!text)
         return false;
+
+    // XXX fix for moving GC.
+    SkipRoot skip(cx, &text);
 
     if (args.hasDefined(1)) {
         // Step 5
@@ -1548,7 +1558,7 @@ class StringRegExpGuard
             if (!arg)
                 return false;
 
-            fm.patstr = js_AtomizeString(cx, arg);
+            fm.patstr = AtomizeString(cx, arg);
             if (!fm.patstr)
                 return false;
         }
@@ -1935,7 +1945,7 @@ FindReplaceLength(JSContext *cx, RegExpStatics *res, ReplaceData &rdata, size_t 
         if (str->isAtom()) {
             atom = &str->asAtom();
         } else {
-            atom = js_AtomizeString(cx, str);
+            atom = AtomizeString(cx, str);
             if (!atom)
                 return false;
         }
@@ -1977,7 +1987,7 @@ FindReplaceLength(JSContext *cx, RegExpStatics *res, ReplaceData &rdata, size_t 
             return false;
 
         args.setCallee(ObjectValue(*lambda));
-        args.thisv() = UndefinedValue();
+        args.setThis(UndefinedValue());
 
         /* Push $&, $1, $2, ... */
         unsigned argi = 0;
@@ -2295,8 +2305,8 @@ str_replace_flat_lambda(JSContext *cx, CallArgs outerArgs, ReplaceData &rdata, c
         return false;
 
     CallArgs &args = rdata.args;
-    args.calleev().setObject(*rdata.lambda);
-    args.thisv().setUndefined();
+    args.setCallee(ObjectValue(*rdata.lambda));
+    args.setThis(UndefinedValue());
 
     Value *sp = args.array();
     sp[0].setString(matchStr);
@@ -2768,7 +2778,7 @@ static JSBool
 str_substr(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    JSString *str = ThisToStringForStringProto(cx, args);
+    RootedString str(cx, ThisToStringForStringProto(cx, args));
     if (!str)
         return false;
 
@@ -3563,6 +3573,18 @@ js_strchr(const jschar *s, jschar c)
         s++;
     }
     return NULL;
+}
+
+jschar *
+js_strdup(JSContext *cx, const jschar *s)
+{
+    size_t n = js_strlen(s);
+    jschar *ret = static_cast<jschar *>(cx->malloc_((n + 1) * sizeof(jschar)));
+    if (!ret)
+        return NULL;
+    js_strncpy(ret, s, n);
+    ret[n] = '\0';
+    return ret;
 }
 
 jschar *

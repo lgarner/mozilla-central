@@ -1180,7 +1180,7 @@ nsSOCKSIOLayerGetPeerName(PRFileDesc *fd, PRNetAddr *addr)
 }
 
 static PRStatus
-nsSOCKSIOLayerListen(PRFileDesc *fd, PRIntn backlog)
+nsSOCKSIOLayerListen(PRFileDesc *fd, int backlog)
 {
     // TODO: implement SOCKS support for listen
     return fd->lower->methods->listen(fd->lower, backlog);
@@ -1263,8 +1263,7 @@ nsSOCKSIOLayerAddToSocket(PRInt32 family,
     layer->secret = (PRFilePrivate*) infoObject;
     rv = PR_PushIOLayer(fd, PR_GetLayersIdentity(fd), layer);
 
-    if (NS_FAILED(rv))
-    {
+    if (rv == PR_FAILURE) {
         LOGERROR(("PR_PushIOLayer() failed. rv = %x.", rv));
         NS_RELEASE(infoObject);
         PR_DELETE(layer);

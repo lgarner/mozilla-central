@@ -140,6 +140,9 @@ XPCOMUtils.defineLazyGetter(this, "Social", function() {
   return tmp.Social;
 });
 
+XPCOMUtils.defineLazyModuleGetter(this, "PageThumbs",
+  "resource:///modules/PageThumbs.jsm");
+
 #ifdef MOZ_SAFE_BROWSING
 XPCOMUtils.defineLazyGetter(this, "SafeBrowsing", function() {
   let tmp = {};
@@ -147,6 +150,12 @@ XPCOMUtils.defineLazyGetter(this, "SafeBrowsing", function() {
   return tmp.SafeBrowsing;
 });
 #endif
+
+XPCOMUtils.defineLazyGetter(this, "gBrowserNewTabPreloader", function () {
+  let tmp = {};
+  Cu.import("resource://gre/modules/BrowserNewTabPreloader.jsm", tmp);
+  return new tmp.BrowserNewTabPreloader();
+});
 
 let gInitialPages = [
   "about:blank",
@@ -211,7 +220,7 @@ XPCOMUtils.defineLazyGetter(this, "PageMenu", function() {
 */
 function pageShowEventHandlers(event) {
   // Filter out events that are not about the document load we are interested in
-  if (event.originalTarget == content.document) {
+  if (event.target == content.document) {
     charsetLoadListener(event);
     XULBrowserWindow.asyncUpdateUI();
 
@@ -1398,6 +1407,12 @@ var gBrowserInit = {
     gSyncUI.init();
 #endif
 
+    // Don't preload new tab pages when the toolbar is hidden
+    // (i.e. when the current window is a popup window).
+    if (window.toolbar.visible) {
+      gBrowserNewTabPreloader.init(window);
+    }
+
     gBrowserThumbnails.init();
     TabView.init();
 
@@ -1553,6 +1568,10 @@ var gBrowserInit = {
     FullScreen.cleanup();
 
     Services.obs.removeObserver(gPluginHandler.pluginCrashed, "plugin-crashed");
+
+    if (!__lookupGetter__("gBrowserNewTabPreloader")) {
+      gBrowserNewTabPreloader.uninit();
+    }
 
     try {
       gBrowser.removeProgressListener(window.XULBrowserWindow);
@@ -2512,6 +2531,9 @@ let BrowserOnClick = {
     else if (/^about:blocked/.test(ownerDoc.documentURI)) {
       this.onAboutBlocked(originalTarget, ownerDoc);
     }
+    else if (/^about:neterror/.test(ownerDoc.documentURI)) {
+      this.onAboutNetError(originalTarget, ownerDoc);
+    }
     else if (/^about:home$/i.test(ownerDoc.documentURI)) {
       this.onAboutHome(originalTarget, ownerDoc);
     }
@@ -2676,6 +2698,13 @@ let BrowserOnClick = {
     // Persist the notification until the user removes so it
     // doesn't get removed on redirects.
     notification.persistence = -1;
+  },
+
+  onAboutNetError: function BrowserOnClick_onAboutNetError(aTargetElm, aOwnerDoc) {
+    let elmId = aTargetElm.getAttribute("id");
+    if (elmId != "errorTryAgain" || !/e=netOffline/.test(aOwnerDoc.documentURI))
+      return;
+    Services.io.offline = false;
   },
 
   onAboutHome: function BrowserOnClick_onAboutHome(aTargetElm, aOwnerDoc) {
@@ -3132,6 +3161,52 @@ const DOMLinkHandler = {
         break;
     }
   },
+  getLinkIconURI: function(aLink) {
+    let targetDoc = aLink.ownerDocument;
+    var uri = makeURI(aLink.href, targetDoc.characterSet);
+
+    // Verify that the load of this icon is legal.
+    // Some error or special pages can load their favicon.
+    // To be on the safe side, only allow chrome:// favicons.
+    var isAllowedPage = [
+      /^about:neterror\?/,
+      /^about:blocked\?/,
+      /^about:certerror\?/,
+      /^about:home$/,
+    ].some(function (re) re.test(targetDoc.documentURI));
+
+    if (!isAllowedPage || !uri.schemeIs("chrome")) {
+      var ssm = Cc["@mozilla.org/scriptsecuritymanager;1"].
+                getService(Ci.nsIScriptSecurityManager);
+      try {
+        ssm.checkLoadURIWithPrincipal(targetDoc.nodePrincipal, uri,
+                                      Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
+      } catch(e) {
+        return null;
+      }
+    }
+
+    try {
+      var contentPolicy = Cc["@mozilla.org/layout/content-policy;1"].
+                          getService(Ci.nsIContentPolicy);
+    } catch(e) {
+      return null; // Refuse to load if we can't do a security check.
+    }
+
+    // Security says okay, now ask content policy
+    if (contentPolicy.shouldLoad(Ci.nsIContentPolicy.TYPE_IMAGE,
+                                 uri, targetDoc.documentURIObject,
+                                 aLink, aLink.type, null)
+                                 != Ci.nsIContentPolicy.ACCEPT)
+      return null;
+    
+    try {
+      uri.userPass = "";
+    } catch(e) {
+      // some URIs are immutable
+    }
+    return uri;
+  },
   onLinkAdded: function (event) {
     var link = event.originalTarget;
     var rel = link.rel && link.rel.toLowerCase();
@@ -3165,54 +3240,20 @@ const DOMLinkHandler = {
             if (!gPrefService.getBoolPref("browser.chrome.site_icons"))
               break;
 
-            var targetDoc = link.ownerDocument;
-            var uri = makeURI(link.href, targetDoc.characterSet);
+            var uri = this.getLinkIconURI(link);
+            if (!uri)
+              break;
 
             if (gBrowser.isFailedIcon(uri))
               break;
 
-            // Verify that the load of this icon is legal.
-            // Some error or special pages can load their favicon.
-            // To be on the safe side, only allow chrome:// favicons.
-            var isAllowedPage = [
-              /^about:neterror\?/,
-              /^about:blocked\?/,
-              /^about:certerror\?/,
-              /^about:home$/,
-            ].some(function (re) re.test(targetDoc.documentURI));
-
-            if (!isAllowedPage || !uri.schemeIs("chrome")) {
-              var ssm = Cc["@mozilla.org/scriptsecuritymanager;1"].
-                        getService(Ci.nsIScriptSecurityManager);
-              try {
-                ssm.checkLoadURIWithPrincipal(targetDoc.nodePrincipal, uri,
-                                              Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
-              } catch(e) {
-                break;
-              }
-            }
-
-            try {
-              var contentPolicy = Cc["@mozilla.org/layout/content-policy;1"].
-                                  getService(Ci.nsIContentPolicy);
-            } catch(e) {
-              break; // Refuse to load if we can't do a security check.
-            }
-
-            // Security says okay, now ask content policy
-            if (contentPolicy.shouldLoad(Ci.nsIContentPolicy.TYPE_IMAGE,
-                                         uri, targetDoc.documentURIObject,
-                                         link, link.type, null)
-                                         != Ci.nsIContentPolicy.ACCEPT)
-              break;
-
-            var browserIndex = gBrowser.getBrowserIndexForDocument(targetDoc);
+            var browserIndex = gBrowser.getBrowserIndexForDocument(link.ownerDocument);
             // no browser? no favicon.
             if (browserIndex == -1)
               break;
 
             let tab = gBrowser.tabs[browserIndex];
-            gBrowser.setIcon(tab, link.href);
+            gBrowser.setIcon(tab, uri.spec);
             iconAdded = true;
           }
           break;
@@ -4473,11 +4514,11 @@ var TabsProgressListener = {
     if (aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
         Components.isSuccessCode(aStatus) &&
         /^about:/.test(aWebProgress.DOMWindow.document.documentURI)) {
-      aBrowser.addEventListener("click", BrowserOnClick, false);
+      aBrowser.addEventListener("click", BrowserOnClick, true);
       aBrowser.addEventListener("pagehide", function onPageHide(event) {
         if (event.target.defaultView.frameElement)
           return;
-        aBrowser.removeEventListener("click", BrowserOnClick, false);
+        aBrowser.removeEventListener("click", BrowserOnClick, true);
         aBrowser.removeEventListener("pagehide", onPageHide, true);
       }, true);
 

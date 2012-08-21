@@ -45,8 +45,11 @@
 #include "gfxDrawable.h"
 #include "sampler.h"
 #include "nsCSSRenderingBorders.h"
+#include "mozilla/css/ImageLoader.h"
+#include "ImageContainer.h"
 
 using namespace mozilla;
+using namespace mozilla::css;
 
 // To avoid storing this data on nsInlineFrame (bloat) and to avoid
 // recalculating this for each frame in a continuation (perf), hold
@@ -385,7 +388,7 @@ nsCSSRendering::PaintBorder(nsPresContext* aPresContext,
                             const nsRect& aDirtyRect,
                             const nsRect& aBorderArea,
                             nsStyleContext* aStyleContext,
-                            PRIntn aSkipSides)
+                            int aSkipSides)
 {
   SAMPLE_LABEL("nsCSSRendering", "PaintBorder");
   nsStyleContext *styleIfVisited = aStyleContext->GetStyleIfVisited();
@@ -428,7 +431,7 @@ nsCSSRendering::PaintBorderWithStyleBorder(nsPresContext* aPresContext,
                                            const nsRect& aBorderArea,
                                            const nsStyleBorder& aStyleBorder,
                                            nsStyleContext* aStyleContext,
-                                           PRIntn aSkipSides)
+                                           int aSkipSides)
 {
   nsMargin            border;
   nscoord             twipsRadii[8];
@@ -2122,9 +2125,28 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
       gfxRect fillRect =
         forceRepeatToCoverTiles ? areaToFill : tileRect.Intersect(areaToFill);
       ctx->NewPath();
-      ctx->Translate(tileRect.TopLeft());
+      // If we can snap the gradient tile and fill rects, do so, but make sure
+      // that the gradient is scaled precisely to the tile rect.
+      gfxRect fillRectSnapped = fillRect;
+      // Don't snap the tileRect directly since that would lose information
+      // about the orientation of the current transform (i.e. vertical or
+      // horizontal flipping). Instead snap the corners independently so if
+      // the CTM has a flip, our Scale() below preserves the flip.
+      gfxPoint tileRectSnappedTopLeft = tileRect.TopLeft();
+      gfxPoint tileRectSnappedBottomRight = tileRect.BottomRight();
+      if (ctx->UserToDevicePixelSnapped(fillRectSnapped, true) &&
+          ctx->UserToDevicePixelSnapped(tileRectSnappedTopLeft, true) &&
+          ctx->UserToDevicePixelSnapped(tileRectSnappedBottomRight, true)) {
+        ctx->IdentityMatrix();
+        ctx->Rectangle(fillRectSnapped);
+        ctx->Translate(tileRectSnappedTopLeft);
+        ctx->Scale((tileRectSnappedBottomRight.x - tileRectSnappedTopLeft.x)/tileRect.width,
+                   (tileRectSnappedBottomRight.y - tileRectSnappedTopLeft.y)/tileRect.height);
+      } else {
+        ctx->Rectangle(fillRect);
+        ctx->Translate(tileRect.TopLeft());
+      }
       ctx->SetPattern(gradientPattern);
-      ctx->Rectangle(fillRect - tileRect.TopLeft(), true);
       ctx->Fill();
       ctx->SetMatrix(ctm);
     }
@@ -2271,7 +2293,17 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
   // Ensure we get invalidated for loads of the image.  We need to do
   // this here because this might be the only code that knows about the
   // association of the style data with the frame.
-  aPresContext->SetupBackgroundImageLoaders(aForFrame, bg);
+  if (aBackgroundSC != aForFrame->GetStyleContext()) {
+    ImageLoader* loader = aPresContext->Document()->StyleImageLoader();
+    
+    NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT(i, bg) {
+      if (bg->mLayers[i].mImage.GetType() == eStyleImageType_Image) {
+        imgIRequest *image = bg->mLayers[i].mImage.GetImageData();
+
+        loader->AssociateRequestToFrame(image, aForFrame);
+      }
+    }
+  }
 
   // The background color is rendered over the entire dirty area,
   // even if the image isn't.
@@ -2527,8 +2559,8 @@ nsCSSRendering::PrepareBackgroundLayer(nsPresContext* aPresContext,
 
   state.mDestArea = nsRect(imageTopLeft + aBorderArea.TopLeft(), imageSize);
   state.mFillArea = state.mDestArea;
-  PRIntn repeatX = aLayer.mRepeat.mXRepeat;
-  PRIntn repeatY = aLayer.mRepeat.mYRepeat;
+  int repeatX = aLayer.mRepeat.mXRepeat;
+  int repeatY = aLayer.mRepeat.mYRepeat;
   if (repeatX == NS_STYLE_BG_REPEAT_REPEAT) {
     state.mFillArea.x = bgClipRect.x;
     state.mFillArea.width = bgClipRect.width;
@@ -2574,9 +2606,11 @@ DrawBorderImage(nsPresContext*       aPresContext,
   // XXX We shouldn't really... since if anybody is passing in a
   // different style, they'll potentially have the wrong size for the
   // border too.
-  aPresContext->SetupBorderImageLoaders(aForFrame, &aStyleBorder);
-
   imgIRequest *req = aStyleBorder.GetBorderImage();
+  ImageLoader* loader = aPresContext->Document()->StyleImageLoader();
+
+  // If this fails there's not much we can do ...
+  loader->AssociateRequestToFrame(req, aForFrame);
 
   // Get the actual image.
 
@@ -3552,6 +3586,53 @@ nsCSSRendering::PaintDecorationLine(nsIFrame* aFrame,
     aGfxContext->SetPattern(oldPattern);
     aGfxContext->SetLineWidth(oldLineWidth);
   }
+}
+
+void
+nsCSSRendering::DecorationLineToPath(nsIFrame* aFrame,
+                                     gfxContext* aGfxContext,
+                                     const gfxRect& aDirtyRect,
+                                     const nscolor aColor,
+                                     const gfxPoint& aPt,
+                                     const gfxFloat aXInFrame,
+                                     const gfxSize& aLineSize,
+                                     const gfxFloat aAscent,
+                                     const gfxFloat aOffset,
+                                     const PRUint8 aDecoration,
+                                     const PRUint8 aStyle,
+                                     const gfxFloat aDescentLimit)
+{
+  NS_ASSERTION(aStyle != NS_STYLE_TEXT_DECORATION_STYLE_NONE, "aStyle is none");
+
+  aGfxContext->NewPath();
+
+  gfxRect rect =
+    GetTextDecorationRectInternal(aPt, aLineSize, aAscent, aOffset,
+                                  aDecoration, aStyle, aDescentLimit);
+  if (rect.IsEmpty() || !rect.Intersects(aDirtyRect)) {
+    return;
+  }
+
+  if (aDecoration != NS_STYLE_TEXT_DECORATION_LINE_UNDERLINE &&
+      aDecoration != NS_STYLE_TEXT_DECORATION_LINE_OVERLINE &&
+      aDecoration != NS_STYLE_TEXT_DECORATION_LINE_LINE_THROUGH) {
+    NS_ERROR("Invalid decoration value!");
+    return;
+  }
+
+  if (aStyle != NS_STYLE_TEXT_DECORATION_STYLE_SOLID) {
+    // For the moment, we support only solid text decorations.
+    return;
+  }
+
+  gfxFloat lineHeight = NS_MAX(NS_round(aLineSize.height), 1.0);
+
+  // The y position should be set to the middle of the line.
+  rect.y += lineHeight / 2;
+
+  aGfxContext->Rectangle
+    (gfxRect(gfxPoint(rect.TopLeft() - gfxPoint(0.0, lineHeight / 2)),
+             gfxSize(rect.Width(), lineHeight)));
 }
 
 nsRect

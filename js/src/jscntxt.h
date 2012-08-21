@@ -407,6 +407,8 @@ struct JSRuntime : js::RuntimeFriendFields
     js::mjit::JaegerRuntime *jaegerRuntime_;
 #endif
 
+    JSObject *selfHostedGlobal_;
+
     JSC::ExecutableAllocator *createExecutableAllocator(JSContext *cx);
     WTF::BumpPointerAllocator *createBumpPointerAllocator(JSContext *cx);
     js::mjit::JaegerRuntime *createJaegerRuntime(JSContext *cx);
@@ -434,6 +436,11 @@ struct JSRuntime : js::RuntimeFriendFields
         return *jaegerRuntime_;
     }
 #endif
+
+    bool initSelfHosting(JSContext *cx);
+    void markSelfHostedGlobal(JSTracer *trc);
+    JSFunction *getSelfHostedFunction(JSContext *cx, const char *name);
+    bool cloneSelfHostedValueById(JSContext *cx, jsid id, js::HandleObject holder, js::Value *vp);
 
     /* Base address of the native stack for the current thread. */
     uintptr_t           nativeStackBase;
@@ -643,6 +650,8 @@ struct JSRuntime : js::RuntimeFriendFields
 
     bool isHeapBusy() { return heapState != Idle; }
 
+    bool isHeapCollecting() { return heapState == Collecting; }
+
     /*
      * These options control the zealousness of the GC. The fundamental values
      * are gcNextScheduled and gcDebugCompartmentGC. At every allocation,
@@ -694,6 +703,8 @@ struct JSRuntime : js::RuntimeFriendFields
     int gcZeal() { return 0; }
     bool needZealousGC() { return false; }
 #endif
+
+    bool                gcValidate;
 
     JSGCCallback        gcCallback;
     js::GCSliceCallback gcSliceCallback;
@@ -790,6 +801,7 @@ struct JSRuntime : js::RuntimeFriendFields
     uint32_t            debuggerMutations;
 
     const JSSecurityCallbacks *securityCallbacks;
+    const js::DOMCallbacks *DOMcallbacks;
     JSDestroyPrincipalsOp destroyPrincipals;
 
     /* Structured data callbacks are runtime-wide. */
@@ -857,8 +869,6 @@ struct JSRuntime : js::RuntimeFriendFields
     js::PreserveWrapperCallback            preserveWrapperCallback;
 
     js::ScriptFilenameTable scriptFilenameTable;
-
-    js::ScriptSource *scriptSources;
 
 #ifdef DEBUG
     size_t              noGCOrAllocationCheck;
@@ -1729,11 +1739,11 @@ js_ReportIsNotDefined(JSContext *cx, const char *name);
  * Report an attempt to access the property of a null or undefined value (v).
  */
 extern JSBool
-js_ReportIsNullOrUndefined(JSContext *cx, int spindex, const js::Value &v,
-                           JSString *fallback);
+js_ReportIsNullOrUndefined(JSContext *cx, int spindex, js::HandleValue v,
+                           js::HandleString fallback);
 
 extern void
-js_ReportMissingArg(JSContext *cx, const js::Value &v, unsigned arg);
+js_ReportMissingArg(JSContext *cx, js::HandleValue v, unsigned arg);
 
 /*
  * Report error using js_DecompileValueGenerator(cx, spindex, v, fallback) as
@@ -1742,7 +1752,7 @@ js_ReportMissingArg(JSContext *cx, const js::Value &v, unsigned arg);
  */
 extern JSBool
 js_ReportValueErrorFlags(JSContext *cx, unsigned flags, const unsigned errorNumber,
-                         int spindex, const js::Value &v, JSString *fallback,
+                         int spindex, js::HandleValue v, js::HandleString fallback,
                          const char *arg1, const char *arg2);
 
 #define js_ReportValueError(cx,errorNumber,spindex,v,fallback)                \
@@ -1882,6 +1892,19 @@ class AutoObjectVector : public AutoVectorRooter<JSObject *>
     explicit AutoObjectVector(JSContext *cx
                               JS_GUARD_OBJECT_NOTIFIER_PARAM)
         : AutoVectorRooter<JSObject *>(cx, OBJVECTOR)
+    {
+        JS_GUARD_OBJECT_NOTIFIER_INIT;
+    }
+
+    JS_DECL_USE_GUARD_OBJECT_NOTIFIER
+};
+
+class AutoStringVector : public AutoVectorRooter<JSString *>
+{
+  public:
+    explicit AutoStringVector(JSContext *cx
+                              JS_GUARD_OBJECT_NOTIFIER_PARAM)
+        : AutoVectorRooter<JSString *>(cx, STRINGVECTOR)
     {
         JS_GUARD_OBJECT_NOTIFIER_INIT;
     }

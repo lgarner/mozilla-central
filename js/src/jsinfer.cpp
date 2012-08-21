@@ -2019,7 +2019,7 @@ void
 TypeCompartment::processPendingRecompiles(FreeOp *fop)
 {
     /* Steal the list of scripts to recompile, else we will try to recursively recompile them. */
-    Vector<CompilerOutput> *pending = pendingRecompiles;
+    Vector<RecompileInfo> *pending = pendingRecompiles;
     pendingRecompiles = NULL;
 
     JS_ASSERT(!pending->empty());
@@ -2029,11 +2029,12 @@ TypeCompartment::processPendingRecompiles(FreeOp *fop)
     mjit::ExpandInlineFrames(compartment());
 
     for (unsigned i = 0; i < pending->length(); i++) {
-        const CompilerOutput &info = (*pending)[i];
-        mjit::JITScript *jit = info.script->getJIT(info.constructing, info.barriers);
-        if (jit && jit->chunkDescriptor(info.chunkIndex).chunk) {
-            mjit::Recompiler::clearStackReferences(fop, info.script);
-            jit->destroyChunk(fop, info.chunkIndex);
+        CompilerOutput &co = *(*pending)[i].compilerOutput(*this);
+        if (co.isJM()) {
+            JS_ASSERT(co.isValid());
+            mjit::Recompiler::clearStackReferences(fop, co.script);
+            co.mjit()->destroyChunk(fop, co.chunkIndex);
+            JS_ASSERT(co.script == NULL);
         }
     }
 
@@ -2103,56 +2104,69 @@ TypeCompartment::nukeTypes(FreeOp *fop)
 }
 
 void
-TypeCompartment::addPendingRecompile(JSContext *cx, CompilerOutput &co)
+TypeCompartment::addPendingRecompile(JSContext *cx, const RecompileInfo &info)
 {
-    if (!co.isValid())
+    CompilerOutput *co = info.compilerOutput(cx);
+
+    if (co->pendingRecompilation)
         return;
 
-#ifdef JS_METHODJIT
-    mjit::JITScript *jit = co.script->getJIT(co.constructing, co.barriers);
-    if (!jit || !jit->chunkDescriptor(co.chunkIndex).chunk) {
-        /* Scripts which haven't been compiled yet don't need to be recompiled. */
+    if (!co->isValid()) {
+        JS_ASSERT(co->script == NULL);
         return;
     }
 
+#ifdef JS_METHODJIT
+    mjit::JITScript *jit = co->script->getJIT(co->constructing, co->barriers);
+    if (!jit || !jit->chunkDescriptor(co->chunkIndex).chunk) {
+        /* Scripts which haven't been compiled yet don't need to be recompiled. */
+        return;
+    }
+#endif
+
     if (!pendingRecompiles) {
-        pendingRecompiles = cx->new_< Vector<CompilerOutput> >(cx);
+        pendingRecompiles = cx->new_< Vector<RecompileInfo> >(cx);
         if (!pendingRecompiles) {
             cx->compartment->types.setPendingNukeTypes(cx);
             return;
         }
     }
 
-    co.invalidate();
-    if (!pendingRecompiles->append(co)) {
+#if DEBUG
+    for (size_t i = 0; i < pendingRecompiles->length(); i++) {
+        RecompileInfo pr = (*pendingRecompiles)[i];
+        JS_ASSERT(info.outputIndex != pr.outputIndex);
+    }
+#endif
+
+    if (!pendingRecompiles->append(info)) {
         cx->compartment->types.setPendingNukeTypes(cx);
         return;
     }
-#endif
-}
 
-void
-TypeCompartment::addPendingRecompile(JSContext *cx, const RecompileInfo &info)
-{
-    addPendingRecompile(cx, (*constrainedOutputs)[info.outputIndex]);
+    co->setPendingRecompilation();
 }
 
 void
 TypeCompartment::addPendingRecompile(JSContext *cx, JSScript *script, jsbytecode *pc)
 {
-#ifdef JS_METHODJIT
-    CompilerOutput info;
-    info.script = script;
+    JS_ASSERT(script);
+    if (!constrainedOutputs)
+        return;
 
+#ifdef JS_METHODJIT
     for (int constructing = 0; constructing <= 1; constructing++) {
         for (int barriers = 0; barriers <= 1; barriers++) {
-            if (mjit::JITScript *jit = script->getJIT((bool) constructing, (bool) barriers)) {
-                info.constructing = constructing;
-                info.barriers = barriers;
-                info.chunkIndex = jit->chunkIndex(pc);
-                info.mjit = jit;
-                addPendingRecompile(cx, info);
-            }
+            mjit::JITScript *jit = script->getJIT((bool) constructing, (bool) barriers);
+            if (!jit)
+                continue;
+
+            unsigned int chunkIndex = jit->chunkIndex(pc);
+            mjit::JITChunk *chunk = jit->chunkDescriptor(chunkIndex).chunk;
+            if (!chunk)
+                continue;
+
+            addPendingRecompile(cx, chunk->recompileInfo);
         }
     }
 #endif
@@ -2849,7 +2863,7 @@ TypeObject::addPropertyType(JSContext *cx, const char *name, Type type)
 {
     jsid id = JSID_VOID;
     if (name) {
-        JSAtom *atom = js_Atomize(cx, name, strlen(name));
+        JSAtom *atom = Atomize(cx, name, strlen(name));
         if (!atom) {
             AutoEnterTypeInference enter(cx);
             cx->compartment->types.setPendingNukeTypes(cx);
@@ -5660,6 +5674,48 @@ TypeCompartment::sweep(FreeOp *fop)
 
     pendingArray = NULL;
     pendingCapacity = 0;
+
+    sweepCompilerOutputs(fop);
+}
+
+void
+TypeCompartment::sweepCompilerOutputs(FreeOp *fop)
+{
+
+    if (constrainedOutputs) {
+        bool isCompiling = compiledInfo.outputIndex != RecompileInfo::NoCompilerRunning;
+        if (isCompiling && !compartment()->activeAnalysis)
+        {
+#if DEBUG
+            for (unsigned i = 0; i < constrainedOutputs->length(); i++) {
+                CompilerOutput &co = (*constrainedOutputs)[i];
+                JS_ASSERT(!co.isValid());
+            }
+#endif
+            fop->delete_(constrainedOutputs);
+            constrainedOutputs = NULL;
+        } else {
+            // A Compilation is running and the AutoEnterCompilation class has
+            // captured an index into the constrained outputs vector and
+            // potentially created multiple types with this index.  Instead, we
+            // invalidate all compilations except the one running now.
+            size_t len = constrainedOutputs->length();
+            if (isCompiling) {
+                len--;
+                JS_ASSERT(compiledInfo.outputIndex == len);
+            }
+            for (unsigned i = 0; i < len; i++) {
+                CompilerOutput &co = (*constrainedOutputs)[i];
+                JS_ASSERT(!co.isValid());
+                co.invalidate();
+            }
+        }
+    }
+
+    if (pendingRecompiles) {
+        fop->delete_(pendingRecompiles);
+        pendingRecompiles = NULL;
+    }
 }
 
 void

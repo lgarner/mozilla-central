@@ -567,6 +567,8 @@ public:
                                nsIPresShell** aInstancePtrResult);
   virtual void DeleteShell();
 
+  virtual nsresult GetAllowPlugins(bool* aAllowPlugins);
+
   virtual nsresult SetSubDocumentFor(Element* aContent,
                                      nsIDocument* aSubDoc);
   virtual nsIDocument* GetSubDocumentFor(nsIContent* aContent) const;
@@ -1047,6 +1049,12 @@ protected:
 
   nsIContent* GetFirstBaseNodeWithHref();
   nsresult SetFirstBaseNodeWithHref(nsIContent *node);
+
+  inline void
+  SetDocumentDirectionality(mozilla::directionality::Directionality aDir)
+  {
+    mDirectionality = aDir;
+  }
 
   // Get the first <title> element with the given IsNodeOfType type, or
   // return null if there isn't one

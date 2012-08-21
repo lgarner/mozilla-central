@@ -6,10 +6,16 @@
 package org.mozilla.gecko.gfx;
 
 import org.mozilla.gecko.GeckoApp;
-import org.mozilla.gecko.GeckoInputConnection;
+import org.mozilla.gecko.R;
+import org.mozilla.gecko.ZoomConstraints;
+import org.mozilla.gecko.util.EventDispatcher;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.PointF;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
 import android.util.AttributeSet;
@@ -32,21 +38,20 @@ import java.lang.reflect.Method;
 /**
  * A view rendered by the layer compositor.
  *
- * This view delegates to LayerRenderer to actually do the drawing. Its role is largely that of a
- * mediator between the LayerRenderer and the LayerController.
- *
  * Note that LayerView is accessed by Robocop via reflection.
  */
 public class LayerView extends FrameLayout {
     private static String LOGTAG = "GeckoLayerView";
 
-    private LayerController mController;
+    private GeckoLayerClient mLayerClient;
     private TouchEventHandler mTouchEventHandler;
     private GLController mGLController;
     private InputConnectionHandler mInputConnectionHandler;
     private LayerRenderer mRenderer;
     /* Must be a PAINT_xxx constant */
-    private int mPaintState = PAINT_NONE;
+    private int mPaintState;
+    private int mCheckerboardColor;
+    private boolean mCheckerboardShouldShowChecks;
 
     private SurfaceView mSurfaceView;
     private TextureView mTextureView;
@@ -68,7 +73,7 @@ public class LayerView extends FrameLayout {
 
         try {
             // and then we can only use it if we have a hardware accelerated window
-            Method m = View.class.getMethod("isHardwareAccelerated", new Class[0]);
+            Method m = View.class.getMethod("isHardwareAccelerated", (Class[]) null);
             return (Boolean) m.invoke(this);
         } catch (Exception e) {
             Log.i(LOGTAG, "Not using TextureView: caught exception checking for hw accel: " + e.toString());
@@ -94,16 +99,26 @@ public class LayerView extends FrameLayout {
         }
 
         mGLController = new GLController(this);
+        mPaintState = PAINT_NONE;
+        mCheckerboardColor = Color.WHITE;
+        mCheckerboardShouldShowChecks = true;
     }
 
-    void connect(LayerController controller) {
-        mController = controller;
-        mTouchEventHandler = new TouchEventHandler(getContext(), this, mController);
+    public void createLayerClient(EventDispatcher eventDispatcher) {
+        mLayerClient = new GeckoLayerClient(getContext(), this, eventDispatcher);
+
+        mTouchEventHandler = new TouchEventHandler(getContext(), this, mLayerClient);
         mRenderer = new LayerRenderer(this);
         mInputConnectionHandler = null;
 
         setFocusable(true);
         setFocusableInTouchMode(true);
+    }
+
+    public void destroy() {
+        if (mLayerClient != null) {
+            mLayerClient.destroy();
+        }
     }
 
     @Override
@@ -115,26 +130,59 @@ public class LayerView extends FrameLayout {
         if (GeckoApp.mAppContext != null)
             GeckoApp.mAppContext.hideFormAssistPopup();
 
-        return mTouchEventHandler.handleEvent(event);
+        return mTouchEventHandler == null ? false : mTouchEventHandler.handleEvent(event);
     }
 
     @Override
     public boolean onHoverEvent(MotionEvent event) {
-        return mTouchEventHandler.handleEvent(event);
+        return mTouchEventHandler == null ? false : mTouchEventHandler.handleEvent(event);
     }
 
-    public LayerController getController() { return mController; }
+    public GeckoLayerClient getLayerClient() { return mLayerClient; }
     public TouchEventHandler getTouchEventHandler() { return mTouchEventHandler; }
+
+    public ImmutableViewportMetrics getViewportMetrics() {
+        return mLayerClient.getViewportMetrics();
+    }
+
+    public void abortPanning() {
+        mLayerClient.getPanZoomController().abortPanning();
+    }
+
+    public PointF convertViewPointToLayerPoint(PointF viewPoint) {
+        return mLayerClient.convertViewPointToLayerPoint(viewPoint);
+    }
+
+    int getCheckerboardColor() {
+        return mCheckerboardColor;
+    }
+
+    public void setCheckerboardColor(int newColor) {
+        mCheckerboardColor = newColor;
+        requestRender();
+    }
+
+    boolean checkerboardShouldShowChecks() {
+        return mCheckerboardShouldShowChecks;
+    }
+
+    void setCheckerboardShouldShowChecks(boolean value) {
+        mCheckerboardShouldShowChecks = value;
+        requestRender();
+    }
+
+    public void setZoomConstraints(ZoomConstraints constraints) {
+        mLayerClient.setZoomConstraints(constraints);
+    }
 
     /** The LayerRenderer calls this to indicate that the window has changed size. */
     public void setViewportSize(IntSize size) {
-        mController.setViewportSize(new FloatSize(size));
+        mLayerClient.setViewportSize(new FloatSize(size));
     }
 
-    public GeckoInputConnection setInputConnectionHandler() {
-        GeckoInputConnection geckoInputConnection = GeckoInputConnection.create(this);
-        mInputConnectionHandler = geckoInputConnection;
-        return geckoInputConnection;
+    public void setInputConnectionHandler(InputConnectionHandler inputConnectionHandler) {
+        mInputConnectionHandler = inputConnectionHandler;
+        mLayerClient.setForceRedraw();
     }
 
     @Override
@@ -197,7 +245,7 @@ public class LayerView extends FrameLayout {
         return mRenderer.getMaxTextureSize();
     }
 
-    /** Used by robocop for testing purposes. Not for production use! This is called via reflection by robocop. */
+    /** Used by robocop for testing purposes. Not for production use! */
     public IntBuffer getPixels() {
         return mRenderer.getPixels();
     }
@@ -240,6 +288,20 @@ public class LayerView extends FrameLayout {
         return mGLController;
     }
 
+    private Bitmap getDrawable(int resId) {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inScaled = false;
+        return BitmapFactory.decodeResource(getContext().getResources(), resId, options);
+    }
+
+    Bitmap getBackgroundPattern() {
+        return getDrawable(R.drawable.tabs_tray_selected_bg);
+    }
+
+    Bitmap getShadowPattern() {
+        return getDrawable(R.drawable.shadow);
+    }
+
     private void onSizeChanged(int width, int height) {
         mGLController.surfaceChanged(width, height);
 
@@ -266,7 +328,7 @@ public class LayerView extends FrameLayout {
     /** This function is invoked by Gecko (compositor thread) via JNI; be careful when modifying signature. */
     public static GLController registerCxxCompositor() {
         try {
-            LayerView layerView = GeckoApp.mAppContext.getLayerController().getView();
+            LayerView layerView = GeckoApp.mAppContext.getLayerView();
             layerView.mListener.compositorCreated();
             return layerView.getGLController();
         } catch (Exception e) {

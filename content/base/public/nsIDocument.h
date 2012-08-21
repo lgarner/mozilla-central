@@ -5,84 +5,71 @@
 #ifndef nsIDocument_h___
 #define nsIDocument_h___
 
-#include "nsINode.h"
-#include "nsStringGlue.h"
-#include "nsIDocumentObserver.h" // for nsUpdateType
-#include "nsCOMPtr.h"
-#include "nsCOMArray.h"
-#include "nsIURI.h"
-#include "nsILoadGroup.h"
-#include "nsCRT.h"
-#include "mozFlushType.h"
-#include "nsIAtom.h"
-#include "nsCompatibility.h"
-#include "nsTObserverArray.h"
-#include "nsTHashtable.h"
-#include "nsHashKeys.h"
-#include "nsIVariant.h"
-#include "nsIObserver.h"
-#include "nsGkAtoms.h"
-#include "nsAutoPtr.h"
-#include "nsPIDOMWindow.h"
-#include "nsSMILAnimationController.h"
-#include "nsIScriptGlobalObject.h"
-#include "nsIDocumentEncoder.h"
-#include "nsIFrameRequestCallback.h"
-#include "nsEventStates.h"
-#include "nsIStructuredCloneContainer.h"
-#include "nsILoadContext.h"
+#include "mozFlushType.h"                // for enum
+#include "nsAutoPtr.h"                   // for member
+#include "nsCOMArray.h"                  // for member
+#include "nsCRT.h"                       // for NS_DECL_AND_IMPL_ZEROING_OPERATOR_NEW
+#include "nsCompatibility.h"             // for member
+#include "nsCOMPtr.h"                    // for member
+#include "nsGkAtoms.h"                   // for static class members
+#include "nsIDocumentEncoder.h"          // for member (in nsCOMPtr)
+#include "nsIDocumentObserver.h"         // for typedef (nsUpdateType)
+#include "nsIFrameRequestCallback.h"     // for member (in nsCOMPtr)
+#include "nsILoadContext.h"              // for member (in nsCOMPtr)
+#include "nsILoadGroup.h"                // for member (in nsCOMPtr)
+#include "nsINode.h"                     // for base class
+#include "nsIScriptGlobalObject.h"       // for member (in nsCOMPtr)
+#include "nsIStructuredCloneContainer.h" // for member (in nsCOMPtr)
+#include "nsPIDOMWindow.h"               // for use in inline functions
+#include "nsPropertyTable.h"             // for member
+#include "nsTHashtable.h"                // for member
+#include "mozilla/dom/DirectionalityUtils.h"
 
-class nsIRequest;
-class nsPIDOMWindow;
-class nsIStreamListener;
-class nsIBFCacheEntry;
-class nsIContent;
-class nsPresContext;
-class nsIPresShell;
-class nsIDocShell;
-class nsStyleSet;
-class nsIStyleSheet;
-class nsIStyleRule;
-class nsCSSStyleSheet;
-class nsIViewManager;
-class nsIDOMEvent;
-class nsIDOMEventTarget;
-class nsDeviceContext;
-class nsIParser;
-class nsIDOMNode;
-class nsIDOMElement;
-class nsIDOMDocumentFragment;
-class nsILineBreaker;
-class nsIWordBreaker;
-class nsISelection;
-class nsIChannel;
-class nsIPrincipal;
-class nsIDOMDocument;
-class nsIDOMDocumentType;
-class nsScriptLoader;
-class nsIContentSink;
-class nsHTMLStyleSheet;
-class nsHTMLCSSStyleSheet;
-class nsILayoutHistoryState;
-class nsIVariant;
-class nsIDOMUserDataHandler;
-template<class E> class nsCOMArray;
-class nsIDocumentObserver;
-class nsBindingManager;
-class nsIDOMNodeList;
-class mozAutoSubtreeModified;
-struct JSObject;
-class nsFrameLoader;
-class nsIBoxObject;
 class imgIRequest;
-class nsISHEntry;
+class nsAString;
+class nsBindingManager;
+class nsCSSStyleSheet;
 class nsDOMNavigationTiming;
-class nsWindowSizes;
+class nsEventStates;
+class nsFrameLoader;
+class nsHTMLCSSStyleSheet;
+class nsHTMLStyleSheet;
+class nsIAtom;
+class nsIBFCacheEntry;
+class nsIBoxObject;
+class nsIChannel;
+class nsIContent;
+class nsIContentSink;
+class nsIDocShell;
+class nsIDocumentObserver;
+class nsIDOMDocument;
+class nsIDOMDocumentFragment;
+class nsIDOMDocumentType;
+class nsIDOMElement;
+class nsIDOMEventTarget;
+class nsIDOMNodeList;
+class nsILayoutHistoryState;
 class nsIObjectLoadingContent;
+class nsIObserver;
+class nsIPresShell;
+class nsIPrincipal;
+class nsIRequest;
+class nsIStreamListener;
+class nsIStyleRule;
+class nsIStyleSheet;
+class nsIURI;
+class nsIVariant;
+class nsIViewManager;
+class nsPresContext;
+class nsScriptLoader;
+class nsSMILAnimationController;
+class nsStyleSet;
+class nsWindowSizes;
 
 namespace mozilla {
 namespace css {
 class Loader;
+class ImageLoader;
 } // namespace css
 
 namespace dom {
@@ -92,8 +79,8 @@ class Element;
 } // namespace mozilla
 
 #define NS_IDOCUMENT_IID \
-{ 0xbd70ee06, 0x2a7d, 0x4258, \
-  { 0x86, 0x4b, 0xbd, 0x28, 0xad, 0x9f, 0xd1, 0x41 } }
+{ 0x57fe44ae, 0x6656, 0x44b8, \
+  { 0x8d, 0xc0, 0xfc, 0xa7, 0x43, 0x28, 0xbe, 0x86 } }
 
 // Flag for AddStyleSheet().
 #define NS_STYLESHEET_FROM_CATALOG                (1 << 0)
@@ -412,6 +399,29 @@ public:
   {
     mBidiOptions = aBidiOptions;
   }
+
+
+  /**
+   * Get the sandbox flags for this document.
+   * @see nsSandboxFlags.h for the possible flags
+   */
+  PRUint32 GetSandboxFlags() const
+  {
+    return mSandboxFlags;
+  }
+
+  /**
+   * Set the sandbox flags for this document.
+   * @see nsSandboxFlags.h for the possible flags
+   */
+  void SetSandboxFlags(PRUint32 sandboxFlags)
+  {
+    mSandboxFlags = sandboxFlags;
+  }
+
+  inline mozilla::directionality::Directionality GetDocumentDirectionality() {
+    return mDirectionality;
+  }
   
   /**
    * Access HTTP header data (this may also get set from other
@@ -465,6 +475,11 @@ public:
   {
     mParentDocument = aParent;
   }
+  
+  /**
+   * Are plugins allowed in this document ?
+   */
+  virtual nsresult GetAllowPlugins (bool* aAllowPlugins) = 0;
 
   /**
    * Set the sub document for aContent to aSubDoc.
@@ -593,6 +608,13 @@ public:
    */
   mozilla::css::Loader* CSSLoader() const {
     return mCSSLoader;
+  }
+
+  /**
+   * Get this document's StyleImageLoader.  This is guaranteed to not return null.
+   */
+  mozilla::css::ImageLoader* StyleImageLoader() const {
+    return mStyleImageLoader;
   }
 
   /**
@@ -1749,6 +1771,7 @@ protected:
   // We hold a strong reference to mNodeInfoManager through mNodeInfo
   nsNodeInfoManager* mNodeInfoManager; // [STRONG]
   nsRefPtr<mozilla::css::Loader> mCSSLoader;
+  mozilla::css::ImageLoader* mStyleImageLoader; // [STRONG]
   nsHTMLStyleSheet* mAttrStyleSheet;
 
   // The set of all object, embed, applet, video and audio elements for
@@ -1867,6 +1890,14 @@ protected:
   // The bidi options for this document.  What this bitfield means is
   // defined in nsBidiUtils.h
   PRUint32 mBidiOptions;
+
+  // The sandbox flags on the document. These reflect the value of the sandbox attribute of the
+  // associated IFRAME or CSP-protectable content, if existent. These are set at load time and
+  // are immutable - see nsSandboxFlags.h for the possible flags.
+  PRUint32 mSandboxFlags;
+
+  // The root directionality of this document.
+  mozilla::directionality::Directionality mDirectionality;
 
   nsCString mContentLanguage;
 private:

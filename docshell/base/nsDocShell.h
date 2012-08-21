@@ -119,8 +119,6 @@ protected:
     virtual ~nsRefreshTimer();
 };
 
-#define NS_ERROR_DOCSHELL_REQUEST_REJECTED  NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_GENERAL,1001)
-
 typedef enum {
     eCharsetReloadInit,
     eCharsetReloadRequested,
@@ -228,7 +226,6 @@ public:
     NS_IMETHOD GetIsContent(bool*);
     NS_IMETHOD GetUsePrivateBrowsing(bool*);
     NS_IMETHOD SetUsePrivateBrowsing(bool);
-    NS_IMETHOD GetExtendedOrigin(nsIURI *uri, nsACString & retval);
 
     // Restores a cached presentation from history (mLSHE).
     // This method swaps out the content viewer and simulates loads for
@@ -778,6 +775,8 @@ protected:
     PRInt32                    mPreviousTransIndex;
     PRInt32                    mLoadedTransIndex;
 
+    PRUint32                   mSandboxFlags;
+
     bool                       mCreated;
     bool                       mAllowSubframes;
     bool                       mAllowPlugins;
@@ -821,7 +820,7 @@ protected:
     // presentation of the page, and to SetupNewViewer() that the old viewer
     // should be passed a SHEntry to save itself into.
     bool                       mSavingOldViewer;
-
+    
     // @see nsIDocShellHistory::createdDynamically
     bool                       mDynamicallyCreated;
 #ifdef DEBUG

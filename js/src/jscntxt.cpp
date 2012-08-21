@@ -58,6 +58,8 @@
 #include "jscompartment.h"
 #include "jsobjinlines.h"
 
+#include "selfhosted.out.h"
+
 using namespace js;
 using namespace js::gc;
 
@@ -104,10 +106,6 @@ JSRuntime::sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf, RuntimeSizes *run
     runtime->scriptFilenames = scriptFilenameTable.sizeOfExcludingThis(mallocSizeOf);
     for (ScriptFilenameTable::Range r = scriptFilenameTable.all(); !r.empty(); r.popFront())
         runtime->scriptFilenames += mallocSizeOf(r.front());
-
-    runtime->scriptSources = 0;
-    for (ScriptSource *n = scriptSources; n; n = n->next)
-        runtime->scriptSources += n->sizeOfIncludingThis(mallocSizeOf);
 
     runtime->compartmentObjects = 0;
     CallbackData data(mallocSizeOf);
@@ -205,6 +203,84 @@ JSRuntime::createJaegerRuntime(JSContext *cx)
 }
 #endif
 
+
+static JSClass self_hosting_global_class = {
+    "self-hosting-global", JSCLASS_GLOBAL_FLAGS,
+    JS_PropertyStub,  JS_PropertyStub,
+    JS_PropertyStub,  JS_StrictPropertyStub,
+    JS_EnumerateStub, JS_ResolveStub,
+    JS_ConvertStub,   NULL
+};
+bool
+JSRuntime::initSelfHosting(JSContext *cx)
+{
+    JS_ASSERT(!selfHostedGlobal_);
+    RootedObject savedGlobal(cx, JS_GetGlobalObject(cx));
+    if (!(selfHostedGlobal_ = JS_NewGlobalObject(cx, &self_hosting_global_class, NULL)))
+        return false;
+    JS_SetGlobalObject(cx, selfHostedGlobal_);
+
+    JSAutoEnterCompartment ac;
+    if (!ac.enter(cx, cx->global()))
+        return false;
+
+    const char *src = selfhosted::raw_sources;
+    uint32_t srcLen = selfhosted::GetRawScriptsSize();
+
+    CompileOptions options(cx);
+    options.setFileAndLine("self-hosted", 1);
+    options.setSelfHostingMode(true);
+
+    RootedObject shg(cx, selfHostedGlobal_);
+    Value rv;
+    if (!Evaluate(cx, shg, options, src, srcLen, &rv))
+        return false;
+
+    JS_SetGlobalObject(cx, savedGlobal);
+    return true;
+}
+
+void
+JSRuntime::markSelfHostedGlobal(JSTracer *trc)
+{
+    MarkObjectRoot(trc, &selfHostedGlobal_, "self-hosting global");
+}
+
+JSFunction *
+JSRuntime::getSelfHostedFunction(JSContext *cx, const char *name)
+{
+    RootedObject holder(cx, cx->global()->getIntrinsicsHolder());
+    JSAtom *atom = Atomize(cx, name, strlen(name));
+    if (!atom)
+        return NULL;
+    Value funVal = NullValue();
+    JSAutoByteString bytes;
+    if (!cloneSelfHostedValueById(cx, AtomToId(atom), holder, &funVal))
+        return NULL;
+    return funVal.toObject().toFunction();
+}
+
+bool
+JSRuntime::cloneSelfHostedValueById(JSContext *cx, jsid id, HandleObject holder, Value *vp)
+{
+    Value funVal;
+    {
+        RootedObject shg(cx, selfHostedGlobal_);
+        JSAutoEnterCompartment ac;
+        if (!ac.enter(cx, shg) || !JS_GetPropertyById(cx, shg, id, &funVal) || !funVal.isObject())
+            return false;
+    }
+
+    RootedObject clone(cx, JS_CloneFunctionObject(cx, &funVal.toObject(), cx->global()));
+    if (!clone)
+        return false;
+
+    vp->setObjectOrNull(clone);
+    DebugOnly<bool> ok = JS_DefinePropertyById(cx, holder, id, *vp, NULL, NULL, 0);
+    JS_ASSERT(ok);
+    return true;
+}
+
 JSScript *
 js_GetCurrentScript(JSContext *cx)
 {
@@ -238,11 +314,11 @@ js::NewContext(JSRuntime *rt, size_t stackChunkSize)
 
     /*
      * If cx is the first context on this runtime, initialize well-known atoms,
-     * keywords, numbers, and strings.  If one of these steps should fail, the
-     * runtime will be left in a partially initialized state, with zeroes and
-     * nulls stored in the default-initialized remainder of the struct.  We'll
-     * clean the runtime up under DestroyContext, because cx will be "last"
-     * as well as "first".
+     * keywords, numbers, strings and self-hosted scripts. If one of these
+     * steps should fail, the runtime will be left in a partially initialized
+     * state, with zeroes and nulls stored in the default-initialized remainder
+     * of the struct. We'll clean the runtime up under DestroyContext, because
+     * cx will be "last" as well as "first".
      */
     if (first) {
 #ifdef JS_THREADSAFE
@@ -251,6 +327,8 @@ js::NewContext(JSRuntime *rt, size_t stackChunkSize)
         bool ok = rt->staticStrings.init(cx);
         if (ok)
             ok = InitCommonAtoms(cx);
+        if (ok)
+            ok = rt->initSelfHosting(cx);
 
 #ifdef JS_THREADSAFE
         JS_EndRequest(cx);
@@ -388,10 +466,10 @@ static void
 PopulateReportBlame(JSContext *cx, JSErrorReport *report)
 {
     /*
-     * Walk stack until we find a frame that is associated with some script
-     * rather than a native frame.
+     * Walk stack until we find a frame that is associated with a non-builtin
+     * rather than a builtin frame.
      */
-    ScriptFrameIter iter(cx);
+    NonBuiltinScriptFrameIter iter(cx);
     if (iter.done())
         return;
 
@@ -545,7 +623,7 @@ void
 ReportUsageError(JSContext *cx, HandleObject callee, const char *msg)
 {
     const char *usageStr = "usage";
-    PropertyName *usageAtom = js_Atomize(cx, usageStr, strlen(usageStr))->asPropertyName();
+    PropertyName *usageAtom = Atomize(cx, usageStr, strlen(usageStr))->asPropertyName();
     DebugOnly<Shape *> shape = callee->nativeLookup(cx, NameToId(usageAtom));
     JS_ASSERT(!shape->configurable());
     JS_ASSERT(!shape->writable());
@@ -814,8 +892,8 @@ js_ReportIsNotDefined(JSContext *cx, const char *name)
 }
 
 JSBool
-js_ReportIsNullOrUndefined(JSContext *cx, int spindex, const Value &v,
-                           JSString *fallback)
+js_ReportIsNullOrUndefined(JSContext *cx, int spindex, HandleValue v,
+                           HandleString fallback)
 {
     char *bytes;
     JSBool ok;
@@ -848,11 +926,11 @@ js_ReportIsNullOrUndefined(JSContext *cx, int spindex, const Value &v,
 }
 
 void
-js_ReportMissingArg(JSContext *cx, const Value &v, unsigned arg)
+js_ReportMissingArg(JSContext *cx, HandleValue v, unsigned arg)
 {
     char argbuf[11];
     char *bytes;
-    JSAtom *atom;
+    RootedAtom atom(cx);
 
     JS_snprintf(argbuf, sizeof argbuf, "%u", arg);
     bytes = NULL;
@@ -871,7 +949,7 @@ js_ReportMissingArg(JSContext *cx, const Value &v, unsigned arg)
 
 JSBool
 js_ReportValueErrorFlags(JSContext *cx, unsigned flags, const unsigned errorNumber,
-                         int spindex, const Value &v, JSString *fallback,
+                         int spindex, HandleValue v, HandleString fallback,
                          const char *arg1, const char *arg2)
 {
     char *bytes;

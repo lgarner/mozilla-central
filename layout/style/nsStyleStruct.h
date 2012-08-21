@@ -108,6 +108,10 @@ public:
 
   // MathML scriptlevel support
   PRInt8  mScriptLevel;          // [inherited]
+
+  // was mLanguage set based on a lang attribute in the document?
+  bool mExplicitLanguage;        // [inherited]
+
   // The value mSize would have had if scriptminsize had never been applied
   nscoord mScriptUnconstrainedSize;
   nscoord mScriptMinSize;        // [inherited] length
@@ -1324,6 +1328,10 @@ struct nsStyleText {
   bool WordCanWrap() const {
     return WhiteSpaceCanWrap() && mWordWrap == NS_STYLE_WORDWRAP_BREAK_WORD;
   }
+
+  // These are defined in nsStyleStructInlines.h.
+  inline bool HasTextShadow(const nsIFrame* aFrame) const;
+  inline nsCSSShadowArray* GetTextShadow(const nsIFrame* aFrame) const;
 };
 
 struct nsStyleVisibility {

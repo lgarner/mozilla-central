@@ -14,10 +14,11 @@
 
 #include "frontend/ParseMaps.h"
 #include "frontend/TokenStream.h"
-#include "frontend/TreeContext.h"
 
 namespace js {
 namespace frontend {
+
+struct ParseContext;
 
 /*
  * Indicates a location in the stack that an upvar value can be retrieved from
@@ -69,6 +70,7 @@ class UpvarCookie
  * The long comment after this enum block describes the kinds in detail.
  */
 enum ParseNodeKind {
+    PNK_NOP,
     PNK_SEMI,
     PNK_COMMA,
     PNK_CONDITIONAL,
@@ -160,7 +162,6 @@ enum ParseNodeKind {
     PNK_FORIN,
     PNK_FORHEAD,
     PNK_ARGSBODY,
-    PNK_UPVARS,
     PNK_SPREAD,
 
     /*
@@ -218,14 +219,13 @@ enum ParseNodeKind {
  *                            object containing arg and var properties.  We
  *                            create the function object at parse (not emit)
  *                            time to specialize arg and var bytecodes early.
- *                          pn_body: PNK_UPVARS if the function's source body
- *                                     depends on outer names,
- *                                   PNK_ARGSBODY if formal parameters,
+ *                          pn_body: PNK_ARGSBODY if formal parameters,
  *                                   PNK_STATEMENTLIST node for function body
  *                                     statements,
  *                                   PNK_RETURN for expression closure, or
  *                                   PNK_SEQ for expression closure with
  *                                     destructured formal parameters
+ *                                   PNK_LP see isGeneratorExpr def below
  *                          pn_cookie: static level and var index for function
  *                          pn_dflags: PND_* definition/use flags (see below)
  *                          pn_blockid: block id number
@@ -233,10 +233,6 @@ enum ParseNodeKind {
  *                            PNK_STATEMENTLIST node for function body
  *                            statements as final element
  *                          pn_count: 1 + number of formal parameters
- * PNK_UPVARS   nameset     pn_names: lexical dependencies (js::Definitions)
- *                            defined in enclosing scopes, or ultimately not
- *                            defined (free variables, either global property
- *                            references or reference errors).
  *                          pn_tree: PNK_ARGSBODY or PNK_STATEMENTLIST node
  * PNK_SPREAD   unary       pn_kid: expression being spread
  *
@@ -476,6 +472,7 @@ enum ParseNodeKind {
  *                                if-guarded PNK_ARRAYPUSH
  * PNK_ARRAYPUSH      unary     pn_op: JSOP_ARRAYCOMP
  *                              pn_kid: array comprehension expression
+ * PNK_NOP            nullary
  */
 enum ParseNodeArity {
     PN_NULLARY,                         /* 0 kids, only pn_atom/pn_dval/etc. */
@@ -484,8 +481,7 @@ enum ParseNodeArity {
     PN_TERNARY,                         /* three kids */
     PN_FUNC,                            /* function definition node */
     PN_LIST,                            /* generic singly linked list */
-    PN_NAME,                            /* name use or definition node */
-    PN_NAMESET                          /* AtomDefnMapPtr + ParseNode ptr */
+    PN_NAME                             /* name use or definition node */
 };
 
 struct Definition;
@@ -624,10 +620,6 @@ struct ParseNode {
                         blockid:20;     /* block number, for subset dominance
                                            computation */
         } name;
-        struct {                        /* lexical dependencies + sub-tree */
-            AtomDefnMapPtr   defnMap;
-            ParseNode        *tree;     /* sub-tree containing name uses */
-        } nameset;
         double        dval;             /* aligned numeric literal value */
         class {
             friend class LoopControlStatement;
@@ -664,8 +656,6 @@ struct ParseNode {
 #define pn_objbox       pn_u.name.objbox
 #define pn_expr         pn_u.name.expr
 #define pn_lexdef       pn_u.name.lexdef
-#define pn_names        pn_u.nameset.defnMap
-#define pn_tree         pn_u.nameset.tree
 #define pn_dval         pn_u.dval
 
   protected:
@@ -676,7 +666,6 @@ struct ParseNode {
         pn_parens = false;
         JS_ASSERT(!pn_used);
         JS_ASSERT(!pn_defn);
-        pn_names.init();
         pn_next = pn_link = NULL;
     }
 
@@ -699,7 +688,7 @@ struct ParseNode {
     newBinaryOrAppend(ParseNodeKind kind, JSOp op, ParseNode *left, ParseNode *right,
                       Parser *parser);
 
-    inline PropertyName *atom() const;
+    inline PropertyName *name() const;
 
     /*
      * The pn_expr and lexdef members are arms of an unsafe union. Unless you
@@ -776,6 +765,16 @@ struct ParseNode {
         return pn_cookie.slot();
     }
 
+    bool functionIsHoisted() const {
+        JS_ASSERT(pn_arity == PN_FUNC);
+        JS_ASSERT(isOp(JSOP_LAMBDA) ||    // lambda, genexpr
+                  isOp(JSOP_DEFFUN) ||    // non-body-level function statement
+                  isOp(JSOP_NOP) ||       // body-level function stmt in global code
+                  isOp(JSOP_GETLOCAL) ||  // body-level function stmt in function code
+                  isOp(JSOP_GETARG));     // body-level function redeclaring formal
+        return !(isOp(JSOP_LAMBDA) || isOp(JSOP_DEFFUN));
+    }
+
     inline bool test(unsigned flag) const;
 
     bool isLet() const          { return test(PND_LET); }
@@ -815,13 +814,8 @@ struct ParseNode {
     bool isGeneratorExpr() const {
         if (getKind() == PNK_LP) {
             ParseNode *callee = this->pn_head;
-            if (callee->getKind() == PNK_FUNCTION) {
-                ParseNode *body = (callee->pn_body->getKind() == PNK_UPVARS)
-                                  ? callee->pn_body->pn_tree
-                                  : callee->pn_body;
-                if (body->getKind() == PNK_LEXICALSCOPE)
-                    return true;
-            }
+            if (callee->getKind() == PNK_FUNCTION && callee->pn_body->getKind() == PNK_LEXICALSCOPE)
+                return true;
         }
         return false;
     }
@@ -829,9 +823,7 @@ struct ParseNode {
     ParseNode *generatorExpr() const {
         JS_ASSERT(isGeneratorExpr());
         ParseNode *callee = this->pn_head;
-        ParseNode *body = callee->pn_body->getKind() == PNK_UPVARS
-                          ? callee->pn_body->pn_tree
-                          : callee->pn_body;
+        ParseNode *body = callee->pn_body;
         JS_ASSERT(body->getKind() == PNK_LEXICALSCOPE);
         return body->pn_expr;
     }
@@ -986,19 +978,13 @@ struct FunctionNode : public ParseNode {
 };
 
 struct NameNode : public ParseNode {
-    static NameNode *create(ParseNodeKind kind, JSAtom *atom, Parser *parser, TreeContext *tc);
+    static NameNode *create(ParseNodeKind kind, JSAtom *atom, Parser *parser, ParseContext *pc);
 
-    inline void initCommon(TreeContext *tc);
+    inline void initCommon(ParseContext *pc);
 
 #ifdef DEBUG
     inline void dump(int indent);
 #endif
-};
-
-struct NameSetNode : public ParseNode {
-    static inline NameSetNode *create(ParseNodeKind kind, Parser *parser) {
-        return (NameSetNode *)ParseNode::create(kind, PN_NAMESET, parser);
-    }
 };
 
 struct LexicalScopeNode : public ParseNode {
@@ -1287,33 +1273,33 @@ void DumpParseTree(ParseNode *pn, int indent = 0);
  *
  *   for (each use of unqualified name x in parse order) {
  *       if (this use of x is a declaration) {
- *           if (x in tc->decls) {                          // redeclaring
+ *           if (x in pc->decls) {                          // redeclaring
  *               pn = allocate a PN_NAME ParseNode;
  *           } else {                                       // defining
- *               dn = lookup x in tc->lexdeps;
+ *               dn = lookup x in pc->lexdeps;
  *               if (dn)                                    // use before def
- *                   remove x from tc->lexdeps;
+ *                   remove x from pc->lexdeps;
  *               else                                       // def before use
  *                   dn = allocate a PN_NAME Definition;
- *               map x to dn via tc->decls;
+ *               map x to dn via pc->decls;
  *               pn = dn;
  *           }
  *           insert pn into its parent PNK_VAR/PNK_CONST list;
  *       } else {
  *           pn = allocate a ParseNode for this reference to x;
- *           dn = lookup x in tc's lexical scope chain;
+ *           dn = lookup x in pc's lexical scope chain;
  *           if (!dn) {
- *               dn = lookup x in tc->lexdeps;
+ *               dn = lookup x in pc->lexdeps;
  *               if (!dn) {
  *                   dn = pre-allocate a Definition for x;
- *                   map x to dn in tc->lexdeps;
+ *                   map x to dn in pc->lexdeps;
  *               }
  *           }
  *           append pn to dn's use chain;
  *       }
  *   }
  *
- * See frontend/BytecodeEmitter.h for js::TreeContext and its top*Stmt,
+ * See frontend/BytecodeEmitter.h for js::ParseContext and its top*Stmt,
  * decls, and lexdeps members.
  *
  * Notes:
@@ -1325,9 +1311,9 @@ void DumpParseTree(ParseNode *pn, int indent = 0);
  *     statement" (ECMA-262 12.2) can be proven to be dead code. RecycleTree in
  *     ParseNode.cpp will not recycle a node whose pn_defn bit is set.
  *
- *  2. "lookup x in tc's lexical scope chain" gives up on def/use chaining if a
- *     with statement is found along the the scope chain, which includes tc,
- *     tc->parent, etc. Thus we eagerly connect an inner function's use of an
+ *  2. "lookup x in pc's lexical scope chain" gives up on def/use chaining if a
+ *     with statement is found along the the scope chain, which includes pc,
+ *     pc->parent, etc. Thus we eagerly connect an inner function's use of an
  *     outer's var x if the var x was parsed before the inner function.
  *
  *  3. A use may be eliminated as dead by the constant folder, which therefore
@@ -1336,15 +1322,15 @@ void DumpParseTree(ParseNode *pn, int indent = 0);
  *     the pn_link pointing at the use to be removed. This is costly, so as for
  *     dead definitions, we do not recycle dead pn_used nodes.
  *
- * At the end of parsing a function body or global or eval program, tc->lexdeps
+ * At the end of parsing a function body or global or eval program, pc->lexdeps
  * holds the lexical dependencies of the parsed unit. The name to def/use chain
- * mappings are then merged into the parent tc->lexdeps.
+ * mappings are then merged into the parent pc->lexdeps.
  *
  * Thus if a later var x is parsed in the outer function satisfying an earlier
- * inner function's use of x, we will remove dn from tc->lexdeps and re-use it
+ * inner function's use of x, we will remove dn from pc->lexdeps and re-use it
  * as the new definition node in the outer function's parse tree.
  *
- * When the compiler unwinds from the outermost tc, tc->lexdeps contains the
+ * When the compiler unwinds from the outermost pc, pc->lexdeps contains the
  * definition nodes with use chains for all free variables. These are either
  * global variables or reference errors.
  */
@@ -1357,18 +1343,23 @@ struct Definition : public ParseNode
         return pn_cookie.isFree();
     }
 
-    enum Kind { VAR, CONST, LET, FUNCTION, ARG, UNKNOWN };
+    enum Kind { VAR, CONST, LET, ARG, NAMED_LAMBDA, PLACEHOLDER };
 
-    bool canHaveInitializer() { return int(kind()) <= int(LET) || kind() == ARG; }
+    bool canHaveInitializer() { return int(kind()) <= int(ARG); }
 
     static const char *kindString(Kind kind);
 
     Kind kind() {
-        if (getKind() == PNK_FUNCTION)
-            return FUNCTION;
+        if (getKind() == PNK_FUNCTION) {
+            if (isOp(JSOP_GETARG))
+                return ARG;
+            return VAR;
+        }
         JS_ASSERT(getKind() == PNK_NAME);
-        if (isOp(JSOP_NOP))
-            return UNKNOWN;
+        if (isOp(JSOP_CALLEE))
+            return NAMED_LAMBDA;
+        if (isPlaceholder())
+            return PLACEHOLDER;
         if (isOp(JSOP_GETARG))
             return ARG;
         if (isConst())
@@ -1408,27 +1399,13 @@ ParseNode::test(unsigned flag) const
     return !!(pn_dflags & flag);
 }
 
-/*
- * We store definition pointers in PN_NAMESET AtomDefnMapPtrs in the AST,
- * but due to redefinition these nodes may become uses of other
- * definitions.  This is unusual, so we simply chase the pn_lexdef link to
- * find the final definition node. See functions called from
- * js::frontend::AnalyzeFunctions.
- *
- * FIXME: MakeAssignment mutates for want of a parent link...
- */
 inline Definition *
 ParseNode::resolve()
 {
-    ParseNode *pn = this;
-    while (!pn->isDefn()) {
-        if (pn->isAssignment()) {
-            pn = pn->pn_left;
-            continue;
-        }
-        pn = pn->lexdef();
-    }
-    return (Definition *) pn;
+    if (isDefn())
+        return (Definition *)this;
+    JS_ASSERT(lexdef()->isDefn());
+    return (Definition *)lexdef();
 }
 
 inline void
@@ -1451,45 +1428,6 @@ struct ObjectBox {
     bool                isFunctionBox;
 
     ObjectBox(ObjectBox *traceLink, JSObject *obj);
-};
-
-struct FunctionBox : public ObjectBox
-{
-    ParseNode       *node;
-    FunctionBox     *siblings;
-    FunctionBox     *kids;
-    FunctionBox     *parent;
-    Bindings        bindings;               /* bindings for this function */
-    size_t          bufStart;
-    size_t          bufEnd;
-    uint16_t        level;
-    uint16_t        ndefaults;
-    StrictMode::StrictModeState strictModeState;
-    bool            inLoop:1;               /* in a loop in parent function */
-    bool            inWith:1;               /* some enclosing scope is a with-statement
-                                               or E4X filter-expression */
-    bool            inGenexpLambda:1;       /* lambda from generator expression */
-
-    ContextFlags    cxFlags;
-
-    FunctionBox(ObjectBox* traceListHead, JSObject *obj, ParseNode *fn, TreeContext *tc,
-                StrictMode::StrictModeState sms);
-
-    bool funIsHeavyweight()      const { return cxFlags.funIsHeavyweight; }
-    bool funIsGenerator()        const { return cxFlags.funIsGenerator; }
-    bool funHasExtensibleScope() const { return cxFlags.funHasExtensibleScope; }
-
-    void setFunIsHeavyweight()         { cxFlags.funIsHeavyweight = true; }
-
-    JSFunction *function() const { return (JSFunction *) object; }
-
-    /*
-     * True if this function is inside the scope of a with-statement, an E4X
-     * filter-expression, or a function that uses direct eval.
-     */
-    bool inAnyDynamicScope() const;
-
-    void recursivelySetStrictMode(StrictMode::StrictModeState strictness);
 };
 
 } /* namespace frontend */

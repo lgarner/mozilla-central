@@ -39,6 +39,7 @@
 #include "nsIObserverService.h"
 #include "nsTObserverArray.h"
 #include "nsIObserver.h"
+#include "nsIScriptSecurityManager.h"
 #include "nsServiceManagerUtils.h"
 #include "nsXULAppAPI.h"
 #include "nsWeakReference.h"
@@ -47,6 +48,7 @@
 #include "nsJSEnvironment.h"
 #include "SandboxHal.h"
 #include "nsDebugImpl.h"
+#include "nsLayoutStylesheetCache.h"
 
 #include "History.h"
 #include "nsDocShellCID.h"
@@ -70,6 +72,10 @@
 
 #if defined(MOZ_WIDGET_ANDROID)
 #include "APKOpen.h"
+#endif
+
+#if defined(MOZ_WIDGET_GONK)
+#include "nsVolume.h"
 #endif
 
 #ifdef XP_WIN
@@ -98,6 +104,9 @@ using namespace mozilla::ipc;
 using namespace mozilla::layers;
 using namespace mozilla::net;
 using namespace mozilla::places;
+#if defined(MOZ_WIDGET_GONK)
+using namespace mozilla::system;
+#endif
 
 namespace mozilla {
 namespace dom {
@@ -211,9 +220,10 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage)
 ContentChild* ContentChild::sSingleton;
 
 ContentChild::ContentChild()
- : mID(PRUint64(-1))
+ :
+   mID(PRUint64(-1))
 #ifdef ANDROID
- , mScreenSize(0, 0)
+   ,mScreenSize(0, 0)
 #endif
 {
     // This process is a content process, so it's clearly running in
@@ -402,10 +412,11 @@ ContentChild::AllocPCompositor(mozilla::ipc::Transport* aTransport,
 
 PBrowserChild*
 ContentChild::AllocPBrowser(const PRUint32& aChromeFlags,
-                            const bool& aIsBrowserElement,
-                            const PRUint32& aAppId)
+                            const bool& aIsBrowserElement, const AppId& aApp)
 {
-    nsRefPtr<TabChild> iframe = new TabChild(aChromeFlags, aIsBrowserElement, aAppId);
+    PRUint32 appId = aApp.get_uint32_t();
+    nsRefPtr<TabChild> iframe = new TabChild(aChromeFlags, aIsBrowserElement,
+                                             appId);
     return NS_SUCCEEDED(iframe->Init()) ? iframe.forget().get() : NULL;
 }
 
@@ -898,11 +909,20 @@ ContentChild::RecvCycleCollect()
     return true;
 }
 
+static void
+PreloadSlowThings()
+{
+    // This fetches and creates all the built-in stylesheets.
+    nsLayoutStylesheetCache::UserContentSheet();
+}
+
 bool
 ContentChild::RecvAppInfo(const nsCString& version, const nsCString& buildID)
 {
     mAppInfo.version.Assign(version);
     mAppInfo.buildID.Assign(buildID);
+
+    PreloadSlowThings();
     return true;
 }
 
@@ -927,15 +947,26 @@ ContentChild::RecvLastPrivateDocShellDestroyed()
 bool
 ContentChild::RecvFilePathUpdate(const nsString& path, const nsCString& aReason)
 {
-    // data strings will have the format of
-    //  reason:path
-    nsString data;
-    CopyASCIItoUTF16(aReason, data);
-    data.Append(NS_LITERAL_STRING(":"));
-    data.Append(path);
+    nsCOMPtr<nsIFile> file;
+    NS_NewLocalFile(path, false, getter_AddRefs(file));
+
+    nsString reason;
+    CopyASCIItoUTF16(aReason, reason);
+    nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
+    obs->NotifyObservers(file, "file-watcher-update", reason.get());
+    return true;
+}
+
+bool
+ContentChild::RecvFileSystemUpdate(const nsString& aFsName, const nsString& aName, const PRInt32 &aState)
+{
+#ifdef MOZ_WIDGET_GONK
+    nsRefPtr<nsVolume> volume = new nsVolume(aFsName, aName, aState);
 
     nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
-    obs->NotifyObservers(nullptr, "file-watcher-update", data.get());
+    nsString stateStr(NS_ConvertUTF8toUTF16(volume->StateStr()));
+    obs->NotifyObservers(volume, NS_VOLUME_STATE_CHANGED, stateStr.get());
+#endif
     return true;
 }
 

@@ -23,13 +23,18 @@
 #include "nsHashKeys.h"
 #include "nsRect.h"
 #include "gfxASurface.h"
-#include "ImageLayers.h"
+
 #ifdef MOZ_X11
 class gfxXlibSurface;
 #endif
 #include "nsGUIEvent.h"
+#include "mozilla/unused.h"
 
 namespace mozilla {
+namespace layers {
+class ImageContainer;
+class CompositionNotifySink;
+}
 namespace plugins {
 
 class PBrowserStreamParent;
@@ -280,7 +285,7 @@ public:
     nsresult HandleGUIEvent(const nsGUIEvent& anEvent, bool* handled);
 #endif
 
-    void DidComposite() { SendNPP_DidComposite(); }
+    void DidComposite() { unused << SendNPP_DidComposite(); }
 
 private:
     // Create an appropriate platform surface for a background of size
@@ -362,7 +367,7 @@ private:
     // the consistency of the pixels in |mBackground|.  A plugin may
     // be able to observe partial updates to the background.
     nsRefPtr<gfxASurface>    mBackground;
-    
+
     nsRefPtr<ImageContainer> mImageContainer;
 };
 

@@ -46,14 +46,14 @@ Class js::BooleanClass = {
     JS_ConvertStub
 };
 
-static bool
+JS_ALWAYS_INLINE bool
 IsBoolean(const Value &v)
 {
     return v.isBoolean() || (v.isObject() && v.toObject().hasClass(&BooleanClass));
 }
 
 #if JS_HAS_TOSOURCE
-static bool
+JS_ALWAYS_INLINE bool
 bool_toSource_impl(JSContext *cx, CallArgs args)
 {
     const Value &thisv = args.thisv();
@@ -72,15 +72,15 @@ bool_toSource_impl(JSContext *cx, CallArgs args)
     return true;
 }
 
-static JSBool
+JSBool
 bool_toSource(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod(cx, IsBoolean, bool_toSource_impl, args);
+    return CallNonGenericMethod<IsBoolean, bool_toSource_impl>(cx, args);
 }
 #endif
 
-static bool
+JS_ALWAYS_INLINE bool
 bool_toString_impl(JSContext *cx, CallArgs args)
 {
     const Value &thisv = args.thisv();
@@ -91,14 +91,14 @@ bool_toString_impl(JSContext *cx, CallArgs args)
     return true;
 }
 
-static JSBool
+JSBool
 bool_toString(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod(cx, IsBoolean, bool_toString_impl, args);
+    return CallNonGenericMethod<IsBoolean, bool_toString_impl>(cx, args);
 }
 
-static bool
+JS_ALWAYS_INLINE bool
 bool_valueOf_impl(JSContext *cx, CallArgs args)
 {
     const Value &thisv = args.thisv();
@@ -109,11 +109,11 @@ bool_valueOf_impl(JSContext *cx, CallArgs args)
     return true;
 }
 
-static JSBool
+JSBool
 bool_valueOf(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CallNonGenericMethod(cx, IsBoolean, bool_valueOf_impl, args);
+    return CallNonGenericMethod<IsBoolean, bool_valueOf_impl>(cx, args);
 }
 
 static JSFunctionSpec boolean_methods[] = {
@@ -205,8 +205,8 @@ BooleanGetPrimitiveValueSlow(JSContext *cx, JSObject &obj, Value *vp)
     InvokeArgsGuard ag;
     if (!cx->stack.pushInvokeArgs(cx, 0, &ag))
         return false;
-    ag.calleev() = cx->compartment->maybeGlobal()->booleanValueOf();
-    ag.thisv().setObject(obj);
+    ag.setCallee(cx->compartment->maybeGlobal()->booleanValueOf());
+    ag.setThis(ObjectValue(obj));
     if (!Invoke(cx, ag))
         return false;
     *vp = ag.rval();

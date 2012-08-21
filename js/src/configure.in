@@ -182,7 +182,7 @@ if test -n "$gonkdir" ; then
 
     CPPFLAGS="-DANDROID -isystem $gonkdir/bionic/libc/$ARCH_DIR/include -isystem $gonkdir/bionic/libc/include/ -isystem $gonkdir/bionic/libc/kernel/common -isystem $gonkdir/bionic/libc/kernel/$ARCH_DIR -isystem $gonkdir/bionic/libm/include -I$gonkdir/frameworks/base/native/include -I$gonkdir/system/core/include -isystem $gonkdir/bionic $CPPFLAGS"
     CFLAGS="-mandroid -fno-short-enums -fno-exceptions $CFLAGS"
-    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions $CXXFLAGS $STLPORT_CPPFLAGS"
+    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions -Wno-psabi $CXXFLAGS $STLPORT_CPPFLAGS"
     LIBS="$LIBS $STLPORT_LIBS"
 
     dnl Add -llog by default, since we use it all over the place.
@@ -734,7 +734,7 @@ dnl Check for MacOS deployment target version
 dnl ========================================================
 
 MOZ_ARG_ENABLE_STRING(macos-target,
-                      [  --enable-macos-target=VER (default=10.5)
+                      [  --enable-macos-target=VER (default=10.6)
                           Set the minimum MacOS version needed at runtime],
                       [_MACOSX_DEPLOYMENT_TARGET=$enableval])
 
@@ -747,14 +747,7 @@ case "$target" in
     else
         dnl No value specified on the command line or in the environment,
         dnl use architecture minimum.
-        case "${target_cpu}" in
-          i*86)
-            export MACOSX_DEPLOYMENT_TARGET=10.5
-            ;;
-          x86_64)
-            export MACOSX_DEPLOYMENT_TARGET=10.6
-            ;;
-        esac
+        export MACOSX_DEPLOYMENT_TARGET=10.6
     fi
     ;;
 esac
@@ -1623,16 +1616,6 @@ case "$target" in
         LDFLAGS=$_SAVE_LDFLAGS
     fi
     MOZ_FIX_LINK_PATHS='-Wl,-executable_path,$(LIBXUL_DIST)/bin'
-    ;;
-
-*-freebsd*)
-    if test `test -x /usr/bin/objformat && /usr/bin/objformat || echo elf` != "elf"; then
-	DLL_SUFFIX=".so.1.0"
-	DSO_LDOPTS="-shared"
-    fi
-    if test ! "$GNU_CC"; then
-	DSO_LDOPTS="-Bshareable $DSO_LDOPTS"
-    fi
     ;;
 
 ia64*-hpux*)
@@ -2721,11 +2704,9 @@ then
 	    *-*-freebsd*)
 			AC_DEFINE(_REENTRANT)
 			AC_DEFINE(_THREAD_SAFE)
-			dnl -pthread links in -lc_r, so don't specify it explicitly.
+			dnl -pthread links in -lpthread, so don't specify it explicitly.
 			if test "$ac_cv_have_dash_pthread" = "yes"; then
 				_PTHREAD_LDFLAGS="-pthread"
-			else
-				_PTHREAD_LDFLAGS="-lc_r"
 			fi
 			;;
 
@@ -4109,7 +4090,7 @@ MOZ_ARG_DISABLE_BOOL(md,
    fi])
 if test "$_cpp_md_flag"; then
   COMPILER_DEPEND=1
-  _DEPEND_CFLAGS='$(filter-out %/.pp,-MD -MF $(MDDEPDIR)/$(@F).pp)'
+  _DEPEND_CFLAGS='$(filter-out %/.pp,-MMD -MF $(MDDEPDIR)/$(@F).pp)'
   dnl Sun Studio on Solaris use -xM instead of -MD, see config/rules.mk
   if test "$SOLARIS_SUNPRO_CC"; then
     _DEPEND_CFLAGS=
@@ -4131,10 +4112,6 @@ else
     fi
     AC_SUBST(CL_INCLUDES_PREFIX)
     rm -f dummy-hello.c
-    _topsrcdirwin=`cd \`dirname $0\`; pwd -W`
-    dnl cl.py provides dependency generation for MSVC
-    CC_WRAPPER="$PYTHON -O $_topsrcdirwin/build/cl.py"
-    CXX_WRAPPER="$PYTHON -O $_topsrcdirwin/build/cl.py"
     COMPILER_DEPEND=1
   fi
 fi
@@ -4143,9 +4120,6 @@ MDDEPDIR='.deps'
 AC_SUBST(MOZ_AUTO_DEPS)
 AC_SUBST(COMPILER_DEPEND)
 AC_SUBST(MDDEPDIR)
-AC_SUBST(CC_WRAPPER)
-AC_SUBST(CXX_WRAPPER)
-
 
 dnl ========================================================
 dnl = Link js shell to system readline
@@ -4211,15 +4185,6 @@ fi
 if test "$MOZ_DEBUG" -o "$NS_TRACE_MALLOC"; then
     MOZ_COMPONENTS_VERSION_SCRIPT_LDFLAGS=
 fi
-
-MOZ_ARG_WITH_STRING(sync-build-files,
-[  --with-sync-build-files=DIR
-                          Check that files in 'config' and 'build' match
-                          their originals in 'DIR/config' and 'DIR/build'.
-                          This helps keep the SpiderMonkey build machinery
-                          in sync with Mozilla's, on which it is based.],
-[MOZ_SYNC_BUILD_FILES=$withval ] )
-AC_SUBST(MOZ_SYNC_BUILD_FILES)
 
 dnl ========================================================
 dnl =
@@ -4433,10 +4398,8 @@ dnl ========================================================
 if test "$OS_ARCH" = "Darwin"; then
   AC_DEFINE(XP_MACOSX)
   AC_DEFINE(XP_UNIX)
-  AC_DEFINE(UNIX_ASYNC_DNS)
 elif test "$OS_ARCH" != "WINNT" -a "$OS_ARCH" != "OS2"; then
   AC_DEFINE(XP_UNIX)
-  AC_DEFINE(UNIX_ASYNC_DNS)
 fi
 
 AC_ARG_ENABLE(threadsafe,

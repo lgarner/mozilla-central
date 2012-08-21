@@ -41,6 +41,8 @@
 #include "nsAnimationManager.h"
 #include "nsTransitionManager.h"
 #include "nsIViewManager.h"
+#include "ImageLayers.h"
+#include "ImageContainer.h"
 
 #include "mozilla/StandardInteger.h"
 
@@ -278,11 +280,18 @@ AddAnimationsForProperty(nsIFrame* aFrame, nsCSSProperty aProperty,
   nsRect bounds = nsDisplayTransform::GetFrameBoundsForTransform(aFrame);
   float scale = presContext->AppUnitsPerDevPixel();
 
+  TimeStamp startTime = ea->mStartTime;
+  TimeDuration duration = ea->mIterationDuration;
   float iterations = ea->mIterationCount != NS_IEEEPositiveInfinity()
                      ? ea->mIterationCount : -1;
+  int direction = ea->mDirection;
+
+  Animation* animation = aLayer->AddAnimation(startTime, duration,
+                                              iterations, direction,
+                                              aProperty, aData);
+
   for (PRUint32 propIdx = 0; propIdx < ea->mProperties.Length(); propIdx++) {
     AnimationProperty* property = &ea->mProperties[propIdx];
-    InfallibleTArray<AnimationSegment> segments;
 
     if (aProperty != property->mProperty) {
       continue;
@@ -291,47 +300,38 @@ AddAnimationsForProperty(nsIFrame* aFrame, nsCSSProperty aProperty,
     for (PRUint32 segIdx = 0; segIdx < property->mSegments.Length(); segIdx++) {
       AnimationPropertySegment* segment = &property->mSegments[segIdx];
 
+      AnimationSegment* animSegment = animation->segments().AppendElement();
       if (aProperty == eCSSProperty_transform) {
+        animSegment->startState() = InfallibleTArray<TransformFunction>();
+        animSegment->endState() = InfallibleTArray<TransformFunction>();
+
         nsCSSValueList* list = segment->mFromValue.GetCSSValueListValue();
-        InfallibleTArray<TransformFunction> fromFunctions;
-        AddTransformFunctions(list, styleContext,
-                              presContext, bounds,
-                              scale, fromFunctions);
+        AddTransformFunctions(list, styleContext, presContext, bounds, scale,
+                              animSegment->startState().get_ArrayOfTransformFunction());
 
         list = segment->mToValue.GetCSSValueListValue();
-        InfallibleTArray<TransformFunction> toFunctions;
-        AddTransformFunctions(list, styleContext,
-                              presContext, bounds,
-                              scale, toFunctions);
-
-        segments.AppendElement(AnimationSegment(fromFunctions, toFunctions,
-                                                segment->mFromKey, segment->mToKey,
-                                                ToTimingFunction(segment->mTimingFunction)));
+        AddTransformFunctions(list, styleContext, presContext, bounds, scale,
+                              animSegment->endState().get_ArrayOfTransformFunction());
       } else if (aProperty == eCSSProperty_opacity) {
-        segments.AppendElement(AnimationSegment(Opacity(segment->mFromValue.GetFloatValue()),
-                                                Opacity(segment->mToValue.GetFloatValue()),
-                                                segment->mFromKey,
-                                                segment->mToKey,
-                                                ToTimingFunction(segment->mTimingFunction)));
+        animSegment->startState() = segment->mFromValue.GetFloatValue();
+        animSegment->endState() = segment->mToValue.GetFloatValue();
       }
-    }
 
-    aLayer->AddAnimation(Animation(ea->mStartTime,
-                                   ea->mIterationDuration,
-                                   segments,
-                                   iterations,
-                                   ea->mDirection,
-                                   aData));
+      animSegment->startPortion() = segment->mFromKey;
+      animSegment->endPortion() = segment->mToKey;
+      animSegment->sampleFn() = ToTimingFunction(segment->mTimingFunction);
+    }
   }
 }
 
 static void
-AddAnimationsAndTransitionsToLayer(Layer* aLayer, nsDisplayItem* aItem,
-                                   nsCSSProperty aProperty)
+AddAnimationsAndTransitionsToLayer(Layer* aLayer, nsDisplayListBuilder* aBuilder,
+                                   nsDisplayItem* aItem, nsCSSProperty aProperty)
 {
   aLayer->ClearAnimations();
 
   nsIFrame* frame = aItem->GetUnderlyingFrame();
+
   nsIContent* aContent = frame->GetContent();
   ElementTransitions* et =
     nsTransitionManager::GetTransitionsForCompositor(aContent, aProperty);
@@ -340,6 +340,22 @@ AddAnimationsAndTransitionsToLayer(Layer* aLayer, nsDisplayItem* aItem,
     nsAnimationManager::GetAnimationsForCompositor(aContent, aProperty);
 
   if (!ea && !et) {
+    return;
+  }
+
+  // If the frame is not prerendered, bail out.  Layout will still perform the
+  // animation.
+  if (!nsDisplayTransform::ShouldPrerenderTransformedContent(aBuilder, frame)) {
+    if (nsLayoutUtils::IsAnimationLoggingEnabled()) {
+      printf_stderr("Performance warning: Async animation disabled because the frame for element '%s'",
+                    nsAtomCString(aContent->Tag()).get());
+      nsIAtom* id = aContent->GetID();
+      if (id) {
+        printf_stderr(" with id '%s'",
+                      nsAtomCString(aContent->GetID()).get());
+      }
+      printf_stderr(" is not prerendered\n");
+    }
     return;
   }
 
@@ -372,9 +388,10 @@ AddAnimationsAndTransitionsToLayer(Layer* aLayer, nsDisplayItem* aItem,
   if (et) {
     for (PRUint32 tranIdx = 0; tranIdx < et->mPropertyTransitions.Length(); tranIdx++) {
       ElementPropertyTransition* pt = &et->mPropertyTransitions[tranIdx];
-      if (!pt->CanPerformOnCompositor(et->mElement, currentTime)) {
-         continue;
-       }
+      if (pt->mProperty != aProperty ||
+          !pt->CanPerformOnCompositor(et->mElement, currentTime)) {
+        continue;
+      }
 
       ElementAnimation anim;
       anim.mIterationCount = 1;
@@ -401,7 +418,8 @@ AddAnimationsAndTransitionsToLayer(Layer* aLayer, nsDisplayItem* aItem,
   if (ea) {
     for (PRUint32 animIdx = 0; animIdx < ea->mAnimations.Length(); animIdx++) {
       ElementAnimation* anim = &ea->mAnimations[animIdx];
-      if (!anim->CanPerformOnCompositor(ea->mElement, currentTime)) {
+      if (!(anim->HasAnimationOfProperty(aProperty) &&
+            anim->CanPerformOnCompositor(ea->mElement, currentTime))) {
         continue;
       }
       AddAnimationsForProperty(frame, aProperty, anim,
@@ -957,8 +975,7 @@ void nsDisplayList::PaintForFrame(nsDisplayListBuilder* aBuilder,
   }
 
   FrameLayerBuilder *layerBuilder = new FrameLayerBuilder();
-  layerBuilder->Init(aBuilder);
-  layerManager->SetUserData(&gLayerManagerLayerBuilder, new LayerManagerLayerBuilder(layerBuilder));
+  layerBuilder->Init(aBuilder, layerManager);
 
   if (aFlags & PAINT_FLUSH_LAYERS) {
     FrameLayerBuilder::InvalidateAllLayers(layerManager);
@@ -1019,7 +1036,7 @@ void nsDisplayList::PaintForFrame(nsDisplayListBuilder* aBuilder,
   layerBuilder->WillEndTransaction(layerManager);
   bool temp = aBuilder->SetIsCompositingCheap(layerManager->IsCompositingCheap());
   layerManager->EndTransaction(FrameLayerBuilder::DrawThebesLayer,
-                               aBuilder);
+                               aBuilder, (aFlags & PAINT_NO_COMPOSITE) ? LayerManager::END_NO_COMPOSITE : LayerManager::END_DEFAULT);
   aBuilder->SetIsCompositingCheap(temp);
   layerBuilder->DidEndTransaction(layerManager);
 
@@ -1363,6 +1380,13 @@ nsDisplayBackground::nsDisplayBackground(nsDisplayListBuilder* aBuilder,
       aBuilder->SetHasFixedItems();
     }
   }
+}
+
+nsDisplayBackground::~nsDisplayBackground()
+{
+#ifdef NS_BUILD_REFCNT_LOGGING
+  MOZ_COUNT_DTOR(nsDisplayBackground);
+#endif
 }
 
 // Helper for RoundedRectIntersectsRect.
@@ -2229,7 +2253,7 @@ bool nsDisplayWrapList::ChildrenCanBeInactive(nsDisplayListBuilder* aBuilder,
     }
 
     LayerState state = i->GetLayerState(aBuilder, aManager, aParameters);
-    if (state == LAYER_ACTIVE)
+    if (state == LAYER_ACTIVE || state == LAYER_ACTIVE_FORCE)
       return false;
     if (state == LAYER_NONE) {
       nsDisplayList* list = i->GetList();
@@ -2345,15 +2369,15 @@ already_AddRefed<Layer>
 nsDisplayOpacity::BuildLayer(nsDisplayListBuilder* aBuilder,
                              LayerManager* aManager,
                              const ContainerParameters& aContainerParameters) {
-  nsRefPtr<Layer> container = GetLayerBuilderForManager(aManager)->
+  nsRefPtr<Layer> container = aManager->GetLayerBuilder()->
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, mList,
                            aContainerParameters, nullptr);
   if (!container)
     return nullptr;
 
   container->SetOpacity(mFrame->GetStyleDisplay()->mOpacity);
-  AddAnimationsAndTransitionsToLayer(container, this, eCSSProperty_opacity);
-
+  AddAnimationsAndTransitionsToLayer(container, aBuilder,
+                                     this, eCSSProperty_opacity);
   return container.forget();
 }
 
@@ -2439,7 +2463,7 @@ already_AddRefed<Layer>
 nsDisplayOwnLayer::BuildLayer(nsDisplayListBuilder* aBuilder,
                               LayerManager* aManager,
                               const ContainerParameters& aContainerParameters) {
-  nsRefPtr<Layer> layer = GetLayerBuilderForManager(aManager)->
+  nsRefPtr<Layer> layer = aManager->GetLayerBuilder()->
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, mList,
                            aContainerParameters, nullptr);
   return layer.forget();
@@ -2509,6 +2533,17 @@ nsDisplayFixedPosition::BuildLayer(nsDisplayListBuilder* aBuilder,
   return layer.forget();
 }
 
+bool nsDisplayFixedPosition::TryMerge(nsDisplayListBuilder* aBuilder, nsDisplayItem* aItem) {
+  if (aItem->GetType() != TYPE_FIXED_POSITION)
+    return false;
+  // Items with the same fixed position frame can be merged.
+  nsDisplayFixedPosition* other = static_cast<nsDisplayFixedPosition*>(aItem);
+  if (other->mFixedPosFrame != mFixedPosFrame)
+    return false;
+  MergeFromTrackingMergedFrames(other);
+  return true;
+}
+
 nsDisplayScrollLayer::nsDisplayScrollLayer(nsDisplayListBuilder* aBuilder,
                                            nsDisplayList* aList,
                                            nsIFrame* aForFrame,
@@ -2570,7 +2605,7 @@ already_AddRefed<Layer>
 nsDisplayScrollLayer::BuildLayer(nsDisplayListBuilder* aBuilder,
                                  LayerManager* aManager,
                                  const ContainerParameters& aContainerParameters) {
-  nsRefPtr<ContainerLayer> layer = GetLayerBuilderForManager(aManager)->
+  nsRefPtr<ContainerLayer> layer = aManager->GetLayerBuilder()->
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, mList,
                            aContainerParameters, nullptr);
 
@@ -3354,7 +3389,7 @@ already_AddRefed<Layer> nsDisplayTransform::BuildLayer(nsDisplayListBuilder *aBu
     return nullptr;
   }
 
-  nsRefPtr<ContainerLayer> container = GetLayerBuilderForManager(aManager)->
+  nsRefPtr<ContainerLayer> container = aManager->GetLayerBuilder()->
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, *mStoredList.GetList(),
                            aContainerParameters, &newTransformMatrix);
 
@@ -3364,7 +3399,8 @@ already_AddRefed<Layer> nsDisplayTransform::BuildLayer(nsDisplayListBuilder *aBu
     container->SetContentFlags(container->GetContentFlags() | Layer::CONTENT_PRESERVE_3D);
   }
 
-  AddAnimationsAndTransitionsToLayer(container, this, eCSSProperty_transform);
+  AddAnimationsAndTransitionsToLayer(container, aBuilder,
+                                     this, eCSSProperty_transform);
   return container.forget();
 }
 
@@ -3791,7 +3827,7 @@ nsDisplaySVGEffects::BuildLayer(nsDisplayListBuilder* aBuilder,
     return nullptr;
   }
 
-  nsRefPtr<ContainerLayer> container = GetLayerBuilderForManager(aManager)->
+  nsRefPtr<ContainerLayer> container = aManager->GetLayerBuilder()->
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, mList,
                            aContainerParameters, nullptr);
 

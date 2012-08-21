@@ -52,13 +52,18 @@ HISTOGRAM(FORGET_SKIPPABLE_MAX, 1, 10000, 50, EXPONENTIAL, "Max time spent on on
 HISTOGRAM_ENUMERATED_VALUES(GC_REASON_2, js::gcreason::NUM_TELEMETRY_REASONS, "Reason (enum value) for initiating a GC")
 HISTOGRAM_BOOLEAN(GC_IS_COMPARTMENTAL, "Is it a compartmental GC?")
 HISTOGRAM(GC_MS, 1, 10000, 50, EXPONENTIAL, "Time spent running JS GC (ms)")
+HISTOGRAM(GC_MAX_PAUSE_MS, 1, 1000, 50, LINEAR, "Longest GC slice in a GC (ms)")
 HISTOGRAM(GC_MARK_MS, 1, 10000, 50, EXPONENTIAL, "Time spent running JS GC mark phase (ms)")
 HISTOGRAM(GC_SWEEP_MS, 1, 10000, 50, EXPONENTIAL, "Time spent running JS GC sweep phase (ms)")
+HISTOGRAM(GC_MARK_ROOTS_MS, 1, 200, 50, LINEAR, "Time spent marking GC roots (ms)")
+HISTOGRAM(GC_MARK_GRAY_MS, 1, 200, 50, LINEAR, "Time spent marking gray GC objects (ms)")
 HISTOGRAM(GC_SLICE_MS, 1, 10000, 50, EXPONENTIAL, "Time spent running a JS GC slice (ms)")
 HISTOGRAM(GC_MMU_50, 1, 100, 20, LINEAR, "Minimum percentage of time spent outside GC over any 50ms window")
 HISTOGRAM_BOOLEAN(GC_RESET, "Was an incremental GC canceled?")
 HISTOGRAM_BOOLEAN(GC_INCREMENTAL_DISABLED, "Is incremental GC permanently disabled?")
 HISTOGRAM_BOOLEAN(GC_NON_INCREMENTAL, "Was the GC non-incremental?")
+HISTOGRAM(GC_SCC_SWEEP_TOTAL_MS, 1, 500, 50, LINEAR, "Time spent sweeping compartment SCCs (ms)")
+HISTOGRAM(GC_SCC_SWEEP_MAX_PAUSE_MS, 1, 500, 50, LINEAR, "Time spent sweeping slowest compartment SCC (ms)")
 
 HISTOGRAM(TELEMETRY_PING, 1, 3000, 10, EXPONENTIAL, "Time taken to submit telemetry info (ms)")
 HISTOGRAM_BOOLEAN(TELEMETRY_SUCCESS,  "Successful telemetry submission")
@@ -178,8 +183,8 @@ HISTOGRAM(SPDY_SYN_SIZE, 20, 20000, 50, EXPONENTIAL,  "SPDY: SYN Frame Header Si
 HISTOGRAM(SPDY_SYN_RATIO, 1, 99, 20, LINEAR,  "SPDY: SYN Frame Header Ratio (lower better)")
 HISTOGRAM(SPDY_SYN_REPLY_SIZE, 16, 20000, 50, EXPONENTIAL,  "SPDY: SYN Reply Header Size")
 HISTOGRAM(SPDY_SYN_REPLY_RATIO, 1, 99, 20, LINEAR,  "SPDY: SYN Reply Header Ratio (lower better)")
-HISTOGRAM(SPDY_NPN_CONNECT, 0, 1, 2, BOOLEAN,  "SPDY: NPN Negotiated")
-HISTOGRAM(SPDY_NPN_JOIN, 0, 1, 2, BOOLEAN,  "SPDY: Coalesce Succeeded")
+HISTOGRAM_BOOLEAN(SPDY_NPN_CONNECT,  "SPDY: NPN Negotiated")
+HISTOGRAM_BOOLEAN(SPDY_NPN_JOIN,  "SPDY: Coalesce Succeeded")
 HISTOGRAM(SPDY_KBREAD_PER_CONN, 1, 3000, 50, EXPONENTIAL, "SPDY: KB read per connection")
 HISTOGRAM(SPDY_PING_EXPERIMENT_PASS, 10, 355, 64, LINEAR, "SPDY: Ping Interval Passed")
 HISTOGRAM(SPDY_PING_EXPERIMENT_FAIL, 10, 355, 64, LINEAR, "SPDY: Ping Interval Failed")
@@ -196,6 +201,7 @@ HISTOGRAM(SPDY_SETTINGS_IW, 1, 1000, 50, EXPONENTIAL,  "SPDY: Settings IW (round
 #undef HTTP_HISTOGRAMS
 
 HISTOGRAM(DISK_CACHE_CORRUPT_DETAILS, 1, 50, 51, LINEAR, "Why the HTTP disk cache was corrupted at startup")
+HISTOGRAM_BOOLEAN(DISK_CACHE_REDUCTION_TRIAL, "Stores 1 if the cache would be corrupted with the disk cache corruption plan of Bug 105843")
 HISTOGRAM_ENUMERATED_VALUES(HTTP_CACHE_DISPOSITION_2,         5, "HTTP Cache Hit, Reval, Failed-Reval, Miss")
 HISTOGRAM_ENUMERATED_VALUES(HTTP_DISK_CACHE_DISPOSITION_2,    5, "HTTP Disk Cache Hit, Reval, Failed-Reval, Miss")
 HISTOGRAM_ENUMERATED_VALUES(HTTP_MEMORY_CACHE_DISPOSITION_2,  5, "HTTP Memory Cache Hit, Reval, Failed-Reval, Miss")
@@ -208,6 +214,7 @@ HISTOGRAM(HTTP_DISK_CACHE_OVERHEAD, 1, 32000000, 100, EXPONENTIAL, "HTTP Disk ca
 HISTOGRAM(CACHE_LM_INCONSISTENT, 0, 1, 2, BOOLEAN,  "Cache discovered inconsistent last-modified entry")
 HISTOGRAM(CACHE_SERVICE_LOCK_WAIT, 1, 10000, 10000, LINEAR, "Time spent waiting on the cache service lock (ms)")
 HISTOGRAM(CACHE_SERVICE_LOCK_WAIT_MAINTHREAD, 1, 10000, 10000, LINEAR, "Time spent waiting on the cache service lock on the main thread (ms)")
+HISTOGRAM(DISK_CACHE_SMART_SIZE_USING_OLD_MAX, 0, 1, 2, BOOLEAN, "Whether we are using the old default cache smart size")
 
 #define CACHE_LOCK_HISTOGRAM(x) \
   HISTOGRAM(CACHE_SERVICE_LOCK_WAIT_MAINTHREAD_##x, 1, 10 * 1000, 50, EXPONENTIAL, "Time spent waiting on the cache service lock (ms) on the main thread in " #x)
@@ -273,6 +280,7 @@ CACHE_LOCK_HISTOGRAM(NSCACHEENTRYDESCRIPTOR_GETPREDICTEDDATASIZE)
 CACHE_LOCK_HISTOGRAM(NSCACHEENTRYDESCRIPTOR_GETLASTFETCHED)
 CACHE_LOCK_HISTOGRAM(NSCACHEENTRYDESCRIPTOR_GETCLIENTID)
 CACHE_LOCK_HISTOGRAM(NSBLOCKONCACHETHREADEVENT_RUN)
+CACHE_LOCK_HISTOGRAM(NSDISKCACHEMAP_REVALIDATION)
 
 #undef CACHE_LOCK_HISTOGRAM
  
@@ -300,7 +308,6 @@ HISTOGRAM(PLUGIN_SHUTDOWN_MS, 1, 5000, 20, EXPONENTIAL, "Time spent shutting dow
   SQLITE_TIME_SPENT(OTHER_ ## NAME, DESC) \
   SQLITE_TIME_SPENT(PLACES_ ## NAME, DESC) \
   SQLITE_TIME_SPENT(COOKIES_ ## NAME, DESC) \
-  SQLITE_TIME_SPENT(URLCLASSIFIER_ ## NAME, DESC) \
   SQLITE_TIME_SPENT(WEBAPPS_ ## NAME, DESC)
 
 SQLITE_TIME_SPENT(OPEN, "Time spent on SQLite open() (ms)")
@@ -313,22 +320,21 @@ SQLITE_TIME_PER_FILE(SYNC, "Time spent on SQLite fsync() (ms)")
 HISTOGRAM(MOZ_SQLITE_OTHER_READ_B, 1, 32768, 3, LINEAR, "SQLite read() (bytes)")
 HISTOGRAM(MOZ_SQLITE_PLACES_READ_B, 1, 32768, 3, LINEAR, "SQLite read() (bytes)")
 HISTOGRAM(MOZ_SQLITE_COOKIES_READ_B, 1, 32768, 3, LINEAR, "SQLite read() (bytes)")
-HISTOGRAM(MOZ_SQLITE_URLCLASSIFIER_READ_B, 1, 32768, 3, LINEAR, "SQLite read() (bytes)")
 HISTOGRAM(MOZ_SQLITE_WEBAPPS_READ_B, 1, 32768, 3, LINEAR, "SQLite read() (bytes)")
 HISTOGRAM(MOZ_SQLITE_PLACES_WRITE_B, 1, 32768, 3, LINEAR, "SQLite write (bytes)")
 HISTOGRAM(MOZ_SQLITE_COOKIES_WRITE_B, 1, 32768, 3, LINEAR, "SQLite write (bytes)")
-HISTOGRAM(MOZ_SQLITE_URLCLASSIFIER_WRITE_B, 1, 32768, 3, LINEAR, "SQLite write (bytes)")
 HISTOGRAM(MOZ_SQLITE_WEBAPPS_WRITE_B, 1, 32768, 3, LINEAR, "SQLite write (bytes)")
 HISTOGRAM(MOZ_SQLITE_OTHER_WRITE_B, 1, 32768, 3, LINEAR, "SQLite write (bytes)")
 HISTOGRAM(MOZ_STORAGE_ASYNC_REQUESTS_MS, 1, 32768, 20, EXPONENTIAL, "mozStorage async requests completion (ms)")
 HISTOGRAM_BOOLEAN(MOZ_STORAGE_ASYNC_REQUESTS_SUCCESS, "mozStorage async requests success")
-HISTOGRAM(STARTUP_MEASUREMENT_ERRORS, 1, mozilla::StartupTimeline::MAX_EVENT_ID, mozilla::StartupTimeline::MAX_EVENT_ID + 1, LINEAR, "Flags errors in startup calculation()")
+HISTOGRAM_ENUMERATED_VALUES(STARTUP_MEASUREMENT_ERRORS, mozilla::StartupTimeline::MAX_EVENT_ID, "Flags errors in startup calculation()")
 HISTOGRAM(NETWORK_DISK_CACHE_OPEN, 1, 10000, 10, EXPONENTIAL, "Time spent opening disk cache (ms)")
 HISTOGRAM(NETWORK_DISK_CACHE_TRASHRENAME, 1, 10000, 10, EXPONENTIAL, "Time spent renaming bad Cache to Cache.Trash (ms)")
 HISTOGRAM(NETWORK_DISK_CACHE_DELETEDIR, 1, 10000, 10, EXPONENTIAL, "Time spent deleting disk cache (ms)")
 HISTOGRAM(NETWORK_DISK_CACHE_DELETEDIR_SHUTDOWN, 1, 10000, 10, EXPONENTIAL, "Time spent during showdown stopping thread deleting old disk cache (ms)")
 HISTOGRAM(NETWORK_DISK_CACHE_SHUTDOWN, 1, 10000, 10, EXPONENTIAL, "Total Time spent (ms) during disk cache showdown")
 HISTOGRAM(NETWORK_DISK_CACHE_SHUTDOWN_CLEAR_PRIVATE, 1, 10000, 10, EXPONENTIAL, "Time spent (ms) during showdown deleting disk cache for 'clear private data' option")
+HISTOGRAM(NETWORK_DISK_CACHE_REVALIDATION, 1, 10000, 10, EXPONENTIAL, "Total Time spent (ms) during disk cache revalidation")
 HISTOGRAM(NETWORK_DISK_CACHE_OUTPUT_STREAM_CLOSE, 1, 10000, 10, EXPONENTIAL, "Time spent in nsDiskCacheOutputStream::Close() on non-main thread (ms)")
 HISTOGRAM(NETWORK_DISK_CACHE_OUTPUT_STREAM_CLOSE_MAIN_THREAD, 1, 10000, 10, EXPONENTIAL, "Time spent in nsDiskCacheOutputStream::Close() on the main thread (ms)")
 HISTOGRAM(NETWORK_DISK_CACHE_OUTPUT_STREAM_CLOSE_INTERNAL, 1, 10000, 10, EXPONENTIAL, "Time spent in nsDiskCacheOutputStream::CloseInternal() on non-main thread (ms)")
@@ -346,11 +352,15 @@ HISTOGRAM(IDLE_NOTIFY_IDLE_LISTENERS, 1, 100, 20, LINEAR, "Number of listeners n
  * Url-Classifier telemetry
  */
 #ifdef MOZ_URL_CLASSIFIER
+HISTOGRAM(URLCLASSIFIER_LOOKUP_TIME, 1, 500, 10, EXPONENTIAL, "Time spent per dbservice lookup (ms)")
+HISTOGRAM(URLCLASSIFIER_CL_CHECK_TIME, 1, 500, 10, EXPONENTIAL, "Time spent per classifier lookup (ms)")
+HISTOGRAM(URLCLASSIFIER_CL_UPDATE_TIME, 20, 15000, 15, EXPONENTIAL, "Time spent per classifier update (ms)")
 HISTOGRAM(URLCLASSIFIER_PS_FILELOAD_TIME, 1, 1000, 10, EXPONENTIAL, "Time spent loading PrefixSet from file (ms)")
 HISTOGRAM(URLCLASSIFIER_PS_FALLOCATE_TIME, 1, 1000, 10, EXPONENTIAL, "Time spent fallocating PrefixSet (ms)")
 HISTOGRAM(URLCLASSIFIER_PS_CONSTRUCT_TIME, 1, 5000, 15, EXPONENTIAL, "Time spent constructing PrefixSet from DB (ms)")
-HISTOGRAM(URLCLASSIFIER_PS_LOOKUP_TIME, 1, 500, 10, EXPONENTIAL, "Time spent per PrefixSet lookup (ms)")
-HISTOGRAM_BOOLEAN(URLCLASSIFIER_PS_OOM, "Did UrlClassifier run out of memory during PrefixSet construction?")
+HISTOGRAM(URLCLASSIFIER_LC_PREFIXES, 1, 1500000, 15, LINEAR, "Size of the prefix cache in entries")
+HISTOGRAM(URLCLASSIFIER_LC_COMPLETIONS, 1, 200, 10, EXPONENTIAL, "Size of the completion cache in entries")
+HISTOGRAM_BOOLEAN(URLCLASSIFIER_PS_FAILURE, "Did UrlClassifier fail to construct the PrefixSet?")
 #endif
 
 /**
@@ -420,7 +430,7 @@ HISTOGRAM(FX_NEW_WINDOW_MS, 1, 10000, 20, EXPONENTIAL, "Firefox: Time taken to o
  */
 HISTOGRAM(FX_THUMBNAILS_CAPTURE_TIME_MS, 1, 500, 15, EXPONENTIAL, "THUMBNAILS: Time (ms) it takes to capture a thumbnail")
 HISTOGRAM(FX_THUMBNAILS_STORE_TIME_MS, 1, 500, 15, EXPONENTIAL, "THUMBNAILS: Time (ms) it takes to store a thumbnail in the cache")
-HISTOGRAM(FX_THUMBNAILS_HIT_OR_MISS, 0, 1, 2, BOOLEAN, "THUMBNAILS: Thumbnail found")
+HISTOGRAM_BOOLEAN(FX_THUMBNAILS_HIT_OR_MISS, "THUMBNAILS: Thumbnail found")
 
 
 /*
@@ -497,7 +507,7 @@ HISTOGRAM_ENUMERATED_VALUES(SAFE_MODE_USAGE, 3, "Whether the user is in safe mod
 /**
  * New Tab Page telemetry.
  */
-HISTOGRAM(NEWTAB_PAGE_ENABLED, 0, 1, 2, BOOLEAN, "New tab page is enabled.")
+HISTOGRAM_BOOLEAN(NEWTAB_PAGE_ENABLED, "New tab page is enabled.")
 HISTOGRAM(NEWTAB_PAGE_PINNED_SITES_COUNT, 1, 9, 10, EXPONENTIAL, "Number of pinned sites on the new tab page.")
 HISTOGRAM(NEWTAB_PAGE_BLOCKED_SITES_COUNT, 1, 100, 10, EXPONENTIAL, "Number of sites blocked from the new tab page.")
 

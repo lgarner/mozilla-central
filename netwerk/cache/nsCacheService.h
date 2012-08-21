@@ -109,6 +109,11 @@ public:
     static bool      IsStorageEnabledForPolicy_Locked(nsCacheStoragePolicy policy);
 
     /**
+     * Called by disk cache to notify us to use the new max smart size
+     */
+    static void      MarkStartingFresh();
+
+    /**
      * Methods called by nsApplicationCacheService
      */
 
@@ -173,6 +178,7 @@ public:
     { gService->mLock.AssertCurrentThreadOwns(); }
 
     static void      LeavePrivateBrowsing();
+    bool             IsDoomListEmpty();
 
     typedef bool (*DoomCheckFn)(nsCacheEntry* entry);
 
@@ -184,6 +190,8 @@ private:
     friend class nsBlockOnCacheThreadEvent;
     friend class nsSetDiskSmartSizeCallback;
     friend class nsDoomEvent;
+    friend class nsDisableOldMaxSmartSizePrefEvent;
+    friend class nsDiskCacheMap;
 
     /**
      * Internal Methods
