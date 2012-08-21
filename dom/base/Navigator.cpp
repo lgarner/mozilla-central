@@ -195,7 +195,7 @@ Navigator::Invalidate()
 
 #ifdef MOZ_B2G_NFC
   if (mNfc) {
-    mNfc = nsnull;
+    mNfc = nullptr;
   }
 #endif
 

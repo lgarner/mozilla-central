@@ -58,7 +58,7 @@ nsNfc::Create(nsPIDOMWindow* aOwner, nsINfcContentHelper* aNfc)
   nfc->mNfcCallback = new NfcCallback(nfc);
  
   nsresult rv = aNfc->RegisterCallback(nfc->mNfcCallback);
-  NS_ENSURE_SUCCESS(rv, nsnull);
+  NS_ENSURE_SUCCESS(rv, nullptr);
  
   return nfc.forget();
 }
@@ -264,7 +264,7 @@ NS_NewNfc(nsPIDOMWindow* aWindow, nsIDOMNfc** aNfc)
   
   // Check if Nfc exists and return null if it doesn't
   if(!mozilla::dom::gonk::SystemWorkerManager::DoesNfcExist()) {
-    *aNfc = nsnull; 
+    *aNfc = nullptr; 
     return NS_OK;
   }
 	 

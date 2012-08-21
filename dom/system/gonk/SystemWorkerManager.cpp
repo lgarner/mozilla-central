@@ -393,7 +393,7 @@ SystemWorkerManager::Shutdown()
 #ifdef MOZ_B2G_NFC
   StopNfc();
 
-  mNfcWorker = nsnull;
+  mNfcWorker = nullptr;
 #endif
 }
 

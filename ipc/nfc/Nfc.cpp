@@ -25,7 +25,7 @@
 #include "nsIThread.h"
 #include "nsXULAppAPI.h"
 #include "Nfc.h"
- 
+
 #undef LOG
 #if defined(MOZ_WIDGET_GONK)
 #include <android/log.h>
@@ -112,7 +112,7 @@ public:
       return;
     }
     sTask->Cancel();
-    sTask = nsnull;
+    sTask = nullptr;
   }
  
 private:
@@ -126,7 +126,7 @@ void NfcReconnectTask::Run() {
   // NB: the order of these two statements is important!  sTask must
   // always run, whether we've been canceled or not, to avoid
   // leading a dangling pointer in sTask.
-  sTask = nsnull;
+  sTask = nullptr;
   if (mCanceled) {
     return;
   }
@@ -354,7 +354,7 @@ DisconnectFromNfc(Monitor* aMonitor)
   NfcReconnectTask::CancelIt();
   // XXX This might "strand" messages in the outgoing queue.  We'll
   // assume that's OK for now.
-  sClient = nsnull;
+  sClient = nullptr;
   {
     MonitorAutoLock lock(*aMonitor);
     lock.Notify();
@@ -394,7 +394,7 @@ SendNfcData(NfcData** aMessage)
   }
  
   NfcData *msg = *aMessage;
-  *aMessage = nsnull;
+  *aMessage = nullptr;
  
   {
     MutexAutoLock lock(sClient->mMutex);
@@ -419,7 +419,7 @@ StopNfc()
     lock.Wait();
   }
  
-  sConsumer = nsnull;
+  sConsumer = nullptr;
 }
  
  

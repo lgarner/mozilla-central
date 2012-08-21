@@ -53,7 +53,7 @@ public:
 
 private:
   NfcNdefEvent(const JS::Value& aNdefMessages)
-  : nsDOMEvent(nsnull, nsnull), mNdefMessages(aNdefMessages)
+  : nsDOMEvent(nullptr, nullptr), mNdefMessages(aNdefMessages)
   { }
 
   ~NfcNdefEvent()
