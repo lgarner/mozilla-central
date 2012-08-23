@@ -36,7 +36,7 @@ public:
 
   virtual ~NdefRecord() {}
 
-  char tnf;
+  PRUint8 tnf;
   nsString type;
   nsString id;
   jsval payload;
