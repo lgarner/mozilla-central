@@ -40,6 +40,10 @@ class nsIDOMMozVoicemail;
 #include "nsIDOMNavigatorBluetooth.h"
 #endif
 
+#ifdef MOZ_B2G_NFC
+#include "nsIDOMNavigatorNfc.h"
+#endif
+
 #include "nsIDOMNavigatorSystemMessages.h"
 
 #include "nsIDOMNavigatorCamera.h"
@@ -86,6 +90,10 @@ class Navigator : public nsIDOMNavigator
 #ifdef MOZ_B2G_BT
                 , public nsIDOMNavigatorBluetooth
 #endif
+#ifdef MOZ_B2G_NFC
+                , public nsIDOMNavigatorNfc
+#endif
+
                 , public nsIDOMNavigatorCamera
                 , public nsIDOMNavigatorSystemMessages
 {
@@ -111,6 +119,9 @@ public:
 
 #ifdef MOZ_B2G_BT
   NS_DECL_NSIDOMNAVIGATORBLUETOOTH
+#endif
+#ifdef MOZ_B2G_NFC
+  NS_DECL_NSIDOMNAVIGATORNFC
 #endif
   NS_DECL_NSIDOMNAVIGATORSYSTEMMESSAGES
 
@@ -159,6 +170,9 @@ private:
   nsRefPtr<network::MobileConnection> mMobileConnection;
 #ifdef MOZ_B2G_BT
   nsCOMPtr<nsIDOMBluetoothManager> mBluetooth;
+#endif
+#ifdef MOZ_B2G_NFC
+  nsCOMPtr<nsIDOMNfc> mNfc;
 #endif
   nsRefPtr<nsDOMCameraManager> mCameraManager;
   nsCOMPtr<nsIDOMNavigatorSystemMessages> mMessagesManager;

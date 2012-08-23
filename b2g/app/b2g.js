@@ -6,6 +6,36 @@
 
 pref("toolkit.defaultChromeURI", "chrome://browser/content/shell.xul");
 pref("browser.chromeURL", "chrome://browser/content/");
+#ifdef MOZ_OFFICIAL_BRANDING
+pref("browser.homescreenURL", "http://homescreen.gaiamobile.org/");
+#else
+pref("browser.homescreenURL", "http://homescreen.gaiamobile.org/");
+#endif
+
+// All the privileged domains
+// XXX TODO : we should read them from a file somewhere
+pref("b2g.privileged.domains", "http://browser.gaiamobile.org,
+	                            http://calculator.gaiamobile.org,
+	                            http://nfc-demo.gaiamobile.org,
+	                            http://contacts.gaiamobile.org,
+	                            http://camera.gaiamobile.org,
+	                            http://clock.gaiamobile.org,
+	                            http://crystalskull.gaiamobile.org,
+	                            http://cubevid.gaiamobile.org,
+	                            http://dialer.gaiamobile.org,
+	                            http://gallery.gaiamobile.org,
+	                            http://homescreen.gaiamobile.org,
+	                            http://maps.gaiamobile.org,
+	                            http://market.gaiamobile.org,
+	                            http://music.gaiamobile.org,
+	                            http://penguinpop.gaiamobile.org,
+	                            http://settings.gaiamobile.org,
+	                            http://sms.gaiamobile.org,
+	                            http://towerjelly.gaiamobile.org,
+	                            http://video.gaiamobile.org");
+
+// URL for the dialer application.
+pref("dom.telephony.app.phone.url", "http://dialer.gaiamobile.org,http://homescreen.gaiamobile.org");
 
 // Device pixel to CSS px ratio, in percent. Set to -1 to calculate based on display density.
 pref("browser.viewport.scaleRatio", -1);

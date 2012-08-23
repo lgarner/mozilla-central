@@ -520,6 +520,13 @@ using mozilla::dom::indexedDB::IDBWrapperCache;
 #include "BluetoothPropertyEvent.h"
 #endif
 
+#ifdef MOZ_B2G_NFC
+#include "nsNfc.h"
+#include "nsIDOMNfc.h"
+#include "NfcNdefEvent.h"
+#include "NdefRecord.h"
+#endif
+
 #include "nsIDOMNavigatorSystemMessages.h"
 
 #include "mozilla/dom/Activity.h"
@@ -1680,6 +1687,14 @@ static nsDOMClassInfoData sClassInfoData[] = {
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
 #endif
 
+#ifdef MOZ_B2G_NFC
+  NS_DEFINE_CLASSINFO_DATA(Nfc, nsEventTargetSH,
+                           EVENTTARGET_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(NfcNdefEvent, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+  NS_DEFINE_CLASSINFO_DATA(MozNdefRecord, nsDOMGenericSH,
+                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+#endif
   NS_DEFINE_CLASSINFO_DATA(CameraManager, nsDOMGenericSH,
                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
   NS_DEFINE_CLASSINFO_DATA(CameraControl, nsDOMGenericSH,
@@ -1800,6 +1815,9 @@ static const nsConstructorFuncMapData kConstructorFuncMap[] =
 #include "GeneratedEvents.h"
   NS_DEFINE_CONSTRUCTOR_FUNC_DATA(MozSmsFilter, sms::SmsFilter::NewSmsFilter)
   NS_DEFINE_CONSTRUCTOR_FUNC_DATA(XMLHttpRequest, NS_XMLHttpRequestCtor)
+#ifdef MOZ_B2G_NFC
+  NS_DEFINE_CONSTRUCTOR_FUNC_DATA(MozNdefRecord, nfc::NdefRecord::NewNdefRecord)
+#endif
   NS_DEFINE_CONSTRUCTOR_FUNC_DATA(DOMParser, DOMParserCtor)
   NS_DEFINE_CONSTRUCTOR_FUNC_DATA(FileReader, FileReaderCtor)
   NS_DEFINE_CONSTRUCTOR_FUNC_DATA(ArchiveReader, ArchiveReaderCtor)
@@ -2477,6 +2495,10 @@ nsDOMClassInfo::Init()
                                         network::IsAPIEnabled())
 #ifdef MOZ_B2G_BT
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorBluetooth)
+#endif
+
+#ifdef MOZ_B2G_NFC
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorNfc)
 #endif
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorCamera)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMNavigatorSystemMessages)
@@ -4471,6 +4493,22 @@ nsDOMClassInfo::Init()
   DOM_CLASSINFO_MAP_BEGIN(BluetoothPropertyEvent, nsIDOMBluetoothPropertyEvent)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMBluetoothPropertyEvent)
     DOM_CLASSINFO_MAP_ENTRY(nsIDOMEvent)
+  DOM_CLASSINFO_MAP_END
+#endif
+
+#ifdef MOZ_B2G_NFC
+  DOM_CLASSINFO_MAP_BEGIN(Nfc, nsIDOMNfc)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNfc)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEventTarget)
+  DOM_CLASSINFO_MAP_END
+
+  DOM_CLASSINFO_MAP_BEGIN(NfcNdefEvent, nsIDOMNfcNdefEvent)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMNfcNdefEvent)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMEvent)
+  DOM_CLASSINFO_MAP_END
+  
+  DOM_CLASSINFO_MAP_BEGIN(MozNdefRecord, nsIDOMMozNdefRecord)
+    DOM_CLASSINFO_MAP_ENTRY(nsIDOMMozNdefRecord)
   DOM_CLASSINFO_MAP_END
 #endif
 

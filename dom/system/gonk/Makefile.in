@@ -37,6 +37,9 @@ XPIDLSRCS = \
   nsIAudioManager.idl \
   nsINetworkManager.idl \
   nsIRadioInterfaceLayer.idl \
+  nsINfc.idl \
+  nsINfcCallback.idl \
+  nsINfcContentHelper.idl \
   nsIVolume.idl \
   nsIVolumeService.idl \
   nsIVolumeStat.idl \
@@ -47,6 +50,7 @@ LOCAL_INCLUDES = \
   -I$(topsrcdir)/dom/base \
   -I$(topsrcdir)/dom/src/geolocation \
   -I$(topsrcdir)/dom/telephony \
+  -I$(topsrcdir)/dom/nfc \
   -I$(topsrcdir)/dom/wifi \
   -I$(topsrcdir)/dom/bluetooth \
   -I$(topsrcdir)/content/events/src \
@@ -75,6 +79,9 @@ endif
 EXTRA_COMPONENTS = \
   NetworkManager.manifest \
   NetworkManager.js \
+  Nfc.manifest \
+  Nfc.js \
+  NfcContentHelper.js \
   RadioInterfaceLayer.manifest \
   RadioInterfaceLayer.js \
   RILContentHelper.js \
@@ -82,6 +89,7 @@ EXTRA_COMPONENTS = \
 
 EXTRA_JS_MODULES = \
   net_worker.js \
+  nfc_worker.js \
   ril_consts.js \
   ril_worker.js \
   systemlibs.js \
