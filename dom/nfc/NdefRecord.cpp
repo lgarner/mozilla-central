@@ -64,8 +64,8 @@ NdefRecord::Initialize(nsISupports* aOwner,
     return NS_ERROR_INVALID_ARG;
   }
 
-  // Tnf: (char)
-  tnf = (char)JSVAL_TO_INT(aArgv[0]);
+  // Tnf: (PRUint8)
+  tnf = (PRUint8)JSVAL_TO_INT(aArgv[0]);
 
   // Type (DOMString)
   if ((aArgv[1] != JSVAL_NULL) && JSVAL_IS_STRING(aArgv[1])) {
@@ -108,7 +108,7 @@ NdefRecord::Initialize(nsISupports* aOwner,
  * NS_METHODIMPs (Getter and Setter)
  ************************************/
 NS_IMETHODIMP
-NdefRecord::GetTnf(char* aTnf)
+NdefRecord::GetTnf(PRUint8* aTnf)
 {
   LOG("DOM NdefRecord.GetTnf");
   *aTnf = tnf;
