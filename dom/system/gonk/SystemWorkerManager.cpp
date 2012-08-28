@@ -508,23 +508,18 @@ SystemWorkerManager::InitNfc(JSContext *cx)
   // We're keeping as much of this implementation as possible in JS, so the real
   // worker lives in Nfc.js. All we do here is hold it alive and
   // hook it up to the NFC thread.
-  nsresult rv;
-  nsCOMPtr<nsIWorkerHolder> worker = do_CreateInstance(kNfcWorkerCID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsCOMPtr<nsIWorkerHolder> worker = do_CreateInstance(kNfcWorkerCID);
   NS_ENSURE_TRUE(worker, NS_ERROR_FAILURE);
  
   jsval workerval;
-  rv = worker->GetWorker(&workerval);
+  nsresult rv = worker->GetWorker(&workerval);
   NS_ENSURE_SUCCESS(rv, rv);
  
   NS_ENSURE_TRUE(!JSVAL_IS_PRIMITIVE(workerval), NS_ERROR_UNEXPECTED);
  
   JSAutoRequest ar(cx);
-  JSAutoEnterCompartment ac;
-  if (!ac.enter(cx, JSVAL_TO_OBJECT(workerval))) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
- 
+  JSAutoCompartment ac(cx, JSVAL_TO_OBJECT(workerval));
+
   WorkerCrossThreadDispatcher *wctd =
     GetWorkerCrossThreadDispatcher(cx, workerval);
   if (!wctd) {
