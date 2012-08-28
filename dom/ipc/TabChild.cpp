@@ -867,6 +867,12 @@ TabChild::RecvRealTouchEvent(const nsTouchEvent& aEvent)
 }
 
 bool
+TabChild::RecvRealTouchMoveEvent(const nsTouchEvent& aEvent)
+{
+    return RecvRealTouchEvent(aEvent);
+}
+
+bool
 TabChild::RecvRealKeyEvent(const nsKeyEvent& event)
 {
   nsKeyEvent localEvent(event);
@@ -1030,8 +1036,8 @@ TabChild::RecvActivateFrameEvent(const nsString& aType, const bool& capture)
 }
 
 POfflineCacheUpdateChild*
-TabChild::AllocPOfflineCacheUpdate(const URI& manifestURI,
-            const URI& documentURI,
+TabChild::AllocPOfflineCacheUpdate(const URIParams& manifestURI,
+            const URIParams& documentURI,
             const nsCString& clientID,
             const bool& stickDocument)
 {
@@ -1366,7 +1372,7 @@ void
 TabChildGlobal::Init()
 {
   NS_ASSERTION(!mMessageManager, "Re-initializing?!?");
-  mMessageManager = new nsFrameMessageManager(false,
+  mMessageManager = new nsFrameMessageManager(false, /* aChrome */
                                               SendSyncMessageToParent,
                                               SendAsyncMessageToParent,
                                               nullptr,
@@ -1388,7 +1394,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(TabChildGlobal,
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(TabChildGlobal)
-  NS_INTERFACE_MAP_ENTRY(nsIFrameMessageManager)
+  NS_INTERFACE_MAP_ENTRY(nsIMessageListenerManager)
+  NS_INTERFACE_MAP_ENTRY(nsIMessageSender)
   NS_INTERFACE_MAP_ENTRY(nsISyncMessageSender)
   NS_INTERFACE_MAP_ENTRY(nsIContentFrameMessageManager)
   NS_INTERFACE_MAP_ENTRY(nsIScriptContextPrincipal)

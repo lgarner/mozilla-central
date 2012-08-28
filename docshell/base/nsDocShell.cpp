@@ -190,7 +190,6 @@
 #include "nsDOMNavigationTiming.h"
 #include "nsITimedChannel.h"
 #include "mozilla/StartupTimeline.h"
-#include "nsIFrameMessageManager.h"
 
 #include "mozilla/Telemetry.h"
 #include "nsISecurityUITelemetry.h"
@@ -8687,6 +8686,17 @@ nsDocShell::InternalLoad(nsIURI * aURI,
            sameExceptHashes && !newHash.IsEmpty());
 
         if (doShortCircuitedLoad) {
+            // Cancel any outstanding loads if this is a history load.
+            //
+            // We can't cancel the oustanding load unconditionally, because if a page does
+            //   - load a.html
+            //   - start loading b.html
+            //   - load a.html#h
+            // we break the web if we cancel the load of b.html.
+            if (aSHEntry) {
+                Stop(nsIWebNavigation::STOP_NETWORK);
+            }
+
             // Save the current URI; we need it if we fire a hashchange later.
             nsCOMPtr<nsIURI> oldURI = mCurrentURI;
 

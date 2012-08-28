@@ -13,6 +13,8 @@ include protocol PContentPermissionRequest;
 include protocol PRenderFrame;
 include protocol POfflineCacheUpdate;
 include protocol PIndexedDB;
+include DOMTypes;
+include URIParams;
 
 include "gfxMatrix.h";
 include "FrameMetrics.h";
@@ -20,11 +22,7 @@ include "IPC/nsGUIEventIPC.h";
 include "mozilla/dom/TabMessageUtils.h";
 include "mozilla/dom/PermissionMessageUtils.h";
 include "mozilla/layout/RenderFrameUtils.h";
-include "mozilla/net/NeckoMessageUtils.h";
 
-include DOMTypes;
-
-using IPC::URI;
 using IPC::Principal;
 using gfxMatrix;
 using gfxRect;
@@ -163,6 +161,7 @@ parent:
     SetInputContext(int32_t IMEEnabled,
                     int32_t IMEOpen,
                     nsString type,
+                    nsString inputmode,
                     nsString actionHint,
                     int32_t cause,
                     int32_t focusChange);
@@ -230,8 +229,8 @@ parent:
      *   document will get cached and that we don't re-cache a document that 
      *   has already been cached (stickDocument=false).
      */
-    POfflineCacheUpdate(URI manifestURI, URI documentURI, nsCString clientID,
-                        bool stickDocument);
+    POfflineCacheUpdate(URIParams manifestURI, URIParams documentURI,
+                        nsCString clientID, bool stickDocument);
 
     sync PIndexedDB(nsCString asciiOrigin)
         returns (bool allowed);
@@ -315,6 +314,9 @@ child:
     RealKeyEvent(nsKeyEvent event);
     MouseWheelEvent(WheelEvent event);
     RealTouchEvent(nsTouchEvent event);
+    // We use a separate message for touchmove events only to apply
+    // compression to them.
+    RealTouchMoveEvent(nsTouchEvent event) compress;
 
     /**
      * @see nsIDOMWindowUtils sendKeyEvent.

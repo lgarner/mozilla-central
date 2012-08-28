@@ -19,9 +19,9 @@ XPCOMUtils.defineLazyGetter(Services, "DOMRequest", function() {
   return Cc["@mozilla.org/dom/dom-request-service;1"].getService(Ci.nsIDOMRequestService);
 });
 
-XPCOMUtils.defineLazyGetter(this, "cpmm", function() {
-  return Cc["@mozilla.org/childprocessmessagemanager;1"].getService(Ci.nsIFrameMessageManager);
-});
+XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
+                                   "@mozilla.org/childprocessmessagemanager;1",
+                                   "nsIMessageSender");
 
 XPCOMUtils.defineLazyGetter(this, "mRIL", function () {
   return Cc["@mozilla.org/telephony/system-worker-manager;1"].getService(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIRadioInterfaceLayer);
@@ -548,7 +548,7 @@ ContactManager.prototype = {
         if (DEBUG) debug("got SIM contacts: " + aType + " " + JSON.stringify(aContacts));
         let result = aContacts.map(function(c) {
           var contact = new Contact();
-          contact.init( { name: [c.alphaId], tel: [ { number: c.number } ] } );
+          contact.init( { name: [c.alphaId], tel: [ { value: c.number } ] } );
           return contact;
         });
         if (DEBUG) debug("result: " + JSON.stringify(result));

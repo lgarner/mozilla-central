@@ -436,6 +436,13 @@ var BrowserApp = {
         aTarget.mozRequestFullScreen();
       });
 
+    NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.copyImageLocation"),
+      NativeWindow.contextmenus.imageLocationCopyableContext,
+      function(aTarget) {
+        let url = aTarget.src;
+        NativeWindow.contextmenus._copyStringToDefaultClipboard(url);
+      });
+
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.shareImage"),
       NativeWindow.contextmenus.imageSaveableContext,
       function(aTarget) {
@@ -959,7 +966,9 @@ var BrowserApp = {
       return;
 
     let focused = doc.activeElement;
-    if ((focused instanceof HTMLInputElement && focused.mozIsTextField(false)) || (focused instanceof HTMLTextAreaElement)) {
+    if ((focused instanceof HTMLInputElement && focused.mozIsTextField(false))
+        || (focused instanceof HTMLTextAreaElement)
+        || (focused.isContentEditable)) {
       let tab = BrowserApp.getTabForBrowser(aBrowser);
       let win = aBrowser.contentWindow;
 
@@ -1356,6 +1365,12 @@ var NativeWindow = {
       matches: function textContext(aElement) {
         return ((aElement instanceof Ci.nsIDOMHTMLInputElement && aElement.mozIsTextField(false))
                 || aElement instanceof Ci.nsIDOMHTMLTextAreaElement);
+      }
+    },
+
+    imageLocationCopyableContext: {
+      matches: function imageLinkCopyableContextMatches(aElement) {
+        return (aElement instanceof Ci.nsIImageLoadingContent && aElement.currentURI);
       }
     },
 
@@ -2187,6 +2202,7 @@ Tab.prototype = {
     this.browser.addEventListener("scroll", this, true);
     this.browser.addEventListener("MozScrolledAreaChanged", this, true);
     this.browser.addEventListener("PluginClickToPlay", this, true);
+    this.browser.addEventListener("PluginPlayPreview", this, true);
     this.browser.addEventListener("PluginNotFound", this, true);
     this.browser.addEventListener("pageshow", this, true);
 
@@ -2280,6 +2296,7 @@ Tab.prototype = {
     this.browser.removeEventListener("DOMWillOpenModalDialog", this, true);
     this.browser.removeEventListener("scroll", this, true);
     this.browser.removeEventListener("PluginClickToPlay", this, true);
+    this.browser.removeEventListener("PluginPlayPreview", this, true);
     this.browser.removeEventListener("PluginNotFound", this, true);
     this.browser.removeEventListener("MozScrolledAreaChanged", this, true);
 
@@ -2838,6 +2855,52 @@ Tab.prototype = {
           PluginHelper.playAllPlugins(win);
 
           NativeWindow.doorhanger.hide("ask-to-play-plugins", tab.id);
+        }, true);
+        break;
+      }
+
+      case "PluginPlayPreview": {
+        let plugin = aEvent.target;
+
+        // Force a style flush, so that we ensure our binding is attached.
+        plugin.clientTop;
+
+        let doc = plugin.ownerDocument;
+        let previewContent = doc.getAnonymousElementByAttribute(plugin, "class", "previewPluginContent");
+        if (!previewContent) {
+          // If the plugin is hidden, fallback to click-to-play logic
+          PluginHelper.stopPlayPreview(plugin, false);
+          break;
+        }
+        let iframe = previewContent.getElementsByClassName("previewPluginContentFrame")[0];
+        if (!iframe) {
+          // lazy initialization of the iframe
+          iframe = doc.createElementNS("http://www.w3.org/1999/xhtml", "iframe");
+          iframe.className = "previewPluginContentFrame";
+          previewContent.appendChild(iframe);
+
+          // Force a style flush, so that we ensure our binding is attached.
+          plugin.clientTop;
+        }
+        let mimeType = PluginHelper.getPluginMimeType(plugin);
+        let playPreviewUri = "data:application/x-moz-playpreview;," + mimeType;
+        iframe.src = playPreviewUri;
+
+        // MozPlayPlugin event can be dispatched from the extension chrome
+        // code to replace the preview content with the native plugin
+        previewContent.addEventListener("MozPlayPlugin", function playPluginHandler(e) {
+          if (!e.isTrusted)
+            return;
+
+          previewContent.removeEventListener("MozPlayPlugin", playPluginHandler, true);
+
+          let playPlugin = !aEvent.detail;
+          PluginHelper.stopPlayPreview(plugin, playPlugin);
+
+          // cleaning up: removes overlay iframe from the DOM
+          let iframe = previewContent.getElementsByClassName("previewPluginContentFrame")[0];
+          if (iframe)
+            previewContent.removeChild(iframe);
         }, true);
         break;
       }
@@ -5237,8 +5300,20 @@ var PluginHelper = {
 
   playPlugin: function(plugin) {
     let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
-    if (!objLoadingContent.activated)
+    if (!objLoadingContent.activated &&
+        objLoadingContent.pluginFallbackType !== Ci.nsIObjectLoadingContent.PLUGIN_PLAY_PREVIEW)
       objLoadingContent.playPlugin();
+  },
+
+  stopPlayPreview: function(plugin, playPlugin) {
+    let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+    if (objLoadingContent.activated)
+      return;
+
+    if (playPlugin)
+      objLoadingContent.playPlugin();
+    else
+      objLoadingContent.cancelPlayPreview();
   },
 
   getPluginPreference: function getPluginPreference() {
@@ -5277,13 +5352,29 @@ var PluginHelper = {
                     (overlay.scrollHeight - 5 > pluginRect.height);
 
     return overflows;
+  },
+
+  getPluginMimeType: function (plugin) {
+    var tagMimetype;
+    if (plugin instanceof HTMLAppletElement) {
+      tagMimetype = "application/x-java-vm";
+    } else {
+      tagMimetype = plugin.QueryInterface(Components.interfaces.nsIObjectLoadingContent)
+                          .actualType;
+
+      if (tagMimetype == "") {
+        tagMimetype = plugin.type;
+      }
+    }
+
+    return tagMimetype;
   }
 };
 
 var PermissionsHelper = {
 
   _permissonTypes: ["password", "geolocation", "popup", "indexedDB",
-                    "offline-app", "desktop-notification", "plugins"],
+                    "offline-app", "desktop-notification", "plugins", "native-intent"],
   _permissionStrings: {
     "password": {
       label: "password.rememberPassword",
@@ -5319,6 +5410,11 @@ var PermissionsHelper = {
       label: "clickToPlayPlugins.playPlugins",
       allowed: "clickToPlayPlugins.yes",
       denied: "clickToPlayPlugins.no"
+    },
+    "native-intent": {
+      label: "helperapps.openWithList2",
+      allowed: "helperapps.always",
+      denied: "helperapps.never"
     }
   },
 

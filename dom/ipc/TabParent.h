@@ -98,6 +98,7 @@ public:
     virtual bool RecvSetInputContext(const int32_t& aIMEEnabled,
                                      const int32_t& aIMEOpen,
                                      const nsString& aType,
+                                     const nsString& aInputmode,
                                      const nsString& aActionHint,
                                      const int32_t& aCause,
                                      const int32_t& aFocusChange);
@@ -159,8 +160,8 @@ public:
     virtual bool DeallocPContentPermissionRequest(PContentPermissionRequestParent* actor);
 
     virtual POfflineCacheUpdateParent* AllocPOfflineCacheUpdate(
-            const URI& aManifestURI,
-            const URI& aDocumentURI,
+            const URIParams& aManifestURI,
+            const URIParams& aDocumentURI,
             const nsCString& aClientID,
             const bool& stickDocument);
     virtual bool DeallocPOfflineCacheUpdate(POfflineCacheUpdateParent* actor);
