@@ -33,7 +33,7 @@ const NFC_IPC_MSG_NAMES = [
  
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "@mozilla.org/parentprocessmessagemanager;1",
-                                   "nsIFrameMessageManager");
+                                   "nsIMessageBroadcaster");
 
 function Nfc() {
   this.worker = new ChromeWorker("resource://gre/modules/nfc_worker.js");
@@ -72,13 +72,13 @@ Nfc.prototype = {
     debug("Received message: " + JSON.stringify(message));
     switch (message.type) {
       case "ndefDiscovered":
-        ppmm.sendAsyncMessage("NFC:NdefDiscovered", message);
+        ppmm.broadcastAsyncMessage("NFC:NdefDiscovered", message);
         break;
       case "tagLost":
-        ppmm.sendAsyncMessage("NFC:TagLost", message);
+        ppmm.broadcastAsyncMessage("NFC:TagLost", message);
         break;
       case "requestStatus":
-        ppmm.sendAsyncMessage("NFC:RequestStatus", message);
+        ppmm.broadcastAsyncMessage("NFC:RequestStatus", message);
         break;
       default:
         throw new Error("Don't know about this message type: " + message.type);

@@ -190,7 +190,7 @@ NfcContentHelper.prototype = {
       debug("fire request success, id: " + requestId +
             ", result: " + JSON.stringify(result));
     }
-    Services.DOMRequest.fireSuccess(request, result);
+    Services.DOMRequest.fireSuccess(request, [ result ] );
   },
 
   fireRequestError: function fireRequestError(requestId, error) {
