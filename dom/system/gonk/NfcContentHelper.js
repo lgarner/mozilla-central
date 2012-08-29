@@ -91,6 +91,7 @@ NfcContentHelper.prototype = {
   },
 
   writeNdefTag: function writeNdefTag(window, records) {
+    debug("writeNdefTag");
     if (window == null) {
       throw Components.Exception("Can't get window object",
                                   Cr.NS_ERROR_UNEXPECTED);
