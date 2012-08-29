@@ -34,7 +34,7 @@ const NFC_IPC_MSG_NAMES = [
  
 XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
                                    "@mozilla.org/childprocessmessagemanager;1",
-                                   "nsIFrameMessageManager");
+                                   "nsISyncMessageSender");
  
 function NfcContentHelper() {
   Services.obs.addObserver(this, "xpcom-shutdown", false);
