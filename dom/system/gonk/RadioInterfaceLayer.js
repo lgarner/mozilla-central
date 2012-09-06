@@ -62,7 +62,10 @@ const RIL_IPC_MSG_NAMES = [
   "RIL:UnlockCardLock",
   "RIL:SetCardLock",
   "RIL:SendUSSD",
-  "RIL:CancelUSSD"
+  "RIL:CancelUSSD",
+  "RIL:IccOpenChannel",
+  "RIL:IccExchangeApdu",
+  "RIL:IccCloseChannel"
 ];
 
 XPCOMUtils.defineLazyServiceGetter(this, "gSmsService",
@@ -303,6 +306,18 @@ RadioInterfaceLayer.prototype = {
         this.saveRequestTarget(msg);
         this.cancelUSSD(msg.json);
         break;
+      case "RIL:IccOpenChannel":
+        this.saveRequestTarget(msg);
+        this.iccOpenChannel(msg.json);
+        break;
+      case "RIL:IccExchangeApdu":
+        this.saveRequestTarget(msg);
+        this.iccExchangeApdu(msg.json);
+        break;
+      case "RIL:IccCloseChannel":
+        this.saveRequestTarget(msg);
+        this.iccCloseChannel(msg.json);
+        break;
     }
   },
 
@@ -344,6 +359,13 @@ RadioInterfaceLayer.prototype = {
       case "selectNetwork":
         this.handleSelectNetwork(message);
         break;
+      case "iccOpenChannel":
+        this.handleIccOpenChannel(message);
+        break;
+      case "iccCloseChannel":
+        this.handleIccCloseChannel(message);
+        break;
+      //TODO handle callback for exchange apdu
       case "selectNetworkAuto":
         this.handleSelectNetworkAuto(message);
         break;
@@ -799,6 +821,16 @@ RadioInterfaceLayer.prototype = {
     this._sendRequestResults("RIL:SelectNetwork", message);
   },
 
+  handleIccOpenChannel: function handleIccOpenChannel(message) {
+    debug("handleIccOpenChannel: " + JSON.stringify(message));
+    this._sendRequestResults("RIL:IccOpenChannel", message);
+  },
+
+  handleIccCloseChannel: function handleIccCloseChannel(message) {
+    debug("handleIccCloseChannel: " + JSON.stringify(message));
+    this._sendRequestResults("RIL:IccCloseChannel", message);
+  },
+
   /**
    * Handle "automatic" network selection request.
    */
@@ -1182,6 +1214,23 @@ RadioInterfaceLayer.prototype = {
     this.worker.postMessage(message);
   },
 
+  iccOpenChannel: function iccOpenChannel(message) {
+    debug("ICC Open Channel");
+    message.rilMessageType = "iccOpenChannel";
+    this.worker.postMessage(message);
+  },
+
+  iccExchangeAPDU: function iccExchangeAPDU(message) {
+    debug("ICC Exchange APDU");
+    message.rilMessageType = "iccExchangeAPDU";
+    this.worker.postMessage(message);
+  },
+
+  iccCloseChannel: function iccCloseChannel(message) {
+    debug("ICC Close Channel");
+    message.rilMessageType = "iccCloseChannel";
+    this.worker.postMessage(message);
+  },
 
   get microphoneMuted() {
     return gAudioManager.microphoneMuted;

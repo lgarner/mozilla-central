@@ -14,7 +14,7 @@
  */
 
 // Set to true to debug all RIL layers
-const DEBUG_ALL = false;
+const DEBUG_ALL = true;
 
 // Set individually to debug specific layers
 const DEBUG_WORKER = false || DEBUG_ALL;
@@ -129,6 +129,10 @@ const REQUEST_CDMA_GET_SUBSCRIPTION_SOURCE = 104;
 const REQUEST_ISIM_AUTHENTICATION = 105;
 const REQUEST_ACKNOWLEDGE_INCOMING_GSM_SMS_WITH_PDU = 106;
 const REQUEST_STK_SEND_ENVELOPE_WITH_STATUS = 107;
+const REQUEST_SIM_TRANSMIT_BASIC = 108;
+const REQUEST_SIM_OPEN_CHANNEL = 109;
+const REQUEST_SIM_CLOSE_CHANNEL = 110;
+const REQUEST_SIM_TRANSMIT_CHANNEL = 111;
 const REQUEST_DIAL_EMERGENCY_CALL = 10016;
 
 // Akami/Maguro specific parcel types.

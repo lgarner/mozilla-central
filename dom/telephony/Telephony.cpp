@@ -24,6 +24,8 @@
 #include "CallEvent.h"
 #include "TelephonyCall.h"
 
+#define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, "Gonk", args)
+
 USING_TELEPHONY_NAMESPACE
 using namespace mozilla::dom::gonk;
 
@@ -528,6 +530,39 @@ Telephony::NotifyError(int32_t aCallIndex,
   // Set the call state to 'disconnected' and remove it from the calls list.
   callToNotify->NotifyError(aError);
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Telephony::IccOpenChannel(const nsAString& aAid, nsIDOMDOMRequest** aRequest)
+{
+  // Call to RILContentHelper.js in dom/system/gonk
+  *aRequest = nullptr;
+  LOG("Calling IccOpenChannel");
+  nsresult rv = mRIL->IccOpenChannel(GetOwner(), aAid, aRequest);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Telephony::IccExchangeAPDU(PRInt32 aChannel, const jsval& aApdu, nsIDOMDOMRequest** aRequest)
+{
+  // Call to RILContentHelper.js in dom/system/gonk
+  *aRequest = nullptr;
+  LOG("Calling IccExchangeAPDU");
+  nsresult rv = mRIL->IccExchangeAPDU(GetOwner(), aChannel, aApdu, aRequest);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+Telephony::IccCloseChannel(PRInt32 aChannel, nsIDOMDOMRequest** aRequest)
+{
+  // Call to RILContentHelper.js in dom/system/gonk
+  *aRequest = nullptr;
+  LOG("Calling IccCloseChannel");
+  nsresult rv = mRIL->IccCloseChannel(GetOwner(), aChannel, aRequest);
+  NS_ENSURE_SUCCESS(rv, rv);
   return NS_OK;
 }
 

@@ -171,6 +171,10 @@ interface nsIRILContentHelper : nsIMobileConnectionProvider
   readonly attribute nsIDOMMozVoicemailStatus voicemailStatus;
   readonly attribute DOMString voicemailNumber;
   readonly attribute DOMString voicemailDisplayName;
+
+  nsIDOMDOMRequest iccOpenChannel(in nsIDOMWindow window, in DOMString aid);
+  nsIDOMDOMRequest iccExchangeAPDU(in nsIDOMWindow window, in long channel, in jsval apdu);
+  nsIDOMDOMRequest iccCloseChannel(in nsIDOMWindow window, in long channel);
 };
 
 [scriptable, uuid(fd9e8b38-b839-4d56-8482-3bf1f5c8f2ee)]

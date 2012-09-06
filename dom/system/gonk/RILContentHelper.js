@@ -56,7 +56,10 @@ const RIL_IPC_MSG_NAMES = [
   "RIL:SendUssd:Return:OK",
   "RIL:SendUssd:Return:KO",
   "RIL:CancelUssd:Return:OK",
-  "RIL:CancelUssd:Return:KO"
+  "RIL:CancelUssd:Return:KO",
+  "RIL:IccOpenChannel",
+  "RIL:IccExchangeApdu",
+  "RIL:IccCloseChannel"
 ];
 
 const kVoiceChangedTopic     = "mobile-connection-voice-changed";
@@ -481,6 +484,46 @@ RILContentHelper.prototype = {
     cpmm.sendAsyncMessage("RIL:ResumeCall", callIndex);
   },
 
+  iccOpenChannel: function iccOpenChannel(window, aid) {
+    if (window == null) {
+      throw Components.Exception("Can't get window object",
+                                  Cr.NS_ERROR_UNEXPECTED);
+    }
+
+    let request = Services.DOMRequest.createRequest(window);
+    let requestId = this.getRequestId(request);
+
+    cpmm.sendAsyncMessage("RIL:IccOpenChannel", {requestId: requestId, aid: aid});
+    return request;
+  },
+
+  iccExchangeAPDU: function iccExchangeAPDU(window, channel, apdu) {
+    if (window == null) {
+      throw Components.Exception("Can't get window object",
+                                  Cr.NS_ERROR_UNEXPECTED);
+    }
+
+    let request = Services.DOMRequest.createRequest(window);
+    let requestId = this.getRequestId(request);
+
+    //Potentially you need serialization here and can't pass the jsval through
+    cpmm.sendAsyncMessage("RIL:IccExchangeApdu", {requestId: requestId, channel: channel, apdu: apdu});
+    return request;
+  },
+
+  iccCloseChannel: function iccCloseChannel(window, channel) {
+    if (window == null) {
+      throw Components.Exception("Can't get window object",
+                                  Cr.NS_ERROR_UNEXPECTED);
+    }
+
+    let request = Services.DOMRequest.createRequest(window);
+    let requestId = this.getRequestId(request);
+
+    cpmm.sendAsyncMessage("RIL:IccCloseChannel", {requestId: requestId, channel: channel});
+    return request;
+  },
+
   get microphoneMuted() {
     return cpmm.sendSyncMessage("RIL:GetMicrophoneMuted")[0];
   },
@@ -581,6 +624,13 @@ RILContentHelper.prototype = {
         this.handleSelectNetwork(msg.json,
                                  RIL.GECKO_NETWORK_SELECTION_MANUAL);
         break;
+      case "RIL:IccOpenChannel":
+        this.handleIccOpenChannel(msg.json);
+        break;
+      case "RIL:IccCloseChannel":
+        this.handleIccCloseChannel(msg.json);
+        break;
+      //TODO exchange apdu callback handling
       case "RIL:SelectNetworkAuto":
         this.handleSelectNetwork(msg.json,
                                  RIL.GECKO_NETWORK_SELECTION_AUTOMATIC);
@@ -688,6 +738,23 @@ RILContentHelper.prototype = {
     this._selectingNetwork = null;
     this.networkSelectionMode = mode;
 
+    if (message.error) {
+      this.fireRequestError(message.requestId, message.error);
+    } else {
+      this.fireRequestSuccess(message.requestId, null);
+    }
+  },
+
+  handleIccOpenChannel: function handleIccOpenChannel(message) {
+    //TODO give back channel id
+    if (message.error) {
+      this.fireRequestError(message.requestId, message.error);
+    } else {
+      this.fireRequestSuccess(message.requestId, null);
+    }
+  },
+
+  handleIccCloseChannel: function handleIccCloseChannel(message) {
     if (message.error) {
       this.fireRequestError(message.requestId, message.error);
     } else {

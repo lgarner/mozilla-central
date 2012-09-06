@@ -1555,6 +1555,37 @@ let RIL = {
     Buf.sendParcel();
   },
 
+  iccOpenChannel: function iccOpenChannel(options) {
+    if (DEBUG) {
+      debug("iccOpenChannel: " + JSON.stringify(options));
+    }
+
+    Buf.newParcel(REQUEST_SIM_OPEN_CHANNEL, options);
+    Buf.writeString(options.aid);
+    Buf.sendParcel();
+  },
+
+  iccExchangeAPDU: function iccExchangeAPDU(options) {
+    if (DEBUG) {
+      debug("iccExchangeAPDU: " + JSON.stringify(options));
+    }
+
+    //TODO assemble correct package
+    /*Buf.newParcel(REQUEST_SIM_OPEN_CHANNEL, options);
+    Buf.sendParcel();*/
+  },
+
+  iccCloseChannel: function iccCloseChannel(options) {
+    if (DEBUG) {
+      debug("iccCloseChannel: " + JSON.stringify(options));
+    }
+
+    Buf.newParcel(REQUEST_SIM_CLOSE_CHANNEL, options);
+    Buf.writeUint32(1);
+    Buf.writeUint32(options.channel);
+    Buf.sendParcel();
+  },
+
   /**
    * Get current calls.
    */
@@ -3372,6 +3403,25 @@ RIL[REQUEST_SET_NETWORK_SELECTION_MANUAL] = function REQUEST_SET_NETWORK_SELECTI
 
   this.sendDOMMessage(options);
 };
+RIL[REQUEST_SIM_OPEN_CHANNEL] = function REQUEST_SIM_OPEN_CHANNEL(length, options) {
+  if (options.rilRequestError) {
+    options.error = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+    this.sendDOMMessage(options);
+    return;
+  }
+
+  this.sendDOMMessage(options);
+};
+RIL[REQUEST_SIM_CLOSE_CHANNEL] = function REQUEST_SIM_CLOSE_CHANNEL(length, options) {
+  if (options.rilRequestError) {
+    options.error = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
+    this.sendDOMMessage(options);
+    return;
+  }
+
+  this.sendDOMMessage(options);
+};
+//TODO APDU callback handling
 RIL[REQUEST_QUERY_AVAILABLE_NETWORKS] = function REQUEST_QUERY_AVAILABLE_NETWORKS(length, options) {
   if (options.rilRequestError) {
     options.error = RIL_ERROR_TO_GECKO_ERROR[options.rilRequestError];
