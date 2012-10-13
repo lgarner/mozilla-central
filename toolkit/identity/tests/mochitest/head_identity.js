@@ -6,9 +6,9 @@
 
 "use strict";
 
-const Cc = SpecialPowers.wrap(Components).classes;
-const Ci = Components.interfaces;
-const Cu = SpecialPowers.wrap(Components).utils;
+const Cc = SpecialPowers.Cc;
+const Ci = SpecialPowers.Ci;
+const Cu = SpecialPowers.Cu;
 
 const TEST_URL = "http://mochi.test:8888";
 const TEST_URL2 = "https://myfavoritebaconinacan.com";
@@ -147,8 +147,7 @@ function call_sequentially() {
 function setup_provisioning(identity, afterSetupCallback, doneProvisioningCallback, callerCallbacks) {
   IDService.reset();
 
-  let util = window.QueryInterface(Ci.nsIInterfaceRequestor)
-                    .getInterface(Ci.nsIDOMWindowUtils);
+  let util = SpecialPowers.getDOMWindowUtils(window);
 
   let provId = util.outerWindowID;
   IDService.IDP._provisionFlows[provId] = {

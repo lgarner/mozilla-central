@@ -147,7 +147,7 @@ pref("app.update.silent", false);
 
 // If set to true, the Update Service will apply updates in the background
 // when it finishes downloading them.
-pref("app.update.stage.enabled", true);
+pref("app.update.staging.enabled", true);
 
 // Update service URL:
 pref("app.update.url", "https://aus3.mozilla.org/update/3/%PRODUCT%/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/update.xml");
@@ -194,7 +194,6 @@ pref("extensions.update.background.url", "https://versioncheck-bg.addons.mozilla
 pref("extensions.update.interval", 86400);  // Check for updates to Extensions and 
                                             // Themes every day
 // Non-symmetric (not shared by extensions) extension-specific [update] preferences
-pref("extensions.getMoreThemesURL", "https://addons.mozilla.org/%LOCALE%/firefox/getpersonas");
 pref("extensions.dss.enabled", false);          // Dynamic Skin Switching                                               
 pref("extensions.dss.switchPending", false);    // Non-dynamic switch pending after next
                                                 // restart.
@@ -221,6 +220,8 @@ pref("general.autoScroll", false);
 #else
 pref("general.autoScroll", true);
 #endif
+
+pref("general.useragent.complexOverride.moodle", true); // bug 797703
 
 // At startup, check if we're the default browser and prompt user if not.
 pref("browser.shell.checkDefaultBrowser", true);
@@ -379,6 +380,7 @@ pref("browser.tabs.autoHide", false);
 pref("browser.tabs.closeWindowWithLastTab", true);
 pref("browser.tabs.insertRelatedAfterCurrent", true);
 pref("browser.tabs.warnOnClose", true);
+pref("browser.tabs.warnOnCloseOtherTabs", true);
 pref("browser.tabs.warnOnOpen", true);
 pref("browser.tabs.maxOpenBeforeWarn", 15);
 pref("browser.tabs.loadInBackground", true);
@@ -528,11 +530,6 @@ pref("mousewheel.with_control.action",3);
 pref("mousewheel.with_meta.action", 1);  // command key on Mac
 pref("mousewheel.with_win.action", 1);
 
-// pref to control the alert notification 
-pref("alerts.slideIncrement", 1);
-pref("alerts.slideIncrementTime", 10);
-pref("alerts.totalOpenTime", 4000);
-
 pref("browser.xul.error_pages.enabled", true);
 pref("browser.xul.error_pages.expert_bad_cert", false);
 
@@ -580,7 +577,6 @@ pref("plugins.hide_infobar_for_missing_plugin", false);
 pref("plugins.hide_infobar_for_outdated_plugin", false);
 
 #ifdef XP_MACOSX
-pref("plugins.use_layers", true);
 pref("plugins.hide_infobar_for_carbon_failure_plugin", false);
 #endif
 
@@ -845,6 +841,10 @@ pref("browser.zoom.updateBackgroundTabs", true);
 // The breakpad report server to link to in about:crashes
 pref("breakpad.reportURL", "http://crash-stats.mozilla.com/report/index/");
 
+// Override submission of plugin hang reports to a different processing server
+pref("toolkit.crashreporter.pluginHangSubmitURL",
+     "https://hang-reports.mozilla.org/submit");
+
 // base URL for web-based support pages
 pref("app.support.baseURL", "http://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
 
@@ -1007,6 +1007,7 @@ pref("devtools.inspector.htmlHeight", 112);
 pref("devtools.inspector.htmlPanelOpen", false);
 pref("devtools.inspector.sidebarOpen", false);
 pref("devtools.inspector.activeSidebar", "ruleview");
+pref("devtools.inspector.markupPreview", false);
 
 // Enable the Layout View
 pref("devtools.layoutview.enabled", true);
@@ -1021,7 +1022,7 @@ pref("devtools.debugger.chrome-enabled", false);
 pref("devtools.debugger.remote-host", "localhost");
 pref("devtools.debugger.remote-autoconnect", false);
 pref("devtools.debugger.remote-connection-retries", 3);
-pref("devtools.debugger.remote-timeout", 3000);
+pref("devtools.debugger.remote-timeout", 20000);
 
 // The default Debugger UI settings
 pref("devtools.debugger.ui.height", 250);
@@ -1031,6 +1032,7 @@ pref("devtools.debugger.ui.stackframes-width", 200);
 pref("devtools.debugger.ui.stackframes-pane-visible", true);
 pref("devtools.debugger.ui.variables-width", 300);
 pref("devtools.debugger.ui.variables-pane-visible", true);
+pref("devtools.debugger.ui.non-enum-visible", true);
 
 // Enable the style inspector
 pref("devtools.styleinspector.enabled", true);
@@ -1174,3 +1176,6 @@ pref("social.manifest.motown", "{\"origin\":\"https://motown-dev.mozillalabs.com
 pref("social.activation.whitelist", "https://motown-dev.mozillalabs.com");
 pref("social.sidebar.open", true);
 pref("social.active", false);
+pref("social.toast-notifications.enabled", true);
+
+pref("dom.identity.enabled", false);

@@ -50,12 +50,15 @@
 #include "nsITimedChannel.h"
 #include "nsChannelProperties.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/unused.h"
 
 #include "nsISimpleEnumerator.h"
 #include "nsStringAPI.h"
 #include "nsNetUtil.h"
 #include "prlog.h"
 #include "prtime.h"
+
+using namespace mozilla;
 
 namespace TestProtocols {
 
@@ -97,7 +100,7 @@ SetHttpProxy(const char *proxy)
     NS_WARNING("invalid proxy port; must be an integer");
     return NS_ERROR_UNEXPECTED;
   }
-  nsCAutoString proxyHost;
+  nsAutoCString proxyHost;
   proxyHost = Substring(proxy, colon);
 
   nsCOMPtr<nsIPrefBranch> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID);
@@ -307,7 +310,7 @@ TestAuthPrompt::PromptUsernameAndPassword(const PRUnichar *dialogTitle,
     int n;
 
     printf("Enter username: ");
-    fgets(buf, sizeof(buf), stdin);
+    unused << fgets(buf, sizeof(buf), stdin);
     n = strlen(buf);
     buf[n-1] = '\0'; // trim trailing newline
     *user = NS_StringCloneData(NS_ConvertUTF8toUTF16(buf));
@@ -382,7 +385,7 @@ InputTestConsumer::OnStartRequest(nsIRequest *request, nsISupports* context)
     LOG(("\nStarted loading: %s\n", info ? info->Name() : "UNKNOWN URL"));
   }
 
-  nsCAutoString value;
+  nsAutoCString value;
 
   nsCOMPtr<nsIChannel> channel = do_QueryInterface(request);
   if (channel) {
@@ -421,7 +424,7 @@ InputTestConsumer::OnStartRequest(nsIRequest *request, nsISupports* context)
                                     NS_GET_IID(nsIURI),
                                     getter_AddRefs(foo));
       if (foo) {
-          nsCAutoString spec;
+          nsAutoCString spec;
           foo->GetSpec(spec);
           LOG(("\ttest.foo: %s\n", spec.get()));
       }
@@ -464,7 +467,7 @@ InputTestConsumer::OnStartRequest(nsIRequest *request, nsISupports* context)
   nsCOMPtr<nsIResumableChannel> resChannel = do_QueryInterface(request);
   if (resChannel) {
       LOG(("Resumable entity identification:\n"));
-      nsCAutoString entityID;
+      nsAutoCString entityID;
       nsresult rv = resChannel->GetEntityID(entityID);
       if (NS_SUCCEEDED(rv)) {
           LOG(("\t|%s|\n", entityID.get()));
@@ -481,7 +484,7 @@ NS_IMETHODIMP
 InputTestConsumer::OnDataAvailable(nsIRequest *request, 
                                    nsISupports* context,
                                    nsIInputStream *aIStream, 
-                                   uint32_t aSourceOffset,
+                                   uint64_t aSourceOffset,
                                    uint32_t aLength)
 {
   char buf[1025];
@@ -693,7 +696,7 @@ nsresult StartLoadingURL(const char* aUrlString)
                 NS_ERROR("Channel is not resumable!");
                 return NS_ERROR_UNEXPECTED;
             }
-            nsCAutoString id;
+            nsAutoCString id;
             if (gEntityID)
                 id = gEntityID;
             LOG(("* resuming at %llu bytes, with entity id |%s|\n", gStartAt, id.get()));
@@ -799,7 +802,7 @@ nsresult LoadURLFromConsole()
 {
     char buffer[1024];
     printf("Enter URL (\"q\" to start): ");
-    scanf("%s", buffer);
+    unused << scanf("%s", buffer);
     if (buffer[0]=='q') 
         gAskUserForInput = false;
     else
@@ -835,7 +838,7 @@ main(int argc, char* argv[])
     */
 
     rv = NS_InitXPCOM2(nullptr, nullptr, nullptr);
-    if (NS_FAILED(rv)) return rv;
+    if (NS_FAILED(rv)) return -1;
 
     {
         int i;
@@ -887,5 +890,5 @@ main(int argc, char* argv[])
     } // this scopes the nsCOMPtrs
     // no nsCOMPtrs are allowed to be alive when you call NS_ShutdownXPCOM
     NS_ShutdownXPCOM(nullptr);
-    return rv;
+    return NS_FAILED(rv) ? -1 : 0;
 }

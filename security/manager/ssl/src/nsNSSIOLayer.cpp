@@ -23,6 +23,7 @@
 #include "nsISecureBrowserUI.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsCharSeparatedTokenizer.h"
+#include "nsIConsoleService.h"
 #include "PSMRunnable.h"
 
 #include "ssl.h"
@@ -485,7 +486,9 @@ void nsSSLIOLayerHelpers::Cleanup()
 }
 
 static void
-nsHandleSSLError(nsNSSSocketInfo *socketInfo, PRErrorCode err)
+nsHandleSSLError(nsNSSSocketInfo *socketInfo, 
+                 ::mozilla::psm::SSLErrorMessageType errtype, 
+                 PRErrorCode err)
 {
   if (!NS_IsMainThread()) {
     NS_ERROR("nsHandleSSLError called off the main thread");
@@ -529,8 +532,19 @@ nsHandleSSLError(nsNSSSocketInfo *socketInfo, PRErrorCode err)
       rv = sel->NotifySSLError(csi, err, hostWithPortString, &suppressMessage);
     }
   }
-
+  
+  // We must cancel first, which sets the error code.
   socketInfo->SetCanceled(err, PlainErrorMessage);
+  nsXPIDLString errorString;
+  socketInfo->GetErrorLogMessage(err, errtype, errorString);
+  
+  if (!errorString.IsEmpty()) {
+    nsCOMPtr<nsIConsoleService> console;
+    console = do_GetService(NS_CONSOLESERVICE_CONTRACTID);
+    if (console) {
+      console->LogStringMessage(errorString.get());
+    }
+  }
 }
 
 namespace {
@@ -578,7 +592,7 @@ getSocketInfoIfRunning(PRFileDesc * fd, Operation op,
 
 } // unnnamed namespace
 
-static PRStatus PR_CALLBACK
+static PRStatus
 nsSSLIOLayerConnect(PRFileDesc* fd, const PRNetAddr* addr,
                     PRIntervalTime timeout)
 {
@@ -617,7 +631,7 @@ nsSSLIOLayerHelpers::getSiteKey(nsNSSSocketInfo *socketInfo, nsCSubstring &key)
 bool
 nsSSLIOLayerHelpers::rememberPossibleTLSProblemSite(nsNSSSocketInfo *socketInfo)
 {
-  nsCAutoString key;
+  nsAutoCString key;
   getSiteKey(socketInfo, key);
 
   if (!socketInfo->IsTLSEnabled()) {
@@ -646,14 +660,14 @@ nsSSLIOLayerHelpers::rememberTolerantSite(nsNSSSocketInfo *socketInfo)
   if (!socketInfo->IsTLSEnabled())
     return;
 
-  nsCAutoString key;
+  nsAutoCString key;
   getSiteKey(socketInfo, key);
 
   MutexAutoLock lock(*mutex);
   nsSSLIOLayerHelpers::mTLSTolerantSites->PutEntry(key);
 }
 
-static PRStatus PR_CALLBACK
+static PRStatus
 nsSSLIOLayerClose(PRFileDesc *fd)
 {
   nsNSSShutDownPreventionLock locker;
@@ -806,17 +820,22 @@ isTLSIntoleranceError(int32_t err, bool withInitialCleartext)
 class SSLErrorRunnable : public SyncRunnableBase
 {
  public:
-  SSLErrorRunnable(nsNSSSocketInfo * infoObject, PRErrorCode errorCode)
-    : mInfoObject(infoObject), mErrorCode(errorCode)
+  SSLErrorRunnable(nsNSSSocketInfo * infoObject, 
+                   ::mozilla::psm::SSLErrorMessageType errtype, 
+                   PRErrorCode errorCode)
+    : mInfoObject(infoObject)
+    , mErrType(errtype)
+    , mErrorCode(errorCode)
   {
   }
 
   virtual void RunOnTargetThread()
   {
-    nsHandleSSLError(mInfoObject, mErrorCode);
+    nsHandleSSLError(mInfoObject, mErrType, mErrorCode);
   }
   
   nsRefPtr<nsNSSSocketInfo> mInfoObject;
+  ::mozilla::psm::SSLErrorMessageType mErrType;
   const PRErrorCode mErrorCode;
 };
 
@@ -890,6 +909,7 @@ int32_t checkHandshake(int32_t bytesTransfered, bool wasReading,
     if (!wantRetry && (IS_SSL_ERROR(err) || IS_SEC_ERROR(err)) &&
         !socketInfo->GetErrorCode()) {
       nsRefPtr<SyncRunnableBase> runnable = new SSLErrorRunnable(socketInfo,
+                                                                 PlainErrorMessage,
                                                                  err);
       (void) runnable->DispatchToMainThreadAndWait();
     }
@@ -927,7 +947,7 @@ int32_t checkHandshake(int32_t bytesTransfered, bool wasReading,
 
 }
 
-static int16_t PR_CALLBACK
+static int16_t
 nsSSLIOLayerPoll(PRFileDesc * fd, int16_t in_flags, int16_t *out_flags)
 {
   nsNSSShutDownPreventionLock locker;
@@ -1025,7 +1045,7 @@ static PRFileDesc *_PSM_InvalidDesc(void)
     return NULL;
 }
 
-static PRStatus PR_CALLBACK PSMGetsockname(PRFileDesc *fd, PRNetAddr *addr)
+static PRStatus PSMGetsockname(PRFileDesc *fd, PRNetAddr *addr)
 {
   nsNSSShutDownPreventionLock locker;
   if (!getSocketInfoIfRunning(fd, not_reading_or_writing, locker))
@@ -1034,7 +1054,7 @@ static PRStatus PR_CALLBACK PSMGetsockname(PRFileDesc *fd, PRNetAddr *addr)
   return fd->lower->methods->getsockname(fd->lower, addr);
 }
 
-static PRStatus PR_CALLBACK PSMGetpeername(PRFileDesc *fd, PRNetAddr *addr)
+static PRStatus PSMGetpeername(PRFileDesc *fd, PRNetAddr *addr)
 {
   nsNSSShutDownPreventionLock locker;
   if (!getSocketInfoIfRunning(fd, not_reading_or_writing, locker))
@@ -1043,8 +1063,7 @@ static PRStatus PR_CALLBACK PSMGetpeername(PRFileDesc *fd, PRNetAddr *addr)
   return fd->lower->methods->getpeername(fd->lower, addr);
 }
 
-static PRStatus PR_CALLBACK PSMGetsocketoption(PRFileDesc *fd, 
-                                        PRSocketOptionData *data)
+static PRStatus PSMGetsocketoption(PRFileDesc *fd, PRSocketOptionData *data)
 {
   nsNSSShutDownPreventionLock locker;
   if (!getSocketInfoIfRunning(fd, not_reading_or_writing, locker))
@@ -1053,8 +1072,8 @@ static PRStatus PR_CALLBACK PSMGetsocketoption(PRFileDesc *fd,
   return fd->lower->methods->getsocketoption(fd, data);
 }
 
-static PRStatus PR_CALLBACK PSMSetsocketoption(PRFileDesc *fd, 
-                                        const PRSocketOptionData *data)
+static PRStatus PSMSetsocketoption(PRFileDesc *fd,
+                                   const PRSocketOptionData *data)
 {
   nsNSSShutDownPreventionLock locker;
   if (!getSocketInfoIfRunning(fd, not_reading_or_writing, locker))
@@ -1063,7 +1082,7 @@ static PRStatus PR_CALLBACK PSMSetsocketoption(PRFileDesc *fd,
   return fd->lower->methods->setsocketoption(fd, data);
 }
 
-static int32_t PR_CALLBACK PSMRecv(PRFileDesc *fd, void *buf, int32_t amount,
+static int32_t PSMRecv(PRFileDesc *fd, void *buf, int32_t amount,
     int flags, PRIntervalTime timeout)
 {
   nsNSSShutDownPreventionLock locker;
@@ -1088,7 +1107,7 @@ static int32_t PR_CALLBACK PSMRecv(PRFileDesc *fd, void *buf, int32_t amount,
   return checkHandshake(bytesRead, true, fd, socketInfo);
 }
 
-static int32_t PR_CALLBACK PSMSend(PRFileDesc *fd, const void *buf, int32_t amount,
+static int32_t PSMSend(PRFileDesc *fd, const void *buf, int32_t amount,
     int flags, PRIntervalTime timeout)
 {
   nsNSSShutDownPreventionLock locker;
@@ -1114,19 +1133,19 @@ static int32_t PR_CALLBACK PSMSend(PRFileDesc *fd, const void *buf, int32_t amou
   return checkHandshake(bytesWritten, false, fd, socketInfo);
 }
 
-static int32_t PR_CALLBACK
+static int32_t
 nsSSLIOLayerRead(PRFileDesc* fd, void* buf, int32_t amount)
 {
   return PSMRecv(fd, buf, amount, 0, PR_INTERVAL_NO_TIMEOUT);
 }
 
-static int32_t PR_CALLBACK
+static int32_t
 nsSSLIOLayerWrite(PRFileDesc* fd, const void* buf, int32_t amount)
 {
   return PSMSend(fd, buf, amount, 0, PR_INTERVAL_NO_TIMEOUT);
 }
 
-static PRStatus PR_CALLBACK PSMConnectcontinue(PRFileDesc *fd, int16_t out_flags)
+static PRStatus PSMConnectcontinue(PRFileDesc *fd, int16_t out_flags)
 {
   nsNSSShutDownPreventionLock locker;
   if (!getSocketInfoIfRunning(fd, not_reading_or_writing, locker)) {
@@ -2352,7 +2371,7 @@ nsSSLIOLayerSetOptions(PRFileDesc *fd, bool forSTARTTLS,
 
   // Let's see if we're trying to connect to a site we know is
   // TLS intolerant.
-  nsCAutoString key;
+  nsAutoCString key;
   key = nsDependentCString(host) + NS_LITERAL_CSTRING(":") + nsPrintfCString("%d", port);
 
   if (nsSSLIOLayerHelpers::isKnownAsIntolerantSite(key)) {

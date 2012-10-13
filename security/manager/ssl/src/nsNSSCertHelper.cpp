@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "prmem.h"
 #include "prerror.h"
 #include "prprf.h"
 
@@ -1058,7 +1057,7 @@ ProcessGeneralName(PRArenaPool *arena,
 	if (SEC_ASN1DecodeItem(arena, &decoded, 
 			       SEC_ASN1_GET(SEC_UTF8StringTemplate), 
 			       &current->name.OthName.name) == SECSuccess) {
-	  AppendUTF8toUTF16(nsCAutoString((char*)decoded.data, decoded.len),
+	  AppendUTF8toUTF16(nsAutoCString((char*)decoded.data, decoded.len),
 			    value);
 	} else {
 	  ProcessRawBytes(nssComponent, &current->name.OthName.name, value);

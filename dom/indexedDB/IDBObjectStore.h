@@ -83,7 +83,10 @@ public:
                                           StructuredCloneReadInfo& aInfo);
 
   static void
-  ClearStructuredCloneBuffer(JSAutoStructuredCloneBuffer& aBuffer);
+  ClearCloneReadInfo(StructuredCloneReadInfo& aReadInfo);
+
+  static void
+  ClearCloneWriteInfo(StructuredCloneWriteInfo& aWriteInfo);
 
   static bool
   DeserializeValue(JSContext* aCx,
@@ -140,7 +143,7 @@ public:
 
   int64_t Id() const
   {
-    NS_ASSERTION(mId != LL_MININT, "Don't ask for this yet!");
+    NS_ASSERTION(mId != INT64_MIN, "Don't ask for this yet!");
     return mId;
   }
 
@@ -262,6 +265,9 @@ protected:
                     uint8_t aOptionalArgCount,
                     bool aOverwrite,
                     IDBRequest** _retval);
+
+  static void
+  ClearStructuredCloneBuffer(JSAutoStructuredCloneBuffer& aBuffer);
 
 private:
   nsRefPtr<IDBTransaction> mTransaction;

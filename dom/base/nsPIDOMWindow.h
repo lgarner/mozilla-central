@@ -48,8 +48,8 @@ class nsIArray;
 class nsPIWindowRoot;
 
 #define NS_PIDOMWINDOW_IID \
-{0x66660102, 0xd875, 0x47e2, \
-  {0xa1, 0xf7, 0x12, 0xbc, 0x83, 0xc9, 0x93, 0xa9}}
+{ 0x54fd92bd, 0xda33, 0x4451, \
+  { 0x8f, 0xb5, 0x11, 0x20, 0x5c, 0x03, 0xce, 0xaa } }
 
 class nsPIDOMWindow : public nsIDOMWindowInternal
 {
@@ -280,14 +280,9 @@ public:
     return win->mIsHandlingResizeEvent;
   }
 
-  // Tell this window who opened it.  This only has an effect if there is
-  // either no document currently in the window or if the document is the
-  // original document this window came with (an about:blank document either
-  // preloaded into it when it was created, or created by
-  // CreateAboutBlankContentViewer()).
-  virtual void SetOpenerScriptPrincipal(nsIPrincipal* aPrincipal) = 0;
-  // Ask this window who opened it.
-  virtual nsIPrincipal* GetOpenerScriptPrincipal() = 0;
+  // Set the window up with an about:blank document with the current subject
+  // principal.
+  virtual void SetInitialPrincipalToSubject() = 0;
 
   virtual PopupControlState PushPopupControlState(PopupControlState aState,
                                                   bool aForce) const = 0;
@@ -296,7 +291,7 @@ public:
 
   // Returns an object containing the window's state.  This also suspends
   // all running timeouts in the window.
-  virtual nsresult SaveWindowState(nsISupports **aState) = 0;
+  virtual already_AddRefed<nsISupports> SaveWindowState() = 0;
 
   // Restore the window state from aState.
   virtual nsresult RestoreWindowState(nsISupports *aState) = 0;
@@ -575,6 +570,21 @@ public:
    * Tell this window that it should remove itself from sensor change notifications.
    */
   virtual void DisableDeviceSensor(uint32_t aType) = 0;
+
+  virtual void EnableTimeChangeNotifications() = 0;
+  virtual void DisableTimeChangeNotifications() = 0;
+
+  /**
+   * Tell the window that it should start to listen to the network event of the
+   * given aType.
+   */
+  virtual void EnableNetworkEvent(uint32_t aType) = 0;
+
+  /**
+   * Tell the window that it should stop to listen to the network event of the
+   * given aType.
+   */
+  virtual void DisableNetworkEvent(uint32_t aType) = 0;
 
   /**
    * Set a arguments for this window. This will be set on the window

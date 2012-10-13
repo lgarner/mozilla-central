@@ -22,7 +22,6 @@
 #include "nsIEditorIMESupport.h"
 #include "nsIPhonetic.h"
 #include "nsTextFragment.h"
-#include "nsIEditorObserver.h"
 #include "nsEditProperty.h"
 #include "nsIDOMHTMLTextAreaElement.h"
 #include "nsINameSpaceManager.h"
@@ -70,8 +69,9 @@
 #include "nsFocusManager.h"
 #include "nsTextEditRules.h"
 #include "nsPresState.h"
+#include "nsContentList.h"
+#include "nsAttrValueInlines.h"
 
-#include "mozilla/FunctionTimer.h"
 #include "mozilla/Selection.h"
 
 #define DEFAULT_COLUMN_WIDTH 20
@@ -292,8 +292,6 @@ nsTextControlFrame::EnsureEditorInitialized()
   if (mUseEditor)
     return NS_OK;
 
-  NS_TIME_FUNCTION;
-
   nsIDocument* doc = mContent->GetCurrentDoc();
   NS_ENSURE_TRUE(doc, NS_ERROR_FAILURE);
 
@@ -446,7 +444,7 @@ nsTextControlFrame::AppendAnonymousContentTo(nsBaseContentList& aElements,
 nscoord
 nsTextControlFrame::GetPrefWidth(nsRenderingContext* aRenderingContext)
 {
-    nscoord result = 0;
+    DebugOnly<nscoord> result = 0;
     DISPLAY_PREF_WIDTH(this, result);
 
     float inflation = nsLayoutUtils::FontSizeInflationFor(this);
@@ -543,6 +541,7 @@ nsTextControlFrame::Reflow(nsPresContext*   aPresContext,
     ReflowTextControlChild(kid, aPresContext, aReflowState, aStatus, aDesiredSize);
     kid = kid->GetNextSibling();
   }
+
   // take into account css properties that affect overflow handling
   FinishAndStoreOverflow(&aDesiredSize);
 

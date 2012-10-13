@@ -17,12 +17,86 @@ XPCOMUtils.defineLazyGetter(window, "gChromeWin", function ()
     .QueryInterface(Ci.nsIDOMChromeWindow));
 
 function dump(s) {
-  Services.console.logStringMessage("Reader: " + s);
+  Services.console.logStringMessage("AboutReader: " + s);
 }
 
 let gStrings = Services.strings.createBundle("chrome://browser/locale/aboutReader.properties");
 
-let AboutReader = {
+let AboutReader = function(doc, win) {
+  dump("Init()");
+
+  this._docRef = Cu.getWeakReference(doc);
+  this._winRef = Cu.getWeakReference(win);
+
+  Services.obs.addObserver(this, "Reader:FaviconReturn", false);
+
+  this._article = null;
+
+  dump("Feching toolbar, header and content notes from about:reader");
+  this._headerElementRef = Cu.getWeakReference(doc.getElementById("reader-header"));
+  this._domainElementRef = Cu.getWeakReference(doc.getElementById("reader-domain"));
+  this._titleElementRef = Cu.getWeakReference(doc.getElementById("reader-title"));
+  this._creditsElementRef = Cu.getWeakReference(doc.getElementById("reader-credits"));
+  this._contentElementRef = Cu.getWeakReference(doc.getElementById("reader-content"));
+  this._toolbarElementRef = Cu.getWeakReference(doc.getElementById("reader-toolbar"));
+  this._messageElementRef = Cu.getWeakReference(doc.getElementById("reader-message"));
+
+  this._toolbarEnabled = false;
+
+  this._scrollOffset = win.pageYOffset;
+
+  let body = doc.body;
+  body.addEventListener("touchstart", this, false);
+  body.addEventListener("click", this, false);
+
+  win.addEventListener("scroll", this, false);
+  win.addEventListener("popstate", this, false);
+  win.addEventListener("resize", this, false);
+
+  this._setupAllDropdowns();
+  this._setupButton("toggle-button", this._onReaderToggle.bind(this));
+  this._setupButton("list-button", this._onList.bind(this));
+  this._setupButton("share-button", this._onShare.bind(this));
+
+  let colorSchemeOptions = [
+    { name: gStrings.GetStringFromName("aboutReader.colorSchemeLight"),
+      value: "light"},
+    { name: gStrings.GetStringFromName("aboutReader.colorSchemeDark"),
+      value: "dark"}
+  ];
+
+  let colorScheme = Services.prefs.getCharPref("reader.color_scheme");
+  this._setupSegmentedButton("color-scheme-buttons", colorSchemeOptions, colorScheme, this._setColorScheme.bind(this));
+  this._setColorScheme(colorScheme);
+
+  let fontTitle = gStrings.GetStringFromName("aboutReader.textTitle");
+  this._setupStepControl("font-size-control", fontTitle, this._onFontSizeChange.bind(this));
+  this._fontSize = 0;
+  this._setFontSize(Services.prefs.getIntPref("reader.font_size"));
+
+  let marginTitle = gStrings.GetStringFromName("aboutReader.marginTitle");
+  this._setupStepControl("margin-size-control", marginTitle, this._onMarginSizeChange.bind(this));
+  this._marginSize = 0;
+  this._setMarginSize(Services.prefs.getIntPref("reader.margin_size"));
+
+  dump("Decoding query arguments");
+  let queryArgs = this._decodeQueryString(win.location.href);
+
+  this._isReadingListItem = (queryArgs.readingList == "1");
+  this._updateToggleButton();
+
+  let url = queryArgs.url;
+  let tabId = queryArgs.tabId;
+  if (tabId) {
+    dump("Loading from tab with ID: " + tabId + ", URL: " + url);
+    this._loadFromTab(tabId, url);
+  } else {
+    dump("Fetching page with URL: " + url);
+    this._loadFromURL(url);
+  }
+}
+
+AboutReader.prototype = {
   _STEP_INCREMENT: 0,
   _STEP_DECREMENT: 1,
 
@@ -31,85 +105,57 @@ let AboutReader = {
                           ".content .wp-caption img, " +
                           ".content figure img",
 
-  init: function Reader_init() {
-    dump("Init()");
-
-    Services.obs.addObserver(this, "Reader:FaviconReturn", false);
-
-    this._article = null;
-
-    dump("Feching toolbar, header and content notes from about:reader");
-    this._frame = document.getElementById("frame");
-    this._headerElement = this._frame.contentDocument.getElementById("reader-header");
-    this._domainElement = this._frame.contentDocument.getElementById("reader-domain");
-    this._creditsElement = this._frame.contentDocument.getElementById("reader-credits");
-    this._contentElement = this._frame.contentDocument.getElementById("reader-content");
-    this._toolbarElement = document.getElementById("reader-toolbar");
-
-    this._toolbarEnabled = false;
-
-    this._frame.contentDocument.addEventListener("DOMSubtreeModified", this, false);
-    this._frame.contentDocument.addEventListener("MozScrolledAreaChanged", this, false);
-    this._frame.contentDocument.addEventListener("touchstart", this, false);
-    this._frame.contentDocument.addEventListener("click", this, false);
-    window.addEventListener("scroll", this, false);
-    window.addEventListener("popstate", this, false);
-    window.addEventListener("resize", this, false);
-
-    this._setupAllDropdowns();
-    this._setupButton("toggle-button", this._onReaderToggle.bind(this));
-    this._setupButton("list-button", this._onList.bind(this));
-    this._setupButton("share-button", this._onShare.bind(this));
-
-    let colorSchemeOptions = [
-      { name: gStrings.GetStringFromName("aboutReader.colorSchemeLight"),
-        value: "light"},
-      { name: gStrings.GetStringFromName("aboutReader.colorSchemeDark"),
-        value: "dark"}
-    ];
-
-    let colorScheme = Services.prefs.getCharPref("reader.color_scheme");
-    this._setupSegmentedButton("color-scheme-buttons", colorSchemeOptions, colorScheme, this._setColorScheme.bind(this));
-    this._setColorScheme(colorScheme);
-
-    let fontTitle = gStrings.GetStringFromName("aboutReader.textTitle");
-    this._setupStepControl("font-size-control", fontTitle, this._onFontSizeChange.bind(this));
-    this._fontSize = 0;
-    this._setFontSize(Services.prefs.getIntPref("reader.font_size"));
-
-    let marginTitle = gStrings.GetStringFromName("aboutReader.marginTitle");
-    this._setupStepControl("margin-size-control", marginTitle, this._onMarginSizeChange.bind(this));
-    this._marginSize = 0;
-    this._setMarginSize(Services.prefs.getIntPref("reader.margin_size"));
-
-    dump("Decoding query arguments");
-    let queryArgs = this._decodeQueryString(window.location.href);
-
-    this._isReadingListItem = (queryArgs.readingList == "1");
-    this._updateToggleButton();
-
-    let url = queryArgs.url;
-    let tabId = queryArgs.tabId;
-    if (tabId) {
-      dump("Loading from tab with ID: " + tabId + ", URL: " + url);
-      this._loadFromTab(tabId, url);
-    } else {
-      dump("Fetching page with URL: " + url);
-      this._loadFromURL(url);
-    }
+  get _doc() {
+    return this._docRef.get();
   },
 
-  observe: function(aMessage, aTopic, aData) {
+  get _win() {
+    return this._winRef.get();
+  },
+
+  get _headerElement() {
+    return this._headerElementRef.get();
+  },
+
+  get _domainElement() {
+    return this._domainElementRef.get();
+  },
+
+  get _titleElement() {
+    return this._titleElementRef.get();
+  },
+
+  get _creditsElement() {
+    return this._creditsElementRef.get();
+  },
+
+  get _contentElement() {
+    return this._contentElementRef.get();
+  },
+
+  get _toolbarElement() {
+    return this._toolbarElementRef.get();
+  },
+
+  get _messageElement() {
+    return this._messageElementRef.get();
+  },
+
+  observe: function Reader_observe(aMessage, aTopic, aData) {
     switch(aTopic) {
       case "Reader:FaviconReturn": {
         let info = JSON.parse(aData);
         this._loadFavicon(info.url, info.faviconUrl);
+        Services.obs.removeObserver(this, "Reader:FaviconReturn", false);
         break;
       }
     }
   },
 
   handleEvent: function Reader_handleEvent(aEvent) {
+    if (!aEvent.isTrusted)
+      return;
+
     switch (aEvent.type) {
       case "touchstart":
         this._scrolled = false;
@@ -131,34 +177,11 @@ let AboutReader = {
       case "resize":
         this._updateImageMargins();
         break;
-      case "DOMSubtreeModified":
-      case "MozScrolledAreaChanged":
-        let newHeight = this._frame.contentDocument.body.offsetHeight + "px";
-        if (this._frame.style.height != newHeight) {
-          this._frame.style.height = newHeight;
-        }
-        break;
     }
   },
 
-  uninit: function Reader_uninit() {
-    dump("Uninit()");
-
-    Services.obs.removeObserver(this, "Reader:FaviconReturn");
-
-    this._frame.contentDocument.removeEventListener("touchstart", this, false);
-    this._frame.contentDocument.removeEventListener("click", this, false);
-    this._frame.contentDocument.removeEventListener("DOMSubtreeModified", this, false);
-    this._frame.contentDocument.removeEventListener("MozScrolledAreaChanged", this, false);
-    window.removeEventListener("scroll", this, false);
-    window.removeEventListener("popstate", this, false);
-    window.removeEventListener("resize", this, false);
-
-    this._hideContent();
-  },
-
   _updateToggleButton: function Reader_updateToggleButton() {
-    let classes = document.getElementById("toggle-button").classList;
+    let classes = this._doc.getElementById("toggle-button").classList;
 
     if (this._isReadingListItem) {
       classes.add("on");
@@ -236,10 +259,11 @@ let AboutReader = {
     if (this._marginSize === newMarginSize)
       return;
 
+    let doc = this._doc;
+
     this._marginSize = Math.max(5, Math.min(25, newMarginSize));
-    let bodyStyle = this._frame.contentDocument.body.style;
-    bodyStyle.marginLeft = this._marginSize + "%";
-    bodyStyle.marginRight = this._marginSize + "%";
+    doc.body.style.marginLeft = this._marginSize + "%";
+    doc.body.style.marginRight = this._marginSize + "%";
 
     this._updateImageMargins();
 
@@ -257,7 +281,7 @@ let AboutReader = {
     if (this._fontSize === newFontSize)
       return;
 
-    let bodyClasses = this._frame.contentDocument.body.classList;
+    let bodyClasses = this._doc.body.classList;
 
     if (this._fontSize > 0)
       bodyClasses.remove("font-size" + this._fontSize);
@@ -272,17 +296,13 @@ let AboutReader = {
     if (this._colorScheme === newColorScheme)
       return;
 
-    let bodyClasses = document.body.classList;
-    let frameClasses = this._frame.contentDocument.body.classList;
+    let bodyClasses = this._doc.body.classList;
 
-    if (this._colorScheme) {
+    if (this._colorScheme)
       bodyClasses.remove(this._colorScheme);
-      frameClasses.remove(this._colorScheme);
-    }
 
     this._colorScheme = newColorScheme;
     bodyClasses.add(this._colorScheme);
-    frameClasses.add(this._colorScheme);
 
     Services.prefs.setCharPref("reader.color_scheme", this._colorScheme);
   },
@@ -292,8 +312,9 @@ let AboutReader = {
   },
 
   _setToolbarVisibility: function Reader_setToolbarVisibility(visible) {
-    if (history.state)
-      history.back();
+    let win = this._win;
+    if (win.history.state)
+      win.history.back();
 
     if (!this._toolbarEnabled)
       return;
@@ -319,7 +340,7 @@ let AboutReader = {
   },
 
   _loadFromURL: function Reader_loadFromURL(url) {
-    this._showProgress();
+    this._showProgressDelayed();
 
     gChromeWin.Reader.parseDocumentFromURL(url, function(article) {
       if (article)
@@ -330,7 +351,7 @@ let AboutReader = {
   },
 
   _loadFromTab: function Reader_loadFromTab(tabId, url) {
-    this._showProgress();
+    this._showProgressDelayed();
 
     gChromeWin.Reader.getArticleForTab(tabId, url, function(article) {
       if (article)
@@ -353,15 +374,17 @@ let AboutReader = {
     if (this._article.url !== url)
       return;
 
-    let link = document.createElement('link');
+    let doc = this._doc;
+
+    let link = doc.createElement('link');
     link.rel = 'shortcut icon';
     link.href = faviconUrl;
 
-    document.getElementsByTagName('head')[0].appendChild(link);
+    doc.getElementsByTagName('head')[0].appendChild(link);
   },
 
   _updateImageMargins: function Reader_updateImageMargins() {
-    let windowWidth = window.innerWidth;
+    let windowWidth = this._win.innerWidth;
     let contentWidth = this._contentElement.offsetWidth;
     let maxWidthStyle = windowWidth + "px !important";
 
@@ -390,7 +413,7 @@ let AboutReader = {
       img.style.cssText = cssText;
     }
 
-    let imgs = document.querySelectorAll(this._BLOCK_IMAGES_SELECTOR);
+    let imgs = this._doc.querySelectorAll(this._BLOCK_IMAGES_SELECTOR);
     for (let i = imgs.length; --i >= 0;) {
       let img = imgs[i];
 
@@ -406,30 +429,39 @@ let AboutReader = {
 
   _showError: function Reader_showError(error) {
     this._headerElement.style.display = "none";
-    this._contentElement.innerHTML = error;
-    this._contentElement.style.display = "block";
+    this._contentElement.style.display = "none";
 
-    document.title = error;
+    this._messageElement.innerHTML = error;
+    this._messageElement.style.display = "block";
+
+    this._doc.title = error;
   },
 
   _showContent: function Reader_showContent(article) {
+    this._messageElement.style.display = "none";
+
     this._article = article;
 
-    let domain = Services.io.newURI(article.url, null, null).host;
+    let articleUri = Services.io.newURI(article.url, null, null);
+    let domain = articleUri.host;
+
     this._domainElement.innerHTML = domain;
 
     this._creditsElement.innerHTML = article.byline;
 
-    this._frame.contentDocument.getElementById("reader-title").innerHTML = article.title;
-    document.title = article.title;
+    this._titleElement.innerHTML = article.title;
+    this._doc.title = article.title;
 
     this._headerElement.style.display = "block";
 
-    this._contentElement.innerHTML = article.content;
+    let parserUtils = Cc["@mozilla.org/parserutils;1"].getService(Ci.nsIParserUtils);
+    let contentFragment = parserUtils.parseFragment(article.content, Ci.nsIParserUtils.SanitizerDropForms,
+                                                    false, articleUri, this._contentElement);
+    this._contentElement.innerHTML = "";
+    this._contentElement.appendChild(contentFragment);
     this._updateImageMargins();
 
     this._contentElement.style.display = "block";
-
 
     this._toolbarEnabled = true;
     this._setToolbarVisibility(true);
@@ -442,10 +474,19 @@ let AboutReader = {
     this._contentElement.style.display = "none";
   },
 
-  _showProgress: function Reader_showProgress() {
-    this._headerElement.style.display = "none";
-    this._contentElement.innerHTML = gStrings.GetStringFromName("aboutReader.loading");
-    this._contentElement.style.display = "block";
+  _showProgressDelayed: function Reader_showProgressDelayed() {
+    this._win.setTimeout(function() {
+      // Article has already been loaded, no need to show
+      // progress anymore.
+      if (this._article)
+        return;
+
+      this._headerElement.style.display = "none";
+      this._contentElement.style.display = "none";
+
+      this._messageElement.innerHTML = gStrings.GetStringFromName("aboutReader.loading");
+      this._messageElement.style.display = "block";
+    }.bind(this), 300);
   },
 
   _decodeQueryString: function Reader_decodeQueryString(url) {
@@ -463,45 +504,56 @@ let AboutReader = {
   },
 
   _setupStepControl: function Reader_setupStepControl(id, name, callback) {
-    let stepControl = document.getElementById(id);
+    let doc = this._doc;
+    let stepControl = doc.getElementById(id);
 
-    let title = document.createElement("h1");
+    let title = this._doc.createElement("h1");
     title.innerHTML = name;
     stepControl.appendChild(title);
 
-    let plusButton = document.createElement("div");
+    let plusButton = doc.createElement("div");
     plusButton.className = "button plus-button";
     stepControl.appendChild(plusButton);
 
-    let minusButton = document.createElement("div");
+    let minusButton = doc.createElement("div");
     minusButton.className = "button minus-button";
     stepControl.appendChild(minusButton);
 
     plusButton.addEventListener("click", function(aEvent) {
+      if (!aEvent.isTrusted)
+        return;
+
       aEvent.stopPropagation();
       callback(this._STEP_INCREMENT);
     }.bind(this), true);
 
     minusButton.addEventListener("click", function(aEvent) {
+      if (!aEvent.isTrusted)
+        return;
+
       aEvent.stopPropagation();
       callback(this._STEP_DECREMENT);
     }.bind(this), true);
   },
 
   _setupSegmentedButton: function Reader_setupSegmentedButton(id, options, initialValue, callback) {
-    let segmentedButton = document.getElementById(id);
+    let doc = this._doc;
+    let segmentedButton = doc.getElementById(id);
 
     for (let i = 0; i < options.length; i++) {
       let option = options[i];
 
-      let item = document.createElement("li");
-      let link = document.createElement("a");
+      let item = doc.createElement("li");
+      let link = doc.createElement("a");
       link.innerHTML = option.name;
       item.appendChild(link);
 
       segmentedButton.appendChild(item);
 
       link.addEventListener("click", function(aEvent) {
+        if (!aEvent.isTrusted)
+          return;
+
         aEvent.stopPropagation();
 
         let items = segmentedButton.children;
@@ -519,16 +571,22 @@ let AboutReader = {
   },
 
   _setupButton: function Reader_setupButton(id, callback) {
-    let button = document.getElementById(id);
+    let button = this._doc.getElementById(id);
 
     button.addEventListener("click", function(aEvent) {
+      if (!aEvent.isTrusted)
+        return;
+
       aEvent.stopPropagation();
       callback();
     }, true);
   },
 
   _setupAllDropdowns: function Reader_setupAllDropdowns() {
-    let dropdowns = document.getElementsByClassName("dropdown");
+    let doc = this._doc;
+    let win = this._win;
+
+    let dropdowns = doc.getElementsByClassName("dropdown");
 
     for (let i = dropdowns.length - 1; i >= 0; i--) {
       let dropdown = dropdowns[i];
@@ -539,7 +597,7 @@ let AboutReader = {
       if (!dropdownToggle || !dropdownPopup)
         continue;
 
-      let dropdownArrow = document.createElement("div");
+      let dropdownArrow = doc.createElement("div");
       dropdownArrow.className = "dropdown-arrow";
       dropdownPopup.appendChild(dropdownArrow);
 
@@ -550,29 +608,35 @@ let AboutReader = {
           let toggleLeft = dropdownToggle.offsetLeft;
 
           let popupShift = (toggleWidth - popupWidth) / 2;
-          let popupLeft = Math.max(0, Math.min(window.innerWidth - popupWidth, toggleLeft + popupShift));
+          let popupLeft = Math.max(0, Math.min(win.innerWidth - popupWidth, toggleLeft + popupShift));
           dropdownPopup.style.left = popupLeft + "px";
 
           let arrowShift = (toggleWidth - arrowWidth) / 2;
           let arrowLeft = toggleLeft - popupLeft + arrowShift;
           dropdownArrow.style.left = arrowLeft + "px";
-      }
+      };
 
-      window.addEventListener("resize", function(aEvent) {
+      win.addEventListener("resize", function(aEvent) {
+        if (!aEvent.isTrusted)
+          return;
+
         updatePopupPosition();
       }, true);
 
       dropdownToggle.addEventListener("click", function(aEvent) {
+        if (!aEvent.isTrusted)
+          return;
+
         aEvent.stopPropagation();
 
         let dropdownClasses = dropdown.classList;
 
         if (dropdownClasses.contains("open")) {
-          history.back();
+          win.history.back();
         } else {
           updatePopupPosition();
           if (!this._closeAllDropdowns())
-            history.pushState({ dropdown: 1 }, document.title);
+            this._pushDropdownState();
 
           dropdownClasses.add("open");
         }
@@ -580,12 +644,31 @@ let AboutReader = {
     }
   },
 
+  _pushDropdownState: function Reader_pushDropdownState() {
+    // FIXME: We're getting a NS_ERROR_UNEXPECTED error when we try
+    // to do win.history.pushState() here (see bug 682296). This is
+    // a workaround that allows us to push history state on the target
+    // content document.
+
+    let doc = this._doc;
+    let body = doc.body;
+
+    if (this._pushStateScript)
+      body.removeChild(this._pushStateScript);
+
+    this._pushStateScript = doc.createElement('script');
+    this._pushStateScript.type = "text/javascript";
+    this._pushStateScript.innerHTML = 'history.pushState({ dropdown: 1 }, document.title);';
+
+    body.appendChild(this._pushStateScript);
+  },
+
   _closeAllDropdowns : function Reader_closeAllDropdowns() {
-    let dropdowns = document.querySelectorAll(".dropdown.open");
+    let dropdowns = this._doc.querySelectorAll(".dropdown.open");
     for (let i = dropdowns.length - 1; i >= 0; i--) {
       dropdowns[i].classList.remove("open");
     }
 
     return (dropdowns.length > 0)
   }
-}
+};

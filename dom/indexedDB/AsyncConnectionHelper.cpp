@@ -288,8 +288,6 @@ AsyncConnectionHelper::Run()
     mResultCode = DoDatabaseWork(connection);
 
     if (mDatabase) {
-      IndexedDatabaseManager::SetCurrentWindow(nullptr);
-
       // Release or roll back the savepoint depending on the error code.
       if (hasSavepoint) {
         NS_ASSERTION(mTransaction, "Huh?!");
@@ -300,6 +298,10 @@ AsyncConnectionHelper::Run()
           mTransaction->RollbackSavepoint();
         }
       }
+
+      // Don't unset this until we're sure that all SQLite activity has
+      // completed!
+      IndexedDatabaseManager::SetCurrentWindow(nullptr);
     }
   }
   else {
@@ -509,6 +511,37 @@ AsyncConnectionHelper::ReleaseMainThreadObjects()
   mTransaction = nullptr;
 
   HelperBase::ReleaseMainThreadObjects();
+}
+
+AsyncConnectionHelper::ChildProcessSendResult
+AsyncConnectionHelper::MaybeSendResponseToChildProcess(nsresult aResultCode)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+  NS_ASSERTION(IndexedDatabaseManager::IsMainProcess(), "Wrong process!");
+
+  // If there's no request, there could never have been an actor, and so there
+  // is nothing to do.
+  if (!mRequest) {
+    return Success_NotSent;
+  }
+
+  IDBTransaction* trans = GetCurrentTransaction();
+  // We may not have a transaction, e.g. for deleteDatabase
+  if (!trans) {
+    return Success_NotSent;
+  }
+
+  // Are we shutting down the child?
+  if (trans->Database()->IsDisconnectedFromActor()) {
+    return Success_ActorDisconnected;
+  }
+
+  IndexedDBRequestParentBase* actor = mRequest->GetActorParent();
+  if (!actor) {
+    return Success_NotSent;
+  }
+
+  return SendResponseToChildProcess(aResultCode);
 }
 
 nsresult

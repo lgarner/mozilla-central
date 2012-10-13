@@ -315,7 +315,7 @@ GetAppShell()
   NS_NAMED_LITERAL_CSTRING(contractSuffix, ";1");
 
   for (size_t index = 0; index < ArrayLength(platforms); index++) {
-    nsCAutoString contractID(contractPrefix);
+    nsAutoCString contractID(contractPrefix);
     contractID.AppendASCII(platforms[index]);
     contractID.Append(contractSuffix);
 
@@ -399,7 +399,7 @@ Test4Internal(nsIAppShell* aAppShell)
   }
 
   nsCOMPtr<nsIURI> uri;
-  if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), "about:blank", NULL))) {
+  if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), "about:", NULL))) {
     fail("Failed to create new uri");
     return false;
   }

@@ -20,7 +20,6 @@ WIN_LIBS=                                       \
 
 ---------------------------------------------------------------------- */
 
-#include "prmem.h"
 #include "plstr.h"
 #include <windows.h>
 #include <tchar.h>
@@ -340,7 +339,7 @@ GetLocalizedString(nsIStringBundle* aStrBundle, const char* aKey, nsString& oVal
 // Set a multi-byte string in the control
 static void SetTextOnWnd(HWND aControl, const nsString& aStr)
 {
-  nsCAutoString text;
+  nsAutoCString text;
   if (NS_SUCCEEDED(NS_CopyUnicodeToNative(aStr, text))) {
     ::SetWindowText(aControl, text.get());
   }
@@ -409,7 +408,7 @@ static PropKeyInfo gAllPropKeys[] = {
     {"asLaidOutWindows", rad4},
     {"selectedFrameWindows", rad5},
     {"separateFramesWindows", rad6},
-    {NULL, NULL}};
+    {NULL, 0}};
 
 //--------------------------------------------------------
 //--------------------------------------------------------
@@ -445,7 +444,7 @@ static HWND CreateControl(LPCTSTR          aType,
                           const nsAString& aStr, 
                           const nsIntRect& aRect)
 {
-  nsCAutoString str;
+  nsAutoCString str;
   if (NS_FAILED(NS_CopyUnicodeToNative(aStr, str)))
     return NULL;
 
@@ -883,7 +882,7 @@ ShowNativePrintDialog(HWND              aHWnd,
   prntdlg.lpPrintTemplateName = NULL;
 
   if (!ShouldExtendPrintDialog()) {
-    prntdlg.lCustData         = NULL;
+    prntdlg.lCustData         = 0;
     prntdlg.lpfnPrintHook     = NULL;
   } else {
     // Set up print dialog "hook" procedure for extending the dialog

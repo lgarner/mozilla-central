@@ -22,13 +22,13 @@
 #include "builtin/RegExp.h"
 
 extern JSObject *
-js_InitObjectClass(JSContext *cx, JSObject *obj);
+js_InitObjectClass(JSContext *cx, js::HandleObject obj);
 
 extern JSObject *
-js_InitFunctionClass(JSContext *cx, JSObject *obj);
+js_InitFunctionClass(JSContext *cx, js::HandleObject obj);
 
 extern JSObject *
-js_InitTypedArrayClasses(JSContext *cx, JSObject *obj);
+js_InitTypedArrayClasses(JSContext *cx, js::HandleObject obj);
 
 namespace js {
 
@@ -114,9 +114,9 @@ class GlobalObject : public JSObject
     }
 
     friend JSObject *
-    ::js_InitObjectClass(JSContext *cx, JSObject *obj);
+    ::js_InitObjectClass(JSContext *cx, js::HandleObject);
     friend JSObject *
-    ::js_InitFunctionClass(JSContext *cx, JSObject *obj);
+    ::js_InitFunctionClass(JSContext *cx, js::HandleObject);
 
     /* Initialize the Function and Object classes.  Must only be called once! */
     JSObject *
@@ -368,16 +368,16 @@ class GlobalObject : public JSObject
         return HasDataProperty(cx, holder, NameToId(name), &fun);
     }
 
-    bool getIntrinsicValue(JSContext *cx, PropertyName *name, Value *vp) {
+    bool getIntrinsicValue(JSContext *cx, PropertyName *name, MutableHandleValue value) {
         RootedObject holder(cx, &getSlotRef(INTRINSICS).toObject());
-        jsid id = NameToId(name);
-        if (HasDataProperty(cx, holder, id, vp))
+        RootedId id(cx, NameToId(name));
+        if (HasDataProperty(cx, holder, id, value.address()))
             return true;
-        bool ok = cx->runtime->cloneSelfHostedValueById(cx, id, holder, vp);
+        bool ok = cx->runtime->cloneSelfHostedValueById(cx, id, holder, value);
         if (!ok)
             return false;
 
-        ok = JS_DefinePropertyById(cx, holder, id, *vp, NULL, NULL, 0);
+        ok = JS_DefinePropertyById(cx, holder, id, value, NULL, NULL, 0);
         JS_ASSERT(ok);
         return true;
     }

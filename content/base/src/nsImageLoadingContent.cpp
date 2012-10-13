@@ -64,7 +64,7 @@ static void PrintReqURL(imgIRequest* req) {
     return;
   }
 
-  nsCAutoString spec;
+  nsAutoCString spec;
   uri->GetSpec(spec);
   printf("spec='%s'\n", spec.get());
 }
@@ -88,7 +88,7 @@ nsImageLoadingContent::nsImageLoadingContent()
     mCurrentRequestRegistered(false),
     mPendingRequestRegistered(false)
 {
-  if (!nsContentUtils::GetImgLoader()) {
+  if (!nsContentUtils::GetImgLoaderForChannel(nullptr)) {
     mLoadingEnabled = false;
   }
 }
@@ -256,7 +256,7 @@ nsImageLoadingContent::OnStopDecode(imgIRequest* aRequest,
   // decoding, so we can't wait for them to finish. See bug 512435.
   //
   // (*) IsPaintingSuppressed returns false if we haven't gotten the initial
-  // reflow yet, so we have to test !DidInitialReflow || IsPaintingSuppressed.
+  // reflow yet, so we have to test !DidInitialize || IsPaintingSuppressed.
   // It's possible for painting to be suppressed for reasons other than the
   // initial paint delay (for example, being in the bfcache), but we probably
   // aren't loading images in those situations.
@@ -266,9 +266,9 @@ nsImageLoadingContent::OnStopDecode(imgIRequest* aRequest,
   nsIDocument* doc = GetOurOwnerDoc();
   nsIPresShell* shell = doc ? doc->GetShell() : nullptr;
   if (shell && shell->IsVisible() &&
-      (!shell->DidInitialReflow() || shell->IsPaintingSuppressed())) {
+      (!shell->DidInitialize() || shell->IsPaintingSuppressed())) {
 
-    mCurrentRequest->RequestDecode();
+    mCurrentRequest->StartDecoding();
   }
 
   // Fire the appropriate DOM event.
@@ -334,7 +334,7 @@ nsImageLoadingContent::SetLoadingEnabled(bool aLoadingEnabled)
 {
   NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(), NS_ERROR_NOT_AVAILABLE);
 
-  if (nsContentUtils::GetImgLoader()) {
+  if (nsContentUtils::GetImgLoaderForChannel(nullptr)) {
     mLoadingEnabled = aLoadingEnabled;
   }
   return NS_OK;
@@ -518,7 +518,7 @@ nsImageLoadingContent::LoadImageWithChannel(nsIChannel* aChannel,
 {
   NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(), NS_ERROR_NOT_AVAILABLE);
 
-  if (!nsContentUtils::GetImgLoader()) {
+  if (!nsContentUtils::GetImgLoaderForChannel(aChannel)) {
     return NS_ERROR_NULL_POINTER;
   }
 
@@ -537,7 +537,7 @@ nsImageLoadingContent::LoadImageWithChannel(nsIChannel* aChannel,
 
   // Do the load.
   nsCOMPtr<imgIRequest>& req = PrepareNextRequest();
-  nsresult rv = nsContentUtils::GetImgLoader()->
+  nsresult rv = nsContentUtils::GetImgLoaderForChannel(aChannel)->
     LoadImageWithChannel(aChannel, this, doc, aListener,
                          getter_AddRefs(req));
   if (NS_SUCCEEDED(rv)) {
@@ -574,6 +574,10 @@ nsImageLoadingContent::BlockOnload(imgIRequest* aRequest)
     return NS_OK;
   }
 
+  NS_ASSERTION(!(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD),
+               "Double BlockOnload!?");
+  mCurrentRequestFlags |= REQUEST_BLOCKS_ONLOAD;
+
   nsIDocument* doc = GetOurCurrentDoc();
   if (doc) {
     doc->BlockOnload();
@@ -588,6 +592,10 @@ nsImageLoadingContent::UnblockOnload(imgIRequest* aRequest)
   if (aRequest != mCurrentRequest) {
     return NS_OK;
   }
+
+  NS_ASSERTION(mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD,
+               "Double UnblockOnload!?");
+  mCurrentRequestFlags &= ~REQUEST_BLOCKS_ONLOAD;
 
   nsIDocument* doc = GetOurCurrentDoc();
   if (doc) {
@@ -1167,6 +1175,9 @@ nsImageLoadingContent::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
     aDocument->AddImage(mCurrentRequest);
   if (mPendingRequestFlags & REQUEST_SHOULD_BE_TRACKED)
     aDocument->AddImage(mPendingRequest);
+
+  if (mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD)
+    aDocument->BlockOnload();
 }
 
 void
@@ -1186,6 +1197,9 @@ nsImageLoadingContent::UnbindFromTree(bool aDeep, bool aNullParent)
     doc->RemoveImage(mCurrentRequest);
   if (mPendingRequestFlags & REQUEST_SHOULD_BE_TRACKED)
     doc->RemoveImage(mPendingRequest);
+
+  if (mCurrentRequestFlags & REQUEST_BLOCKS_ONLOAD)
+    doc->UnblockOnload(false);
 }
 
 nsresult
@@ -1227,7 +1241,7 @@ nsImageLoadingContent::UntrackImage(imgIRequest* aImage)
   // all locked images on destruction.
   nsIDocument* doc = GetOurCurrentDoc();
   if (doc)
-    return doc->RemoveImage(aImage);
+    return doc->RemoveImage(aImage, nsIDocument::REQUEST_DISCARD);
   return NS_OK;
 }
 

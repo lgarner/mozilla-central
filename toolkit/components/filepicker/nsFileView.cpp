@@ -13,7 +13,6 @@
 #include "nsString.h"
 #include "nsReadableUtils.h"
 #include "nsCRT.h"
-#include "prmem.h"
 #include "nsPrintfCString.h"
 #include "nsIDateTimeFormat.h"
 #include "nsDateTimeFormatCID.h"
@@ -750,7 +749,7 @@ nsFileView::GetCellText(int32_t aRow, nsITreeColumn* aCol,
   if (NS_LITERAL_STRING("FilenameColumn").Equals(colID)) {
     curFile->GetLeafName(aCellText);
   } else if (NS_LITERAL_STRING("LastModifiedColumn").Equals(colID)) {
-    int64_t lastModTime;
+    PRTime lastModTime;
     curFile->GetLastModifiedTime(&lastModTime);
     // XXX FormatPRTime could take an nsAString&
     nsAutoString temp;
@@ -934,10 +933,10 @@ SortSizeCallback(const void* aElement1, const void* aElement2, void* aContext)
   file1->GetFileSize(&size1);
   file2->GetFileSize(&size2);
 
-  if (LL_EQ(size1, size2))
+  if (size1 == size2)
     return 0;
 
-  return (LL_CMP(size1, <, size2) ? -1 : 1);
+  return size1 < size2 ? -1 : 1;
 }
 
 static int
@@ -946,14 +945,14 @@ SortDateCallback(const void* aElement1, const void* aElement2, void* aContext)
   nsIFile* file1 = *static_cast<nsIFile* const *>(aElement1);
   nsIFile* file2 = *static_cast<nsIFile* const *>(aElement2);
 
-  int64_t time1, time2;
+  PRTime time1, time2;
   file1->GetLastModifiedTime(&time1);
   file2->GetLastModifiedTime(&time2);
 
-  if (LL_EQ(time1, time2))
+  if (time1 == time2)
     return 0;
 
-  return (LL_CMP(time1, <, time2) ? -1 : 1);
+  return time1 < time2 ? -1 : 1;
 }
 
 void

@@ -12,7 +12,7 @@ NS_IMPL_ISUPPORTS1(nsDirIndex,
                    nsIDirIndex)
 
 nsDirIndex::nsDirIndex() : mType(TYPE_UNKNOWN),
-                           mSize(LL_MAXUINT),
+                           mSize(UINT64_MAX),
                            mLastModified(-1) {
 }
 
@@ -68,5 +68,5 @@ nsDirIndex::SetDescription(const PRUnichar* aDescription) {
 }
 
 NS_IMPL_GETSET(nsDirIndex, Size, int64_t, mSize)
-NS_IMPL_GETSET(nsDirIndex, LastModified, int64_t, mLastModified)
+NS_IMPL_GETSET(nsDirIndex, LastModified, PRTime, mLastModified)
 

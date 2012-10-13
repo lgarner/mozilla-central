@@ -43,6 +43,9 @@ static RedirEntry kRedirMap[] = {
     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
     nsIAboutModule::ALLOW_SCRIPT |
     nsIAboutModule::HIDE_FROM_ABOUTABOUT },
+  { "socialerror", "chrome://browser/content/aboutSocialError.xhtml",
+    nsIAboutModule::ALLOW_SCRIPT |
+    nsIAboutModule::HIDE_FROM_ABOUTABOUT },
   { "feeds", "chrome://browser/content/feeds/subscribe.xhtml",
     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
     nsIAboutModule::ALLOW_SCRIPT |
@@ -80,10 +83,10 @@ static RedirEntry kRedirMap[] = {
 };
 static const int kRedirTotal = NS_ARRAY_LENGTH(kRedirMap);
 
-static nsCAutoString
+static nsAutoCString
 GetAboutModuleName(nsIURI *aURI)
 {
-  nsCAutoString path;
+  nsAutoCString path;
   aURI->GetPath(path);
 
   int32_t f = path.FindChar('#');
@@ -104,7 +107,7 @@ AboutRedirector::NewChannel(nsIURI *aURI, nsIChannel **result)
   NS_ENSURE_ARG_POINTER(aURI);
   NS_ASSERTION(result, "must not be null");
 
-  nsCAutoString path = GetAboutModuleName(aURI);
+  nsAutoCString path = GetAboutModuleName(aURI);
 
   nsresult rv;
   nsCOMPtr<nsIIOService> ioService = do_GetIOService(&rv);
@@ -141,7 +144,7 @@ AboutRedirector::GetURIFlags(nsIURI *aURI, uint32_t *result)
 {
   NS_ENSURE_ARG_POINTER(aURI);
 
-  nsCAutoString name = GetAboutModuleName(aURI);
+  nsAutoCString name = GetAboutModuleName(aURI);
 
   for (int i = 0; i < kRedirTotal; i++) {
     if (name.Equals(kRedirMap[i].id)) {

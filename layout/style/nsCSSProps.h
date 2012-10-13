@@ -98,6 +98,9 @@ MOZ_STATIC_ASSERT((CSS_PROPERTY_PARSE_PROPERTY_MASK &
 // Does this property suppor the unitless length quirk in quirks mode?
 #define CSS_PROPERTY_UNITLESS_LENGTH_QUIRK        (1<<16)
 
+// Is this property (which must be a shorthand) really an alias?
+#define CSS_PROPERTY_IS_ALIAS                     (1<<17)
+
 /**
  * Types of animatable values.
  */
@@ -190,6 +193,11 @@ public:
   // Get a color name for a predefined color value like buttonhighlight or activeborder
   // Sets the aStr param to the name of the propertyID
   static bool GetColorName(int32_t aPropID, nsCString &aStr);
+
+  // Returns the index of |aKeyword| in |aTable|, if it exists there;
+  // otherwise, returns -1.
+  // NOTE: Generally, clients should call FindKeyword() instead of this method.
+  static int32_t FindIndexOfKeyword(nsCSSKeyword aKeyword, const int32_t aTable[]);
 
   // Find |aKeyword| in |aTable|, if found set |aValue| to its corresponding value.
   // If not found, return false and do not set |aValue|.
@@ -355,6 +363,7 @@ public:
   static const int32_t kShapeRenderingKTable[];
   static const int32_t kStrokeLinecapKTable[];
   static const int32_t kStrokeLinejoinKTable[];
+  static const int32_t kStrokeObjectValueKTable[];
   static const int32_t kVectorEffectKTable[];
   static const int32_t kTextAnchorKTable[];
   static const int32_t kTextRenderingKTable[];
@@ -369,7 +378,8 @@ public:
   static const int32_t kContentKTable[];
   static const int32_t kCursorKTable[];
   static const int32_t kDirectionKTable[];
-  static const int32_t kDisplayKTable[];
+  // Not const because we modify its entries when CSS prefs change.
+  static int32_t kDisplayKTable[];
   static const int32_t kElevationKTable[];
   static const int32_t kEmptyCellsKTable[];
 #ifdef MOZ_FLEXBOX
@@ -390,6 +400,8 @@ public:
   static const int32_t kLineHeightKTable[];
   static const int32_t kListStylePositionKTable[];
   static const int32_t kListStyleKTable[];
+  static const int32_t kObjectOpacityKTable[];
+  static const int32_t kObjectPatternKTable[];
   static const int32_t kOrientKTable[];
   static const int32_t kOutlineStyleKTable[];
   static const int32_t kOutlineColorKTable[];

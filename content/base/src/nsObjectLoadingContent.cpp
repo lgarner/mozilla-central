@@ -11,7 +11,7 @@
  */
 
 // Interface headers
-#include "imgILoader.h"
+#include "imgLoader.h"
 #include "nsEventDispatcher.h"
 #include "nsIContent.h"
 #include "nsIDocShell.h"
@@ -444,7 +444,7 @@ IsSuccessfulRequest(nsIRequest* aRequest)
 static bool
 CanHandleURI(nsIURI* aURI)
 {
-  nsCAutoString scheme;
+  nsAutoCString scheme;
   if (NS_FAILED(aURI->GetScheme(scheme))) {
     return false;
   }
@@ -477,14 +477,7 @@ URIEquals(nsIURI *a, nsIURI *b)
 static bool
 IsSupportedImage(const nsCString& aMimeType)
 {
-  imgILoader* loader = nsContentUtils::GetImgLoader();
-  if (!loader) {
-    return false;
-  }
-
-  bool supported;
-  nsresult rv = loader->SupportImageWithMimeType(aMimeType.get(), &supported);
-  return NS_SUCCEEDED(rv) && supported;
+  return imgLoader::SupportImageWithMimeType(aMimeType.get());
 }
 
 static void
@@ -511,7 +504,7 @@ GetExtensionFromURI(nsIURI* uri, nsCString& ext)
 bool
 IsPluginEnabledByExtension(nsIURI* uri, nsCString& mimeType)
 {
-  nsCAutoString ext;
+  nsAutoCString ext;
   GetExtensionFromURI(uri, ext);
 
   if (ext.IsEmpty()) {
@@ -687,43 +680,37 @@ nsObjectLoadingContent::~nsObjectLoadingContent()
 nsresult
 nsObjectLoadingContent::InstantiatePluginInstance()
 {
-  if (mType != eType_Plugin || mIsLoading) {
-    LOG(("OBJLC [%p]: Not instantiating loading or non-plugin object, type %u",
-         this, mType));
+  if (mInstanceOwner || mType != eType_Plugin || mIsLoading || mInstantiating) {
     return NS_OK;
   }
-
-  // Don't do anything if we already have an active instance.
-  if (mInstanceOwner) {
-    return NS_OK;
-  }
-
-  // Don't allow re-entry into initialization code.
-  if (mInstantiating) {
-    return NS_OK;
-  }
+  
   mInstantiating = true;
   AutoSetInstantiatingToFalse autoInstantiating(this);
+
+  nsCOMPtr<nsIContent> thisContent =
+    do_QueryInterface(static_cast<nsIImageLoadingContent *>(this));
+
+  nsIDocument* doc = thisContent->GetCurrentDoc();
+  if (!doc || !InActiveDocument(thisContent)) {
+    NS_ERROR("Shouldn't be calling "
+             "InstantiatePluginInstance without an active document");
+    return NS_ERROR_FAILURE;
+  }
 
   // Instantiating an instance can result in script execution, which
   // can destroy this DOM object. Don't allow that for the scope
   // of this method.
   nsCOMPtr<nsIObjectLoadingContent> kungFuDeathGrip = this;
 
-  nsCOMPtr<nsIContent> thisContent =
-    do_QueryInterface(static_cast<nsIImageLoadingContent *>(this));
-  // Flush layout so that the plugin is initialized with the latest information.
-  nsIDocument* doc = thisContent->GetCurrentDoc();
-  if (!doc) {
-    return NS_ERROR_FAILURE;
-  }
-  if (!InActiveDocument(thisContent)) {
-    NS_ERROR("Shouldn't be calling "
-             "InstantiatePluginInstance in an inactive document");
-    return NS_ERROR_FAILURE;
-  }
+  // Flush layout so that the frame is created if possible and the plugin is
+  // initialized with the latest information.
   doc->FlushPendingNotifications(Flush_Layout);
-
+  
+  if (!thisContent->GetPrimaryFrame()) {
+    LOG(("OBJLC [%p]: Not instantiating plugin with no frame", this));
+    return NS_OK;
+  }
+  
   nsresult rv = NS_ERROR_FAILURE;
   nsRefPtr<nsPluginHost> pluginHost =
     already_AddRefed<nsPluginHost>(nsPluginHost::GetInst());
@@ -881,7 +868,7 @@ NS_IMETHODIMP
 nsObjectLoadingContent::OnDataAvailable(nsIRequest *aRequest,
                                         nsISupports *aContext,
                                         nsIInputStream *aInputStream,
-                                        uint32_t aOffset, uint32_t aCount)
+                                        uint64_t aOffset, uint32_t aCount)
 {
   NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(), NS_ERROR_NOT_AVAILABLE);
 
@@ -957,7 +944,7 @@ nsObjectLoadingContent::HasNewFrame(nsIObjectFrame* aFrame)
 
     // Set up new frame to draw.
     objFrame->FixupWindow(objFrame->GetContentRectRelativeToSelf().Size());
-    objFrame->Invalidate(objFrame->GetContentRectRelativeToSelf());
+    objFrame->InvalidateFrame();
   }
   return NS_OK;
 }
@@ -1101,8 +1088,8 @@ nsObjectLoadingContent::CheckLoadPolicy(int16_t *aContentPolicy)
                                           nsContentUtils::GetSecurityManager());
   NS_ENSURE_SUCCESS(rv, false);
   if (NS_CP_REJECTED(*aContentPolicy)) {
-    nsCAutoString uri;
-    nsCAutoString baseUri;
+    nsAutoCString uri;
+    nsAutoCString baseUri;
     mURI->GetSpec(uri);
     mURI->GetSpec(baseUri);
     LOG(("OBJLC [%p]: Content policy denied load of %s (base %s)",
@@ -1175,7 +1162,7 @@ nsObjectLoadingContent::UpdateObjectParameters()
   LOG(("OBJLC [%p]: Updating object parameters", this));
 
   nsresult rv;
-  nsCAutoString newMime;
+  nsAutoCString newMime;
   nsCOMPtr<nsIURI> newURI;
   nsCOMPtr<nsIURI> newBaseURI;
   ObjectType newType;
@@ -1379,7 +1366,7 @@ nsObjectLoadingContent::UpdateObjectParameters()
         // Set the type we'll use for dispatch on the channel.  Otherwise we could
         // end up trying to dispatch to a nsFrameLoader, which will complain that
         // it couldn't find a way to handle application/octet-stream
-        nsCAutoString typeHint, dummy;
+        nsAutoCString typeHint, dummy;
         NS_ParseContentType(newMime, typeHint, dummy);
         if (!typeHint.IsEmpty()) {
           mChannel->SetContentType(typeHint);
@@ -1729,6 +1716,14 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
         oldType = mType;
         oldState = ObjectState();
 
+        if (!thisContent->GetPrimaryFrame()) {
+          // We're un-rendered, and can't instantiate a plugin. HasNewFrame will
+          // re-start us when we can proceed.
+          LOG(("OBJLC [%p]: Aborting load - plugin-type, but no frame", this));
+          CloseChannel();
+          break;
+        }
+        
         rv = pluginHost->NewEmbeddedPluginStreamListener(mURI, this, nullptr,
                                                          getter_AddRefs(mFinalListener));
         if (NS_SUCCEEDED(rv)) {
@@ -2154,9 +2149,9 @@ nsObjectLoadingContent::PluginCrashed(nsIPluginTag* aPluginTag,
 
   // Note that aPluginTag in invalidated after we're called, so copy 
   // out any data we need now.
-  nsCAutoString pluginName;
+  nsAutoCString pluginName;
   aPluginTag->GetName(pluginName);
-  nsCAutoString pluginFilename;
+  nsAutoCString pluginFilename;
   aPluginTag->GetFilename(pluginFilename);
 
   nsCOMPtr<nsIRunnable> ev =
@@ -2273,9 +2268,9 @@ nsObjectLoadingContent::LoadFallback(FallbackType aType, bool aNotify) {
   do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
   NS_ASSERTION(thisContent, "must be a content");
 
-  if (!thisContent->IsHTML()) {
-    // Don't let custom fallback handlers run outside HTML
-    LOG(("OBJLC [%p]: Non-HTML content, forcing eFallbackAlternate", this));
+  if (!thisContent->IsHTML() || mContentType.IsEmpty()) {
+    // Don't let custom fallback handlers run outside HTML, tags without a
+    // determined type should always just be alternate content
     aType = eFallbackAlternate;
   }
 
@@ -2520,12 +2515,22 @@ nsObjectLoadingContent::ShouldPlay(FallbackType &aReason)
     return true;
   }
 
+  // set the fallback reason
   aReason = eFallbackClickToPlay;
+  // (if it's click-to-play, it might be because of the blocklist)
+  uint32_t state;
+  nsresult rv = pluginHost->GetBlocklistStateForType(mContentType.get(), &state);
+  NS_ENSURE_SUCCESS(rv, false);
+  if (state == nsIBlocklistService::STATE_VULNERABLE_UPDATE_AVAILABLE) {
+    aReason = eFallbackVulnerableUpdatable;
+  }
+  else if (state == nsIBlocklistService::STATE_VULNERABLE_NO_UPDATE) {
+    aReason = eFallbackVulnerableNoUpdate;
+  }
 
   // If plugin type is click-to-play and we have not been explicitly clicked.
   // check if permissions lets this page bypass - (e.g. user selected 'Always
   // play plugins on this page')
-  nsresult rv = NS_ERROR_UNEXPECTED;
 
   nsCOMPtr<nsIContent> thisContent = do_QueryInterface(static_cast<nsIObjectLoadingContent*>(this));
   MOZ_ASSERT(thisContent);
@@ -2559,20 +2564,6 @@ nsObjectLoadingContent::ShouldPlay(FallbackType &aReason)
                                                         &permission);
     NS_ENSURE_SUCCESS(rv, false);
     allowPerm = permission == nsIPermissionManager::ALLOW_ACTION;
-  }
-
-  uint32_t state;
-  rv = pluginHost->GetBlocklistStateForType(mContentType.get(), &state);
-  NS_ENSURE_SUCCESS(rv, false);
-
-  // Always c2p vulnerable plugins, regardless of permissions
-  if (state == nsIBlocklistService::STATE_VULNERABLE_UPDATE_AVAILABLE) {
-    aReason = eFallbackVulnerableUpdatable;
-    return false;
-  }
-  if (state == nsIBlocklistService::STATE_VULNERABLE_NO_UPDATE) {
-    aReason = eFallbackVulnerableNoUpdate;
-    return false;
   }
 
   return allowPerm;

@@ -162,6 +162,7 @@ richlistitem[type="download"][state="1"]:hover {
 
 /*** Status and progress indicator ***/
 
+#downloads-button,
 #downloads-indicator {
   width: 35px;
 }
@@ -206,6 +207,17 @@ richlistitem[type="download"][state="1"]:hover {
                                     14, 34, 34, 14);
 }
 
+@media (min-resolution: 2dppx) {
+  #downloads-indicator-icon:not(:-moz-lwtheme-brighttext) {
+    background-image: -moz-image-rect(url("chrome://browser/skin/Toolbar@2x.png"), 0, 280, 40, 240);
+    background-size: 20px;
+  }
+
+  #downloads-indicator:not([counter]) #downloads-indicator-counter {
+    background-image: -moz-image-rect(url("chrome://browser/skin/Toolbar@2x.png"), 0, 280, 40, 240);
+  }
+}
+
 /*** Event notification ***/
 
 #downloads-indicator-notification {
@@ -240,7 +252,7 @@ richlistitem[type="download"][state="1"]:hover {
 
 #downloads-indicator-counter {
   height: 10px;
-  margin: 0;
+  margin: -3px 0 0;
   color: hsl(0,0%,30%);
   text-shadow: 0 1px 0 hsla(0,0%,100%,.5);
   font-size: 10px;
@@ -250,7 +262,7 @@ richlistitem[type="download"][state="1"]:hover {
 
 #downloads-indicator-progress {
   width: 16px;
-  height: 6px;
+  height: 4px;
   min-width: 0;
   min-height: 0;
   margin-top: 1px;

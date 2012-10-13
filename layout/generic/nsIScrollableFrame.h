@@ -52,6 +52,12 @@ public:
    */
   virtual uint32_t GetScrollbarVisibility() const = 0;
   /**
+   * Returns the directions in which scrolling is perceived to be allowed.
+   * A direction is perceived to be allowed if there is a visible scrollbar
+   * for that direction or if the scroll range is at least one device pixel.
+   */
+  uint32_t GetPerceivedScrollingDirections() const;
+  /**
    * Return the actual sizes of all possible scrollbars. Returns 0 for scrollbar
    * positions that don't have a scrollbar or where the scrollbar is not visible.
    * Do not call this while this frame's descendants are being reflowed, it won't be
@@ -204,6 +210,11 @@ public:
    * expectation that scrolling is going to happen.
    */
   virtual bool IsScrollingActive() = 0;
+  /**
+   * Call this when the layer(s) induced by active scrolling are being
+   * completely redrawn.
+   */
+  virtual void ResetScrollPositionForLayerPixelAlignment() = 0;
 };
 
 #endif

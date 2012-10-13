@@ -34,6 +34,12 @@ typedef Handle<ParallelArrayObject *> HandleParallelArrayObject;
 // IndexInfo in how to convert between scalar offsets into the backing array
 // and a vector of indices.
 //
+// ParallelArray objects are always dense. That is, all holes are eagerly
+// filled in with undefined instead of being JS_ARRAY_HOLE. This results in a
+// break from the behavior of normal JavaScript arrays: if a ParallelArray p
+// is missing an indexed property i, p[i] is _always_ undefined and will never
+// walk up the prototype chain in search of i.
+//
 // Except for the comprehension form, all operations (e.g. map, filter,
 // reduce) operate on the outermost dimension only. That is, those operations
 // only operate on the "rows" of the array. "Element" is used in context of
@@ -113,6 +119,10 @@ class ParallelArrayObject : public JSObject {
         inline bool initialize(JSContext *cx, HandleParallelArrayObject source,
                                uint32_t space);
 
+        // Bump the index by 1, wrapping over if necessary. Returns false when
+        // the increment would go out of bounds.
+        inline bool bump();
+
         // Get the scalar length according to the dimensions vector, i.e. the
         // product of the dimensions vector.
         inline uint32_t scalarLengthOfDimensions();
@@ -123,7 +133,8 @@ class ParallelArrayObject : public JSObject {
         // Set the index vector according to a scalar index.
         inline bool fromScalar(uint32_t index);
 
-        bool isInitialized();
+        inline bool inBounds() const;
+        bool isInitialized() const;
     };
 
     static JSObject *initClass(JSContext *cx, JSObject *obj);
@@ -138,22 +149,33 @@ class ParallelArrayObject : public JSObject {
     inline uint32_t bufferOffset();
     inline uint32_t outermostDimension();
     inline bool isOneDimensional();
-    inline bool inOutermostDimensionRange(uint32_t index);
-    inline bool inOutermostDimensionRange(JSContext *cx, HandleId id);
     inline bool getDimensions(JSContext *cx, IndexVector &dims);
 
-    // Specialized for one dimensional arrays. Use this if possible.
-    bool getElementFromOnlyDimension(JSContext *cx, uint32_t index, MutableHandleValue vp);
-
-    // The general case; works for arrays of any dimensionality.
+    // The general case; requires an initialized IndexInfo.
     bool getParallelArrayElement(JSContext *cx, IndexInfo &iv, MutableHandleValue vp);
 
-    // Convenience function for getting an element from the outermost
-    // dimension in the general case. This creates a temporary IndexInfo of
-    // length 1 with the 1st index set to the index parameter.
+    // Get the element at index in the outermost dimension. This is a
+    // convenience function designed to require an IndexInfo only if it is
+    // actually needed.
+    //
+    // If the parallel array is multidimensional, then the caller must provide
+    // an IndexInfo initialized to length 1, which is used to access the
+    // array. This argument is modified. If the parallel array is
+    // one-dimensional, then maybeIV may be null.
+    bool getParallelArrayElement(JSContext *cx, uint32_t index, IndexInfo *maybeIV,
+                                 MutableHandleValue vp);
+
+    // Get the element at index in the outermost dimension. This is a
+    // convenience function that initializes a temporary
+    // IndexInfo if the parallel array is multidimensional.
     bool getParallelArrayElement(JSContext *cx, uint32_t index, MutableHandleValue vp);
 
     bool toStringBuffer(JSContext *cx, bool useLocale, StringBuffer &sb);
+
+    // Note that this is not an object op but called directly from the
+    // iteration code, as we enumerate prototypes ourselves.
+    static bool enumerate(JSContext *cx, HandleObject obj, unsigned flags,
+                          AutoIdVector *props);
 
   private:
     enum {
@@ -304,9 +326,6 @@ class ParallelArrayObject : public JSObject {
     static inline bool DenseArrayToIndexVector(JSContext *cx, HandleObject obj,
                                                IndexVector &indices);
 
-    bool toStringBufferImpl(JSContext *cx, IndexInfo &iv, bool useLocale,
-                            HandleObject buffer, StringBuffer &sb);
-
     static bool create(JSContext *cx, MutableHandleValue vp);
     static bool create(JSContext *cx, HandleObject buffer, MutableHandleValue vp);
     static bool create(JSContext *cx, HandleObject buffer, uint32_t offset,
@@ -327,7 +346,7 @@ class ParallelArrayObject : public JSObject {
     static bool toLocaleString(JSContext *cx, CallArgs args);
     static bool toSource(JSContext *cx, CallArgs args);
 
-    static void mark(JSTracer *trc, JSObject *obj);
+    static void mark(JSTracer *trc, RawObject obj);
     static JSBool lookupGeneric(JSContext *cx, HandleObject obj, HandleId id,
                                 MutableHandleObject objp, MutableHandleShape propp);
     static JSBool lookupProperty(JSContext *cx, HandleObject obj, HandlePropertyName name,
@@ -361,6 +380,8 @@ class ParallelArrayObject : public JSObject {
                               MutableHandleValue vp, JSBool strict);
     static JSBool setElement(JSContext *cx, HandleObject obj, uint32_t index,
                              MutableHandleValue vp, JSBool strict);
+    static JSBool getElementIfPresent(JSContext *cx, HandleObject obj, HandleObject receiver,
+                                      uint32_t index, MutableHandleValue vp, bool *present);
     static JSBool setSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid,
                              MutableHandleValue vp, JSBool strict);
     static JSBool getGenericAttributes(JSContext *cx, HandleObject obj, HandleId id,
@@ -387,13 +408,11 @@ class ParallelArrayObject : public JSObject {
                                 MutableHandleValue rval, JSBool strict);
     static JSBool deleteSpecial(JSContext *cx, HandleObject obj, HandleSpecialId sid,
                                 MutableHandleValue rval, JSBool strict);
-    static JSBool enumerate(JSContext *cx, HandleObject obj, JSIterateOp enum_op,
-                            Value *statep, jsid *idp);
 };
 
 } // namespace js
 
 extern JSObject *
-js_InitParallelArrayClass(JSContext *cx, JSObject *obj);
+js_InitParallelArrayClass(JSContext *cx, js::HandleObject obj);
 
 #endif // ParallelArray_h__

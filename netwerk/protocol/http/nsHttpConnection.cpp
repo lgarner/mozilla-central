@@ -18,7 +18,6 @@
 #include "netCore.h"
 #include "nsNetCID.h"
 #include "nsProxyRelease.h"
-#include "prmem.h"
 #include "nsPreloadedStream.h"
 #include "ASpdySession.h"
 #include "mozilla/Telemetry.h"
@@ -260,7 +259,7 @@ nsHttpConnection::EnsureNPNComplete()
 
     nsCOMPtr<nsISupports> securityInfo;
     nsCOMPtr<nsISSLSocketControl> ssl;
-    nsCAutoString negotiatedNPN;
+    nsAutoCString negotiatedNPN;
     
     rv = mSocketTransport->GetSecurityInfo(getter_AddRefs(securityInfo));
     if (NS_FAILED(rv))
@@ -488,6 +487,8 @@ nsHttpConnection::Close(nsresult reason)
             mSocketTransport->SetSecurityCallbacks(nullptr);
             mSocketTransport->SetEventSink(nullptr, nullptr);
             mSocketTransport->Close(reason);
+            if (mSocketOut)
+                mSocketOut->AsyncWait(nullptr, 0, 0, nullptr);
         }
         mKeepAlive = false;
     }
@@ -1420,7 +1421,7 @@ nsHttpConnection::SetupProxyConnect()
     NS_ABORT_IF_FALSE(!mUsingSpdyVersion,
                       "SPDY NPN Complete while using proxy connect stream");
 
-    nsCAutoString buf;
+    nsAutoCString buf;
     nsresult rv = nsHttpHandler::GenerateHostPort(
             nsDependentCString(mConnInfo->Host()), mConnInfo->Port(), buf);
     if (NS_FAILED(rv))
@@ -1432,9 +1433,6 @@ nsHttpConnection::SetupProxyConnect()
     request.SetVersion(gHttpHandler->HttpVersion());
     request.SetRequestURI(buf);
     request.SetHeader(nsHttp::User_Agent, gHttpHandler->UserAgent());
-
-    // send this header for backwards compatibility.
-    request.SetHeader(nsHttp::Proxy_Connection, NS_LITERAL_CSTRING("keep-alive"));
 
     val = mTransaction->RequestHead()->PeekHeader(nsHttp::Host);
     if (val) {

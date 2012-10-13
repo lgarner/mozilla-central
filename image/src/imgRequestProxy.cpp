@@ -83,11 +83,8 @@ imgRequestProxy::~imgRequestProxy()
          channel, if still downloading data, from being canceled if 'this' is
          the last observer.  This allows the image to continue to download and
          be cached even if no one is using it currently.
-         
-         Passing false to aNotify means that we will still get
-         OnStopRequest, if needed.
        */
-      mOwner->RemoveProxy(this, NS_OK, false);
+      mOwner->RemoveProxy(this, NS_OK);
     }
   }
 }
@@ -160,9 +157,7 @@ nsresult imgRequestProxy::ChangeOwner(imgRequest *aNewOwner)
     wasDecoded = true;
   }
 
-  // Passing false to aNotify means that mListener will still get
-  // OnStopRequest, if needed.
-  mOwner->RemoveProxy(this, NS_IMAGELIB_CHANGING_OWNER, false);
+  mOwner->RemoveProxy(this, NS_IMAGELIB_CHANGING_OWNER);
 
   // If we had animation requests, restore them here. Note that we
   // do this *after* RemoveProxy, which clears out animation consumers
@@ -177,7 +172,7 @@ nsresult imgRequestProxy::ChangeOwner(imgRequest *aNewOwner)
   // If we were decoded, or if we'd previously requested a decode, request a
   // decode on the new image
   if (wasDecoded || mDecodeRequested)
-    mOwner->RequestDecode();
+    mOwner->StartDecoding();
 
   return NS_OK;
 }
@@ -256,10 +251,9 @@ NS_IMETHODIMP imgRequestProxy::Cancel(nsresult status)
 void
 imgRequestProxy::DoCancel(nsresult status)
 {
-  // Passing false to aNotify means that mListener will still get
-  // OnStopRequest, if needed.
-  if (mOwner)
-    mOwner->RemoveProxy(this, status, false);
+  if (mOwner) {
+    mOwner->RemoveProxy(this, status);
+  }
 
   NullOutListener();
 }
@@ -284,10 +278,9 @@ NS_IMETHODIMP imgRequestProxy::CancelAndForgetObserver(nsresult aStatus)
   bool oldIsInLoadGroup = mIsInLoadGroup;
   mIsInLoadGroup = false;
 
-  // Passing false to aNotify means that mListener will still get
-  // OnStopRequest, if needed.
-  if (mOwner)
-    mOwner->RemoveProxy(this, aStatus, false);
+  if (mOwner) {
+    mOwner->RemoveProxy(this, aStatus);
+  }
 
   mIsInLoadGroup = oldIsInLoadGroup;
 
@@ -300,6 +293,20 @@ NS_IMETHODIMP imgRequestProxy::CancelAndForgetObserver(nsresult aStatus)
   NullOutListener();
 
   return NS_OK;
+}
+
+/* void startDecode (); */
+NS_IMETHODIMP
+imgRequestProxy::StartDecoding()
+{
+  if (!mOwner)
+    return NS_ERROR_FAILURE;
+
+  // Flag this, so we know to transfer the request if our owner changes
+  mDecodeRequested = true;
+
+  // Forward the request
+  return mOwner->StartDecoding();
 }
 
 /* void requestDecode (); */
@@ -315,6 +322,7 @@ imgRequestProxy::RequestDecode()
   // Forward the request
   return mOwner->RequestDecode();
 }
+
 
 /* void lockImage (); */
 NS_IMETHODIMP
@@ -715,7 +723,7 @@ void imgRequestProxy::OnImageIsAnimated()
 void imgRequestProxy::OnStartRequest()
 {
 #ifdef PR_LOGGING
-  nsCAutoString name;
+  nsAutoCString name;
   GetName(name);
   LOG_FUNC_WITH_PARAM(gImgLog, "imgRequestProxy::OnStartRequest", "name", name.get());
 #endif
@@ -732,7 +740,7 @@ void imgRequestProxy::OnStartRequest()
 void imgRequestProxy::OnStopRequest(bool lastPart)
 {
 #ifdef PR_LOGGING
-  nsCAutoString name;
+  nsAutoCString name;
   GetName(name);
   LOG_FUNC_WITH_PARAM(gImgLog, "imgRequestProxy::OnStopRequest", "name", name.get());
 #endif
@@ -775,7 +783,7 @@ void imgRequestProxy::OnStopRequest(bool lastPart)
 void imgRequestProxy::BlockOnload()
 {
 #ifdef PR_LOGGING
-  nsCAutoString name;
+  nsAutoCString name;
   GetName(name);
   LOG_FUNC_WITH_PARAM(gImgLog, "imgRequestProxy::BlockOnload", "name", name.get());
 #endif
@@ -789,7 +797,7 @@ void imgRequestProxy::BlockOnload()
 void imgRequestProxy::UnblockOnload()
 {
 #ifdef PR_LOGGING
-  nsCAutoString name;
+  nsAutoCString name;
   GetName(name);
   LOG_FUNC_WITH_PARAM(gImgLog, "imgRequestProxy::UnblockOnload", "name", name.get());
 #endif

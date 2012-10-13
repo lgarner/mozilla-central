@@ -11,6 +11,7 @@
 #include "WrapperFactory.h"
 #include "xpcprivate.h"
 #include "XPCQuickStubs.h"
+#include "nsIXPConnect.h"
 
 namespace mozilla {
 namespace dom {
@@ -591,7 +592,10 @@ bool
 GetPropertyOnPrototype(JSContext* cx, JSObject* proxy, jsid id, bool* found,
                        JS::Value* vp)
 {
-  JSObject* proto = js::GetObjectProto(proxy);
+  JSObject* proto;
+  if (!js::GetObjectProto(cx, proxy, &proto)) {
+    return false;
+  }
   if (!proto) {
     *found = false;
     return true;
@@ -624,6 +628,40 @@ HasPropertyOnPrototype(JSContext* cx, JSObject* proxy, DOMProxyHandler* handler,
   bool found;
   // We ignore an error from GetPropertyOnPrototype.
   return !GetPropertyOnPrototype(cx, proxy, id, &found, NULL) || found;
+}
+
+bool
+WrapCallbackInterface(JSContext *cx, JSObject *scope, nsISupports* callback,
+                      JS::Value* vp)
+{
+  nsCOMPtr<nsIXPConnectWrappedJS> wrappedJS = do_QueryInterface(callback);
+  MOZ_ASSERT(wrappedJS, "How can we not have an XPCWrappedJS here?");
+  JSObject* obj;
+  DebugOnly<nsresult> rv = wrappedJS->GetJSObject(&obj);
+  MOZ_ASSERT(NS_SUCCEEDED(rv) && obj, "What are we wrapping?");
+  *vp = JS::ObjectValue(*obj);
+  return JS_WrapValue(cx, vp);
+}
+
+JSObject*
+GetXrayExpandoChain(JSObject* obj)
+{
+  MOZ_ASSERT(IsDOMObject(obj));
+  JS::Value v = IsDOMProxy(obj) ? js::GetProxyExtra(obj, JSPROXYSLOT_XRAY_EXPANDO)
+                                : js::GetReservedSlot(obj, DOM_XRAY_EXPANDO_SLOT);
+  return v.isUndefined() ? nullptr : &v.toObject();
+}
+
+void
+SetXrayExpandoChain(JSObject* obj, JSObject* chain)
+{
+  MOZ_ASSERT(IsDOMObject(obj));
+  JS::Value v = chain ? JS::ObjectValue(*chain) : JSVAL_VOID;
+  if (IsDOMProxy(obj)) {
+    js::SetProxyExtra(obj, JSPROXYSLOT_XRAY_EXPANDO, v);
+  } else {
+    js::SetReservedSlot(obj, DOM_XRAY_EXPANDO_SLOT, v);
+  }
 }
 
 } // namespace dom

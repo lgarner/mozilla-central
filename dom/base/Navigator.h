@@ -15,7 +15,11 @@
 #include "nsINavigatorBattery.h"
 #include "nsIDOMNavigatorSms.h"
 #include "nsIDOMNavigatorNetwork.h"
+#ifdef MOZ_B2G_RIL
+#include "nsINavigatorMobileConnection.h"
+#endif
 #include "nsAutoPtr.h"
+#include "nsIDOMNavigatorTime.h"
 #include "nsWeakReference.h"
 #include "DeviceStorage.h"
 
@@ -66,12 +70,18 @@ class SmsManager;
 
 namespace network {
 class Connection;
+#ifdef MOZ_B2G_RIL
 class MobileConnection;
+#endif
 } // namespace Connection;
 
 namespace power {
 class PowerManager;
 } // namespace power
+
+namespace time {
+class TimeManager;
+} // namespace time
 
 class Navigator : public nsIDOMNavigator
                 , public nsIDOMClientInformation
@@ -81,12 +91,16 @@ class Navigator : public nsIDOMNavigator
                 , public nsINavigatorBattery
                 , public nsIDOMMozNavigatorSms
 #ifdef MOZ_MEDIA_NAVIGATOR
+                , public nsINavigatorUserMedia
                 , public nsIDOMNavigatorUserMedia
 #endif
 #ifdef MOZ_B2G_RIL
                 , public nsIDOMNavigatorTelephony
 #endif
                 , public nsIDOMMozNavigatorNetwork
+#ifdef MOZ_B2G_RIL
+                , public nsIMozNavigatorMobileConnection
+#endif
 #ifdef MOZ_B2G_BT
                 , public nsIDOMNavigatorBluetooth
 #endif
@@ -96,6 +110,7 @@ class Navigator : public nsIDOMNavigator
 
                 , public nsIDOMNavigatorCamera
                 , public nsIDOMNavigatorSystemMessages
+                , public nsIDOMMozNavigatorTime
 {
 public:
   Navigator(nsPIDOMWindow *aInnerWindow);
@@ -110,12 +125,16 @@ public:
   NS_DECL_NSINAVIGATORBATTERY
   NS_DECL_NSIDOMMOZNAVIGATORSMS
 #ifdef MOZ_MEDIA_NAVIGATOR
+  NS_DECL_NSINAVIGATORUSERMEDIA
   NS_DECL_NSIDOMNAVIGATORUSERMEDIA
 #endif
 #ifdef MOZ_B2G_RIL
   NS_DECL_NSIDOMNAVIGATORTELEPHONY
 #endif
   NS_DECL_NSIDOMMOZNAVIGATORNETWORK
+#ifdef MOZ_B2G_RIL
+  NS_DECL_NSIMOZNAVIGATORMOBILECONNECTION
+#endif
 
 #ifdef MOZ_B2G_BT
   NS_DECL_NSIDOMNAVIGATORBLUETOOTH
@@ -124,6 +143,7 @@ public:
   NS_DECL_NSIDOMNAVIGATORNFC
 #endif
   NS_DECL_NSIDOMNAVIGATORSYSTEMMESSAGES
+  NS_DECL_NSIDOMMOZNAVIGATORTIME
 
   static void Init();
 
@@ -153,7 +173,7 @@ public:
   NS_DECL_NSIDOMNAVIGATORCAMERA
 
 private:
-  bool IsSmsSupported() const;
+  bool CheckPermission(const char* type);
 
   nsRefPtr<nsMimeTypeArray> mMimeTypes;
   nsRefPtr<nsPluginArray> mPlugins;
@@ -167,7 +187,9 @@ private:
   nsCOMPtr<nsIDOMMozVoicemail> mVoicemail;
 #endif
   nsRefPtr<network::Connection> mConnection;
+#ifdef MOZ_B2G_RIL
   nsRefPtr<network::MobileConnection> mMobileConnection;
+#endif
 #ifdef MOZ_B2G_BT
   nsCOMPtr<nsIDOMBluetoothManager> mBluetooth;
 #endif
@@ -177,6 +199,7 @@ private:
   nsRefPtr<nsDOMCameraManager> mCameraManager;
   nsCOMPtr<nsIDOMNavigatorSystemMessages> mMessagesManager;
   nsTArray<nsRefPtr<nsDOMDeviceStorage> > mDeviceStorageStores;
+  nsRefPtr<time::TimeManager> mTimeManager;
   nsWeakPtr mWindow;
 };
 

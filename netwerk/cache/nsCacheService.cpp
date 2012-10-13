@@ -37,9 +37,14 @@
 #include "mozilla/Services.h"
 #include "nsITimer.h"
 
-#include "mozilla/FunctionTimer.h"
 
 #include "mozilla/net/NeckoCommon.h"
+
+#ifdef XP_MACOSX
+// for chflags()
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 using namespace mozilla;
 
@@ -168,8 +173,9 @@ public:
                                       uint32_t currentSize,
                                       bool shouldUseOldMaxSmartSize);
 
-private:
     bool                    PermittedToSmartSize(nsIPrefBranch*, bool firstRun);
+
+private:
     bool                    mHaveProfile;
     
     bool                    mDiskCacheEnabled;
@@ -726,6 +732,16 @@ nsCacheProfilePrefObserver::ReadPrefs(nsIPrefBranch* branch)
             mDiskCacheParentDirectory = do_QueryInterface(directory, &rv);
     }
     if (mDiskCacheParentDirectory) {
+#ifdef XP_MACOSX
+        // ensure that this directory is not indexed by Spotlight
+        // (bug 718910). it may already exist, so we "just do it."
+        nsAutoCString cachePD;
+        if (NS_SUCCEEDED(mDiskCacheParentDirectory->GetNativePath(cachePD))) {
+            if (chflags(cachePD.get(), UF_HIDDEN)) {
+                NS_WARNING("Failed to set CacheParentDirectory to HIDDEN.");
+            }
+        }
+#endif 
         bool firstSmartSizeRun;
         rv = branch->GetBoolPref(DISK_CACHE_SMART_SIZE_FIRST_RUN_PREF, 
                                  &firstSmartSizeRun); 
@@ -925,10 +941,10 @@ nsCacheProfilePrefObserver::MemoryCacheCapacity()
         bytes = 32 * 1024 * 1024;
 
     // Conversion from unsigned int64 to double doesn't work on all platforms.
-    // We need to truncate the value at LL_MAXINT to make sure we don't
+    // We need to truncate the value at INT64_MAX to make sure we don't
     // overflow.
-    if (LL_CMP(bytes, >, LL_MAXINT))
-        bytes = LL_MAXINT;
+    if (bytes > INT64_MAX)
+        bytes = INT64_MAX;
 
     uint64_t kbytes;
     LL_SHR(kbytes, bytes, 10);
@@ -991,30 +1007,6 @@ protected:
 
 private:
     nsCacheRequest *mRequest;
-};
-
-/******************************************************************************
- * nsNotifyDoomListener
- *****************************************************************************/
-
-class nsNotifyDoomListener : public nsRunnable {
-public:
-    nsNotifyDoomListener(nsICacheListener *listener,
-                         nsresult status)
-        : mListener(listener)      // transfers reference
-        , mStatus(status)
-    {}
-
-    NS_IMETHOD Run()
-    {
-        mListener->OnCacheEntryDoomed(mStatus);
-        NS_RELEASE(mListener);
-        return NS_OK;
-    }
-
-private:
-    nsICacheListener *mListener;
-    nsresult          mStatus;
 };
 
 /******************************************************************************
@@ -1133,8 +1125,6 @@ nsCacheService::~nsCacheService()
 nsresult
 nsCacheService::Init()
 {
-    NS_TIME_FUNCTION;
-
     // Thie method must be called on the main thread because mCacheIOThread must
     // only be modified on the main thread.
     if (!NS_IsMainThread()) {
@@ -1606,28 +1596,27 @@ public:
         if (!nsCacheService::gService || !nsCacheService::gService->mObserver)
             return NS_ERROR_NOT_AVAILABLE;
 
-        nsDisableOldMaxSmartSizePrefEvent::DisableOldMaxSmartSizePref(true);
-        return NS_OK;
-    }
-
-    static void DisableOldMaxSmartSizePref(bool async)
-    {
         nsCOMPtr<nsIPrefBranch> branch = do_GetService(NS_PREFSERVICE_CONTRACTID);
         if (!branch) {
-            return;
+            return NS_ERROR_NOT_AVAILABLE;
         }
 
         nsresult rv = branch->SetBoolPref(DISK_CACHE_USE_OLD_MAX_SMART_SIZE_PREF, false);
         if (NS_FAILED(rv)) {
             NS_WARNING("Failed to disable old max smart size");
-            return;
+            return rv;
         }
 
-        if (async) {
-            nsCacheService::SetDiskSmartSize();
-        } else {
-            nsCacheService::gService->SetDiskSmartSize_Locked();
+        nsCacheService::SetDiskSmartSize();
+
+        if (nsCacheService::gService->mObserver->PermittedToSmartSize(branch, false)) {
+            rv = branch->SetIntPref(DISK_CACHE_CAPACITY_PREF, MAX_CACHE_SIZE);
+            if (NS_FAILED(rv)) {
+                NS_WARNING("Failed to set cache capacity pref");
+            }
         }
+
+        return NS_OK;
     }
 };
 
@@ -1641,11 +1630,9 @@ nsCacheService::MarkStartingFresh()
 
     gService->mObserver->SetUseNewMaxSmartSize(true);
 
-    if (NS_IsMainThread()) {
-        nsDisableOldMaxSmartSizePrefEvent::DisableOldMaxSmartSizePref(false);
-    } else {
-        NS_DispatchToMainThread(new nsDisableOldMaxSmartSizePrefEvent());
-    }
+    // We always dispatch an event here because we don't want to deal with lock
+    // reentrance issues.
+    NS_DispatchToMainThread(new nsDisableOldMaxSmartSizePrefEvent());
 }
 
 nsresult
@@ -1707,7 +1694,7 @@ nsCacheService::CreateCustomOfflineDevice(nsIFile *aProfileDir,
     NS_ENSURE_ARG(aProfileDir);
 
 #if defined(PR_LOGGING)
-    nsCAutoString profilePath;
+    nsAutoCString profilePath;
     aProfileDir->GetNativePath(profilePath);
     CACHE_LOG_ALWAYS(("Creating custom offline device, %s, %d",
                       profilePath.BeginReading(), aQuota));
@@ -1789,7 +1776,7 @@ nsCacheService::CreateRequest(nsCacheSession *   session,
 {
     NS_ASSERTION(request, "CreateRequest: request is null");
      
-    nsCAutoString key(*session->ClientID());
+    nsAutoCString key(*session->ClientID());
     key.Append(':');
     key.Append(clientKey);
 
@@ -2871,27 +2858,35 @@ nsCacheService::ClearDoomList()
 void
 nsCacheService::ClearActiveEntries()
 {
-    mActiveEntries.VisitEntries(DeactivateAndClearEntry, nullptr);
+    nsVoidArray entries;
+
+    // We can't detach descriptors while enumerating hash table since calling
+    // entry->DetachDescriptors() could involve dooming the entry which tries
+    // to remove the entry from the hash table.
+    mActiveEntries.VisitEntries(GetActiveEntries, &entries);
+
+    for (int32_t i = 0 ; i < entries.Count() ; i++) {
+        nsCacheEntry * entry = static_cast<nsCacheEntry *>(entries.ElementAt(i));
+        NS_ASSERTION(entry, "### active entry = nullptr!");
+        // only called from Shutdown() so we don't worry about pending requests
+        gService->ClearPendingRequests(entry);
+        entry->DetachDescriptors();
+        gService->DeactivateEntry(entry);
+    }
+
     mActiveEntries.Shutdown();
 }
 
 
 PLDHashOperator
-nsCacheService::DeactivateAndClearEntry(PLDHashTable *    table,
-                                        PLDHashEntryHdr * hdr,
-                                        uint32_t          number,
-                                        void *            arg)
+nsCacheService::GetActiveEntries(PLDHashTable *    table,
+                                 PLDHashEntryHdr * hdr,
+                                 uint32_t          number,
+                                 void *            arg)
 {
-    nsCacheEntry * entry = ((nsCacheEntryHashTableEntry *)hdr)->cacheEntry;
-    NS_ASSERTION(entry, "### active entry = nullptr!");
-    // only called from Shutdown() so we don't worry about pending requests
-    gService->ClearPendingRequests(entry);
-    entry->DetachDescriptors();
-    
-    entry->MarkInactive();  // so we don't call Remove() while we're enumerating
-    gService->DeactivateEntry(entry);
-    
-    return PL_DHASH_REMOVE; // and continue enumerating
+    static_cast<nsVoidArray *>(arg)->AppendElement(
+        ((nsCacheEntryHashTableEntry *)hdr)->cacheEntry);
+    return PL_DHASH_NEXT;
 }
 
 struct ActiveEntryArgs

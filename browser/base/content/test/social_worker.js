@@ -11,6 +11,10 @@ onconnect = function(e) {
     switch (topic) {
       case "test-init":
         testPort = port;
+        port.postMessage({topic: "test-init-done"});
+        break;
+      case "test-logout":
+        apiPort.postMessage({topic: "social.user-profile", data: {}});
         break;
       case "sidebar-message":
         sidebarPort = port;
@@ -46,7 +50,10 @@ onconnect = function(e) {
         testPort.postMessage({topic:"got-social-panel-visibility", result: event.data.result });
         break;
       case "test-chatbox-open":
-        sidebarPort.postMessage( event.data );
+        sidebarPort.postMessage(event.data);
+        break;
+      case "chatbox-opened":
+        testPort.postMessage(event.data);
         break;
       case "chatbox-message":
         testPort.postMessage({topic:"got-chatbox-message", result: event.data.result});
@@ -63,13 +70,15 @@ onconnect = function(e) {
       case "flyout-visibility":
         testPort.postMessage({topic:"got-flyout-visibility", result: event.data.result});
         break;
+      case "test-flyout-close":
+        sidebarPort.postMessage({topic:"test-flyout-close"});
+        break;
       case "test-worker-chat":
-        apiPort.postMessage({topic: "social.request-chat", data: "https://example.com/browser/browser/base/content/test/social_chat.html" });
+        apiPort.postMessage({topic: "social.request-chat", data: event.data.data });
         break;
       case "social.initialize":
         // This is the workerAPI port, respond and set up a notification icon.
         apiPort = port;
-        port.postMessage({topic: "social.initialize-response"});
         let profile = {
           portrait: "https://example.com/portrait.jpg",
           userName: "trickster",
@@ -77,13 +86,15 @@ onconnect = function(e) {
           profileURL: "http://en.wikipedia.org/wiki/Kuma_Lisa"
         };
         port.postMessage({topic: "social.user-profile", data: profile});
+        break;
+      case "test-ambient-notification":
         let icon = {
           name: "testIcon",
-          iconURL: "chrome://branding/content/icon48.png",
+          iconURL: "chrome://browser/skin/Info.png",
           contentPanel: "https://example.com/browser/browser/base/content/test/social_panel.html",
           counter: 1
         };
-        port.postMessage({topic: "social.ambient-notification", data: icon});
+        apiPort.postMessage({topic: "social.ambient-notification", data: icon});
         break;
       case "test-isVisible":
         sidebarPort.postMessage({topic: "test-isVisible"});
@@ -106,6 +117,12 @@ onconnect = function(e) {
               unshareTooltip: "Unshare this page",
               sharedLabel: "This page has been shared",
               unsharedLabel: "This page is no longer shared",
+              unshareLabel: "You have already shared this page",
+              portraitLabel: "Your pretty face",
+              unshareConfirmLabel: "Unshare it!",
+              unshareConfirmAccessKey: "U",
+              unshareCancelLabel: "Got it!",
+              unshareCancelAccessKey: "G"
             }
           }
         });

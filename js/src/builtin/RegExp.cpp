@@ -37,21 +37,19 @@ class RegExpMatchBuilder
     }
 
     bool setIndex(int index) {
-        Rooted<PropertyName*> name(cx, cx->runtime->atomState.indexAtom);
         RootedValue value(cx, Int32Value(index));
-        return setProperty(name, value);
+        return setProperty(cx->names().index, value);
     }
 
     bool setInput(JSString *str) {
         JS_ASSERT(str);
-        Rooted<PropertyName*> name(cx, cx->runtime->atomState.inputAtom);
         RootedValue value(cx, StringValue(str));
-        return setProperty(name, value);
+        return setProperty(cx->names().input, value);
     }
 };
 
 static bool
-CreateRegExpMatchResult(JSContext *cx, JSString *input_, const jschar *chars, size_t length,
+CreateRegExpMatchResult(JSContext *cx, JSString *input_, StableCharPtr chars, size_t length,
                         MatchPairs *matchPairs, Value *rval)
 {
     RootedString input(cx, input_);
@@ -70,7 +68,7 @@ CreateRegExpMatchResult(JSContext *cx, JSString *input_, const jschar *chars, si
         return false;
 
     if (!input) {
-        input = js_NewStringCopyN(cx, chars, length);
+        input = js_NewStringCopyN(cx, chars.get(), length);
         if (!input)
             return false;
     }
@@ -104,7 +102,7 @@ CreateRegExpMatchResult(JSContext *cx, JSString *input_, const jschar *chars, si
 template <class T>
 bool
 ExecuteRegExpImpl(JSContext *cx, RegExpStatics *res, T &re, JSLinearString *input,
-                  const jschar *chars, size_t length,
+                  StableCharPtr chars, size_t length,
                   size_t *lastIndex, RegExpExecType type, Value *rval)
 {
     LifoAllocScope allocScope(&cx->tempLifoAlloc());
@@ -136,16 +134,16 @@ ExecuteRegExpImpl(JSContext *cx, RegExpStatics *res, T &re, JSLinearString *inpu
 }
 
 bool
-js::ExecuteRegExp(JSContext *cx, RegExpStatics *res, RegExpShared &shared, JSLinearString *input,
-                  const jschar *chars, size_t length,
+js::ExecuteRegExp(JSContext *cx, RegExpStatics *res, RegExpShared &shared,
+                  Handle<JSStableString*> input, StableCharPtr chars, size_t length,
                   size_t *lastIndex, RegExpExecType type, Value *rval)
 {
     return ExecuteRegExpImpl(cx, res, shared, input, chars, length, lastIndex, type, rval);
 }
 
 bool
-js::ExecuteRegExp(JSContext *cx, RegExpStatics *res, RegExpObject &reobj, JSLinearString *input,
-                  const jschar *chars, size_t length,
+js::ExecuteRegExp(JSContext *cx, RegExpStatics *res, RegExpObject &reobj,
+                  Handle<JSStableString*> input, StableCharPtr chars, size_t length,
                   size_t *lastIndex, RegExpExecType type, Value *rval)
 {
     return ExecuteRegExpImpl(cx, res, reobj, input, chars, length, lastIndex, type, rval);
@@ -244,7 +242,7 @@ CompileRegExpObject(JSContext *cx, RegExpObjectBuilder &builder, CallArgs args)
          * to executing RegExpObject::getSource on the unwrapped object.
          */
         RootedValue v(cx);
-        if (!JSObject::getProperty(cx, sourceObj, sourceObj, cx->runtime->atomState.sourceAtom, &v))
+        if (!JSObject::getProperty(cx, sourceObj, sourceObj, cx->names().source, &v))
             return false;
 
         Rooted<JSAtom*> sourceAtom(cx, &v.toString()->asAtom());
@@ -482,7 +480,7 @@ static JSPropertySpec regexp_static_props[] = {
 };
 
 JSObject *
-js_InitRegExpClass(JSContext *cx, JSObject *obj)
+js_InitRegExpClass(JSContext *cx, HandleObject obj)
 {
     JS_ASSERT(obj->isNative());
 
@@ -493,8 +491,8 @@ js_InitRegExpClass(JSContext *cx, JSObject *obj)
         return NULL;
     proto->setPrivate(NULL);
 
+    HandlePropertyName empty = cx->names().empty;
     RegExpObjectBuilder builder(cx, &proto->asRegExp());
-    Rooted<JSAtom*> empty(cx, cx->runtime->emptyString);
     if (!builder.build(empty, RegExpFlag(0)))
         return NULL;
 
@@ -502,7 +500,7 @@ js_InitRegExpClass(JSContext *cx, JSObject *obj)
         return NULL;
 
     RootedFunction ctor(cx);
-    ctor = global->createConstructor(cx, regexp_construct, CLASS_NAME(cx, RegExp), 2);
+    ctor = global->createConstructor(cx, regexp_construct, cx->names().RegExp, 2);
     if (!ctor)
         return NULL;
 
@@ -563,17 +561,12 @@ GetSharedForGreedyStar(JSContext *cx, JSAtom *source, RegExpFlag flags, RegExpGu
     return cx->compartment->regExps.getHack(cx, source, hackedSource, flags, g);
 }
 
-/*
- * ES5 15.10.6.2 (and 15.10.6.3, which calls 15.10.6.2).
- *
- * RegExp.prototype.test doesn't need to create a results array, and we use
- * |execType| to perform this optimization.
- */
-static bool
-ExecuteRegExp(JSContext *cx, RegExpExecType execType, CallArgs args)
+bool
+js::ExecuteRegExp(JSContext *cx, RegExpExecType execType, HandleObject regexp,
+                  HandleString string, MutableHandleValue rval)
 {
-    /* Step 1 was performed by CallNonGenericMethod. */
-    Rooted<RegExpObject*> reobj(cx, &args.thisv().toObject().asRegExp());
+    /* Step 1 (b) was performed by CallNonGenericMethod. */
+    Rooted<RegExpObject*> reobj(cx, &regexp->asRegExp());
 
     RegExpGuard re;
     if (StartsWithGreedyStar(reobj->getSource())) {
@@ -586,14 +579,9 @@ ExecuteRegExp(JSContext *cx, RegExpExecType execType, CallArgs args)
 
     RegExpStatics *res = cx->regExpStatics();
 
-    /* Step 2. */
-    JSString *input = ToString(cx, (args.length() > 0) ? args[0] : UndefinedValue());
-    if (!input)
-        return false;
-
     /* Step 3. */
-    Rooted<JSLinearString*> linearInput(cx, input->ensureLinear(cx));
-    if (!linearInput)
+    Rooted<JSStableString*> stableInput(cx, string->ensureStable(cx));
+    if (!stableInput)
         return false;
 
     /* Step 4. */
@@ -608,32 +596,52 @@ ExecuteRegExp(JSContext *cx, RegExpExecType execType, CallArgs args)
     if (!re->global() && !re->sticky())
         i = 0;
 
-    const jschar *chars = linearInput->chars();
-    size_t length = linearInput->length();
+    StableCharPtr chars = stableInput->chars();
+    size_t length = stableInput->length();
 
     /* Step 9a. */
     if (i < 0 || i > length) {
         reobj->zeroLastIndex();
-        args.rval().setNull();
+        rval.setNull();
         return true;
     }
 
     /* Steps 8-21. */
     size_t lastIndexInt(i);
-    if (!ExecuteRegExp(cx, res, *re, linearInput, chars, length, &lastIndexInt, execType,
-                       args.rval().address())) {
+    if (!ExecuteRegExp(cx, res, *re, stableInput, chars, length, &lastIndexInt, execType,
+                       rval.address())) {
         return false;
     }
 
     /* Step 11 (with sticky extension). */
-    if (re->global() || (!args.rval().isNull() && re->sticky())) {
-        if (args.rval().isNull())
+    if (re->global() || (!rval.isNull() && re->sticky())) {
+        if (rval.isNull())
             reobj->zeroLastIndex();
         else
             reobj->setLastIndex(lastIndexInt);
     }
 
     return true;
+}
+
+/*
+ * ES5 15.10.6.2 (and 15.10.6.3, which calls 15.10.6.2).
+ *
+ * RegExp.prototype.test doesn't need to create a results array, and we use
+ * |execType| to perform this optimization.
+ */
+static bool
+ExecuteRegExp(JSContext *cx, RegExpExecType execType, CallArgs args)
+{
+    /* Step 1 (a) was performed by CallNonGenericMethod. */
+    RootedObject regexp(cx, &args.thisv().toObject());
+
+    /* Step 2. */
+    RootedString string(cx, ToString(cx, (args.length() > 0) ? args[0] : UndefinedValue()));
+    if (!string)
+        return false;
+
+    return ExecuteRegExp(cx, execType, regexp, string, args.rval());
 }
 
 /* ES5 15.10.6.2. */

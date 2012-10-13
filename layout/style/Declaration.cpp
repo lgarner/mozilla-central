@@ -18,7 +18,7 @@ namespace css {
 
 // check that we can fit all the CSS properties into a uint8_t
 // for the mOrder array - if not, might need to use uint16_t!
-MOZ_STATIC_ASSERT(eCSSProperty_COUNT_no_shorthands - 1 <= PR_UINT8_MAX,
+MOZ_STATIC_ASSERT(eCSSProperty_COUNT_no_shorthands - 1 <= UINT8_MAX,
                   "CSS longhand property numbers no longer fit in a uint8_t");
 
 Declaration::Declaration()
@@ -432,12 +432,6 @@ Declaration::GetValue(nsCSSProperty aProperty, nsAString& aValue) const
         data->ValueFor(eCSSProperty_background_size)->
         GetPairListValue();
       for (;;) {
-        if (size->mXValue.GetUnit() != eCSSUnit_Auto ||
-            size->mYValue.GetUnit() != eCSSUnit_Auto) {
-          // Non-default background-size, so can't be serialized as shorthand.
-          aValue.Truncate();
-          return;
-        }
         image->mValue.AppendToString(eCSSProperty_background_image, aValue);
         aValue.Append(PRUnichar(' '));
         repeat->mXValue.AppendToString(eCSSProperty_background_repeat, aValue);
@@ -450,6 +444,16 @@ Declaration::GetValue(nsCSSProperty aProperty, nsAString& aValue) const
         aValue.Append(PRUnichar(' '));
         position->mValue.AppendToString(eCSSProperty_background_position,
                                         aValue);
+        
+        if (size->mXValue.GetUnit() != eCSSUnit_Auto ||
+            size->mYValue.GetUnit() != eCSSUnit_Auto) {
+          aValue.Append(PRUnichar(' '));
+          aValue.Append(PRUnichar('/'));
+          aValue.Append(PRUnichar(' '));
+          size->mXValue.AppendToString(eCSSProperty_background_size, aValue);
+          aValue.Append(PRUnichar(' '));
+          size->mYValue.AppendToString(eCSSProperty_background_size, aValue);
+        }
 
         NS_ABORT_IF_FALSE(clip->mValue.GetUnit() == eCSSUnit_Enumerated &&
                           origin->mValue.GetUnit() == eCSSUnit_Enumerated,
@@ -814,6 +818,15 @@ Declaration::GetValue(nsCSSProperty aProperty, nsAString& aValue) const
       break;
     }
 #endif // MOZ_FLEXBOX
+    case eCSSProperty__moz_transform: {
+      // shorthands that are just aliases with different parsing rules
+      const nsCSSProperty* subprops =
+        nsCSSProps::SubpropertyEntryFor(aProperty);
+      NS_ABORT_IF_FALSE(subprops[1] == eCSSProperty_UNKNOWN,
+                        "must have exactly one subproperty");
+      AppendValueToString(subprops[0], aValue);
+      break;
+    }
     default:
       NS_ABORT_IF_FALSE(false, "no other shorthands");
       break;

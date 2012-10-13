@@ -9,32 +9,19 @@
 
 body {
   font: message-box;
-  background-color: #131c26;
-  color: #8fa1b2;
+  color: hsl(0,0%,50%);
 }
 
-.tagname {
-  color: #a673bf;
-}
-
-.attrname {
-  color: #b26b47;
-}
-
-.attrvalue {
-  color: #3689b2;
+.text {
+  color: black;
 }
 
 .newattr {
   cursor: pointer;
 }
 
-.comment {
-  color: #5c6773;
-}
-
 .selected {
-  background-color: #253847;
+  background-color: hsl(0,0%,90%);
 }
 
 /* Give some padding to focusable elements to match the editor input
@@ -55,15 +42,17 @@ li.container {
 
 .expander {
   position: absolute;
-  -moz-appearance: treetwisty;
-  top: 0;
+  top: 5px;
   left: 0;
   width: 14px;
   height: 14px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-image: url("chrome://global/skin/tree/twisty-clsd.png");
 }
 
 .expander[expanded] {
-  -moz-appearance: treetwistyopen;
+  background-image: url("chrome://global/skin/tree/twisty-open.png");
 }
 
 .styleinspector-propertyeditor {

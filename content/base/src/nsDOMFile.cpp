@@ -35,6 +35,7 @@
 
 #include "plbase64.h"
 #include "prmem.h"
+#include "mozilla/dom/FileListBinding.h"
 #include "dombindings.h"
 
 using namespace mozilla;
@@ -129,7 +130,8 @@ nsDOMFileBase::GetName(nsAString &aFileName)
 NS_IMETHODIMP
 nsDOMFileBase::GetLastModifiedDate(JSContext* cx, JS::Value *aLastModifiedDate)
 {
-  aLastModifiedDate->setNull();
+  JSObject* date = JS_NewDateObjectMsec(cx, JS_Now() / PR_USEC_PER_MSEC);
+  aLastModifiedDate->setObject(*date);
   return NS_OK;
 }
 
@@ -374,6 +376,7 @@ nsDOMFileBase::GetFileInfo(indexedDB::FileManager* aFileManager)
 
 NS_IMETHODIMP
 nsDOMFileBase::GetSendInfo(nsIInputStream** aBody,
+                           uint64_t* aContentLength,
                            nsACString& aContentType,
                            nsACString& aCharset)
 {
@@ -381,6 +384,9 @@ nsDOMFileBase::GetSendInfo(nsIInputStream** aBody,
 
   nsCOMPtr<nsIInputStream> stream;
   rv = this->GetInternalStream(getter_AddRefs(stream));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = this->GetSize(aContentLength);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsString contentType;
@@ -494,14 +500,15 @@ nsDOMFileFile::GetMozFullPathInternal(nsAString &aFilename)
 NS_IMETHODIMP
 nsDOMFileFile::GetLastModifiedDate(JSContext* cx, JS::Value *aLastModifiedDate)
 {
-  int64_t msecs;
+  PRTime msecs;
   mFile->GetLastModifiedTime(&msecs);
   JSObject* date = JS_NewDateObjectMsec(cx, msecs);
   if (date) {
     aLastModifiedDate->setObject(*date);
   }
   else {
-    aLastModifiedDate->setNull();
+    date = JS_NewDateObjectMsec(cx, JS_Now() / PR_USEC_PER_MSEC);
+    aLastModifiedDate->setObject(*date);
   }
 
   return NS_OK;
@@ -540,7 +547,7 @@ nsDOMFileFile::GetType(nsAString &aType)
       do_GetService(NS_MIMESERVICE_CONTRACTID, &rv);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsCAutoString mimeType;
+    nsAutoCString mimeType;
     rv = mimeService->GetTypeFromFile(mFile, mimeType);
     if (NS_FAILED(rv)) {
       mimeType.Truncate();
@@ -649,7 +656,7 @@ nsDOMMemoryFile::CreateSlice(uint64_t aStart, uint64_t aLength,
 NS_IMETHODIMP
 nsDOMMemoryFile::GetInternalStream(nsIInputStream **aStream)
 {
-  if (mLength > PR_INT32_MAX)
+  if (mLength > INT32_MAX)
     return NS_ERROR_FAILURE;
 
   return DataOwnerAdapter::Create(mDataOwner, mStart, mLength, aStream);
@@ -676,19 +683,25 @@ JSObject*
 nsDOMFileList::WrapObject(JSContext *cx, JSObject *scope,
                           bool *triedToWrap)
 {
-  return mozilla::dom::oldproxybindings::FileList::create(cx, scope, this, triedToWrap);
+  JSObject* obj = FileListBinding::Wrap(cx, scope, this, triedToWrap);
+  if (obj || *triedToWrap) {
+    return obj;
+  }
+
+  *triedToWrap = true;
+  return oldproxybindings::FileList::create(cx, scope, this);
 }
 
 nsIDOMFile*
 nsDOMFileList::GetItemAt(uint32_t aIndex)
 {
-  return mFiles.SafeObjectAt(aIndex);
+  return Item(aIndex);
 }
 
 NS_IMETHODIMP
 nsDOMFileList::GetLength(uint32_t* aLength)
 {
-  *aLength = mFiles.Count();
+  *aLength = Length();
 
   return NS_OK;
 }
@@ -696,7 +709,7 @@ nsDOMFileList::GetLength(uint32_t* aLength)
 NS_IMETHODIMP
 nsDOMFileList::Item(uint32_t aIndex, nsIDOMFile **aFile)
 {
-  NS_IF_ADDREF(*aFile = nsDOMFileList::GetItemAt(aIndex));
+  NS_IF_ADDREF(*aFile = Item(aIndex));
 
   return NS_OK;
 }
@@ -713,7 +726,7 @@ nsDOMFileInternalUrlHolder::nsDOMFileInternalUrlHolder(nsIDOMBlob* aFile,
  
 nsDOMFileInternalUrlHolder::~nsDOMFileInternalUrlHolder() {
   if (!mUrl.IsEmpty()) {
-    nsCAutoString narrowUrl;
+    nsAutoCString narrowUrl;
     CopyUTF16toUTF8(mUrl, narrowUrl);
     nsBlobProtocolHandler::RemoveFileDataEntry(narrowUrl);
   }

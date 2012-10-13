@@ -3467,7 +3467,7 @@ nsHTMLEditor::StyleSheetLoaded(nsCSSStyleSheet* aSheet, bool aWasAlternate,
     if (NS_SUCCEEDED(rv))
     {
       // Get the URI, then url spec from the sheet
-      nsCAutoString spec;
+      nsAutoCString spec;
       rv = aSheet->GetSheetURI()->GetSpec(spec);
 
       if (NS_SUCCEEDED(rv))
@@ -4338,23 +4338,6 @@ nsHTMLEditor::GetLastEditableLeaf(nsIDOMNode *aNode, nsCOMPtr<nsIDOMNode> *aOutL
   return res;
 }
 
-bool
-nsHTMLEditor::IsTextInDirtyFrameVisible(nsIContent *aNode)
-{
-  MOZ_ASSERT(aNode);
-  MOZ_ASSERT(aNode->NodeType() == nsIDOMNode::TEXT_NODE);
-
-  bool isEmptyTextNode;
-  nsresult rv = IsVisTextNode(aNode, &isEmptyTextNode, false);
-  if (NS_FAILED(rv)) {
-    // We are following the historical decision:
-    //   if we don't know, we say it's visible...
-    return true;
-  }
-
-  return !isEmptyTextNode;
-}
-
 
 ///////////////////////////////////////////////////////////////////////////
 // IsVisTextNode: figure out if textnode aTextNode has any visible content.
@@ -4554,6 +4537,8 @@ nsHTMLEditor::SetAttributeOrEquivalent(nsIDOMElement * aElement,
                                        const nsAString & aValue,
                                        bool aSuppressTransaction)
 {
+  nsAutoScriptBlocker scriptBlocker;
+
   nsresult res = NS_OK;
   if (IsCSSEnabled() && mHTMLCSSUtils) {
     int32_t count;

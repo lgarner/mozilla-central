@@ -1485,7 +1485,7 @@ HyperTextAccessible::GetEditor() const
     return nullptr; // No editing session interface
 
   nsCOMPtr<nsIEditor> editor;
-  nsIDocument* docNode = mDoc->GetDocumentNode();
+  nsIDocument* docNode = mDoc->DocumentNode();
   editingSession->GetEditorForWindow(docNode->GetWindow(),
                                      getter_AddRefs(editor));
   return editor.forget();
@@ -1531,7 +1531,7 @@ HyperTextAccessible::SetSelectionRange(int32_t aStartPos, int32_t aEndPos)
   nsFocusManager* DOMFocusManager = nsFocusManager::GetFocusManager();
   if (DOMFocusManager) {
     NS_ENSURE_TRUE(mDoc, NS_ERROR_FAILURE);
-    nsIDocument* docNode = mDoc->GetDocumentNode();
+    nsIDocument* docNode = mDoc->DocumentNode();
     NS_ENSURE_TRUE(docNode, NS_ERROR_FAILURE);
     nsCOMPtr<nsPIDOMWindow> window = docNode->GetWindow();
     nsCOMPtr<nsIDOMElement> result;
@@ -1705,7 +1705,7 @@ HyperTextAccessible::GetSelectionDOMRanges(int16_t aType,
   uint32_t childCount = startNode->GetChildCount();
   nsresult rv = domSel->
     GetRangesForIntervalArray(startNode, 0, startNode, childCount, true, aRanges);
-  NS_ENSURE_SUCCESS(rv,);
+  NS_ENSURE_SUCCESS_VOID(rv);
 
   // Remove collapsed ranges
   uint32_t numRanges = aRanges->Length();

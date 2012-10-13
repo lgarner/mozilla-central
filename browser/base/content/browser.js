@@ -90,6 +90,9 @@ __defineSetter__("PluralForm", function (val) {
 XPCOMUtils.defineLazyModuleGetter(this, "TelemetryStopwatch",
                                   "resource://gre/modules/TelemetryStopwatch.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "AboutHomeUtils",
+                                  "resource:///modules/AboutHomeUtils.jsm");
+
 #ifdef MOZ_SERVICES_SYNC
 XPCOMUtils.defineLazyGetter(this, "Weave", function() {
   let tmp = {};
@@ -146,16 +149,16 @@ XPCOMUtils.defineLazyModuleGetter(this, "PageThumbs",
 #ifdef MOZ_SAFE_BROWSING
 XPCOMUtils.defineLazyGetter(this, "SafeBrowsing", function() {
   let tmp = {};
-  Cu.import("resource://gre/modules/SafeBrowsing.jsm", tmp);
+  Cu.import("resource:///modules/SafeBrowsing.jsm", tmp);
   return tmp.SafeBrowsing;
 });
 #endif
 
-XPCOMUtils.defineLazyGetter(this, "gBrowserNewTabPreloader", function () {
-  let tmp = {};
-  Cu.import("resource://gre/modules/BrowserNewTabPreloader.jsm", tmp);
-  return new tmp.BrowserNewTabPreloader();
-});
+XPCOMUtils.defineLazyModuleGetter(this, "gBrowserNewTabPreloader",
+  "resource:///modules/BrowserNewTabPreloader.jsm", "BrowserNewTabPreloader");
+
+XPCOMUtils.defineLazyModuleGetter(this, "PrivateBrowsingUtils",
+  "resource://gre/modules/PrivateBrowsingUtils.jsm");
 
 let gInitialPages = [
   "about:blank",
@@ -219,17 +222,14 @@ XPCOMUtils.defineLazyGetter(this, "PageMenu", function() {
 * one listener that calls all real handlers.
 */
 function pageShowEventHandlers(event) {
-  // Filter out events that are not about the document load we are interested in
-  if (event.target == content.document) {
-    charsetLoadListener();
-    XULBrowserWindow.asyncUpdateUI();
+  charsetLoadListener();
+  XULBrowserWindow.asyncUpdateUI();
 
-    // The PluginClickToPlay events are not fired when navigating using the
-    // BF cache. |event.persisted| is true when the page is loaded from the
-    // BF cache, so this code reshows the notification if necessary.
-    if (event.persisted)
-      gPluginHandler.reshowClickToPlayNotification();
-  }
+  // The PluginClickToPlay events are not fired when navigating using the
+  // BF cache. |event.persisted| is true when the page is loaded from the
+  // BF cache, so this code reshows the notification if necessary.
+  if (event.persisted)
+    gPluginHandler.reshowClickToPlayNotification();
 }
 
 function UpdateBackForwardCommands(aWebNavigation) {
@@ -521,7 +521,7 @@ var gPopupBlockerObserver = {
       blockedPopupAllowSite.setAttribute("hidden", "true");
     }
 
-    if (gPrivateBrowsingUI.privateBrowsingEnabled)
+    if (PrivateBrowsingUtils.isWindowPrivate(window))
       blockedPopupAllowSite.setAttribute("disabled", "true");
     else
       blockedPopupAllowSite.removeAttribute("disabled");
@@ -736,7 +736,7 @@ const gFormSubmitObserver = {
         offset = parseInt(style.paddingLeft) + parseInt(style.borderLeftWidth);
       }
 
-      offset = Math.round(offset * utils.screenPixelsPerCSSPixel);
+      offset = Math.round(offset * utils.fullZoom);
 
       position = "after_start";
     }
@@ -1049,7 +1049,7 @@ var gBrowserInit = {
 
     // set default character set if provided
     if ("arguments" in window && window.arguments.length > 1 && window.arguments[1]) {
-      if (window.arguments[1].indexOf("charset=") != -1) {
+      if (window.arguments[1].startsWith("charset=")) {
         var arrayArgComponents = window.arguments[1].split("=");
         if (arrayArgComponents) {
           //we should "inherit" the charset menu setting in a new window
@@ -1126,7 +1126,7 @@ var gBrowserInit = {
       else if (window.arguments.length >= 3) {
         loadURI(uriToLoad, window.arguments[2], window.arguments[3] || null,
                 window.arguments[4] || false);
-        content.focus();
+        window.focus();
       }
       // Note: loadOneOrMoreURIs *must not* be called if window.arguments.length >= 3.
       // Such callers expect that window.arguments[0] is handled as a single URI.
@@ -1273,7 +1273,11 @@ var gBrowserInit = {
     SocialUI.init();
     AddonManager.addAddonListener(AddonsMgrListener);
 
-    gBrowser.addEventListener("pageshow", function(evt) { setTimeout(pageShowEventHandlers, 0, evt); }, true);
+    gBrowser.addEventListener("pageshow", function(event) {
+      // Filter out events that are not about the document load we are interested in
+      if (event.target == content.document)
+        setTimeout(pageShowEventHandlers, 0, event);
+    }, true);
 
     // Ensure login manager is up and running.
     Cc["@mozilla.org/login-manager;1"].getService(Ci.nsILoginManager);
@@ -1405,12 +1409,6 @@ var gBrowserInit = {
     gSyncUI.init();
 #endif
 
-    // Don't preload new tab pages when the toolbar is hidden
-    // (i.e. when the current window is a popup window).
-    if (window.toolbar.visible) {
-      gBrowserNewTabPreloader.init(window);
-    }
-
     gBrowserThumbnails.init();
     TabView.init();
 
@@ -1432,14 +1430,6 @@ var gBrowserInit = {
       if (gPrefService.getBoolPref("devtools.toolbar.visible")) {
         DeveloperToolbar.show(false);
       }
-    }
-
-    // Enable Inspector?
-    let enabled = gPrefService.getBoolPref("devtools.inspector.enabled");
-    if (enabled) {
-      let cmd = document.getElementById("Tools:Inspect");
-      cmd.removeAttribute("disabled");
-      cmd.removeAttribute("hidden");
     }
 
     // Enable Debugger?
@@ -1469,11 +1459,9 @@ var gBrowserInit = {
     }
 
     // Enable Error Console?
-    // XXX Temporarily always-enabled, see bug 601201
-    let consoleEnabled = true || gPrefService.getBoolPref("devtools.errorconsole.enabled");
+    let consoleEnabled = gPrefService.getBoolPref("devtools.errorconsole.enabled");
     if (consoleEnabled) {
       let cmd = document.getElementById("Tools:ErrorConsole");
-      cmd.removeAttribute("disabled");
       cmd.removeAttribute("hidden");
     }
 
@@ -1567,10 +1555,6 @@ var gBrowserInit = {
 
     Services.obs.removeObserver(gPluginHandler.pluginCrashed, "plugin-crashed");
 
-    if (!__lookupGetter__("gBrowserNewTabPreloader")) {
-      gBrowserNewTabPreloader.uninit();
-    }
-
     try {
       gBrowser.removeProgressListener(window.XULBrowserWindow);
       gBrowser.removeTabsProgressListener(window.TabsProgressListener);
@@ -1579,7 +1563,9 @@ var gBrowserInit = {
 
     PlacesStarButton.uninit();
 
+#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
     gPrivateBrowsingUI.uninit();
+#endif
 
     TabsOnTop.uninit();
 
@@ -1727,7 +1713,9 @@ var gBrowserInit = {
 
     BrowserOffline.uninit();
 
+#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
     gPrivateBrowsingUI.uninit();
+#endif
   },
 #endif
 
@@ -1987,11 +1975,9 @@ function focusAndSelectUrlBar() {
     if (window.fullScreen)
       FullScreen.mouseoverToggle(true);
 
-    gURLBar.focus();
-    if (document.activeElement == gURLBar.inputField) {
-      gURLBar.select();
+    gURLBar.select();
+    if (document.activeElement == gURLBar.inputField)
       return true;
-    }
   }
   return false;
 }
@@ -2082,7 +2068,7 @@ var gLastOpenDirectory = {
     this._lastDir = val.clone();
 
     // Don't save the last open directory pref inside the Private Browsing mode
-    if (!gPrivateBrowsingUI.privateBrowsingEnabled)
+    if (!PrivateBrowsingUtils.isWindowPrivate(window))
       gPrefService.setComplexValue("browser.open.lastDir", Ci.nsILocalFile,
                                    this._lastDir);
   },
@@ -2095,21 +2081,28 @@ function BrowserOpenFileWindow()
 {
   // Get filepicker component.
   try {
-    const nsIFilePicker = Components.interfaces.nsIFilePicker;
-    var fp = Components.classes["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
-    fp.init(window, gNavigatorBundle.getString("openFile"), nsIFilePicker.modeOpen);
-    fp.appendFilters(nsIFilePicker.filterAll | nsIFilePicker.filterText | nsIFilePicker.filterImages |
-                     nsIFilePicker.filterXML | nsIFilePicker.filterHTML);
-    fp.displayDirectory = gLastOpenDirectory.path;
-
-    if (fp.show() == nsIFilePicker.returnOK) {
-      try {
-        if (fp.file)
-          gLastOpenDirectory.path = fp.file.parent.QueryInterface(Ci.nsILocalFile);
-      } catch(e) {
+    const nsIFilePicker = Ci.nsIFilePicker;
+    let fp = Cc["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
+    let fpCallback = function fpCallback_done(aResult) {
+      if (aResult == nsIFilePicker.returnOK) {
+        try {
+          if (fp.file) {
+            gLastOpenDirectory.path =
+              fp.file.parent.QueryInterface(Ci.nsILocalFile);
+          }
+        } catch (ex) {
+        }
+        openUILinkIn(fp.fileURL.spec, "current");
       }
-      openUILinkIn(fp.fileURL.spec, "current");
-    }
+    };
+
+    fp.init(window, gNavigatorBundle.getString("openFile"),
+            nsIFilePicker.modeOpen);
+    fp.appendFilters(nsIFilePicker.filterAll | nsIFilePicker.filterText |
+                     nsIFilePicker.filterImages | nsIFilePicker.filterXML |
+                     nsIFilePicker.filterHTML);
+    fp.displayDirectory = gLastOpenDirectory.path;
+    fp.open(fpCallback);
   } catch (ex) {
   }
 }
@@ -2502,10 +2495,19 @@ function BrowserOnAboutPageLoad(document) {
     // the hidden attribute set on the apps button in aboutHome.xhtml
     if (getBoolPref("browser.aboutHome.apps", false))
       document.getElementById("apps").removeAttribute("hidden");
+
     let ss = Components.classes["@mozilla.org/browser/sessionstore;1"].
              getService(Components.interfaces.nsISessionStore);
-    if (!ss.canRestoreLastSession)
-      document.getElementById("launcher").removeAttribute("session");
+    if (ss.canRestoreLastSession)
+      document.getElementById("launcher").setAttribute("session", "true");
+
+    // Inject search engine and snippets URL.
+    let docElt = document.documentElement;
+    docElt.setAttribute("snippetsURL", AboutHomeUtils.snippetsURL);
+    docElt.setAttribute("searchEngineName",
+                        AboutHomeUtils.defaultSearchEngine.name);
+    docElt.setAttribute("searchEngineURL",
+                        AboutHomeUtils.defaultSearchEngine.searchURL);
   }
 }
 
@@ -2524,13 +2526,13 @@ let BrowserOnClick = {
 
     // If the event came from an ssl error page, it is probably either the "Add
     // Exception…" or "Get me out of here!" button
-    if (/^about:certerror/.test(ownerDoc.documentURI)) {
+    if (ownerDoc.documentURI.startsWith("about:certerror")) {
       this.onAboutCertError(originalTarget, ownerDoc);
     }
-    else if (/^about:blocked/.test(ownerDoc.documentURI)) {
+    else if (ownerDoc.documentURI.startsWith("about:blocked")) {
       this.onAboutBlocked(originalTarget, ownerDoc);
     }
-    else if (/^about:neterror/.test(ownerDoc.documentURI)) {
+    else if (ownerDoc.documentURI.startsWith("about:neterror")) {
       this.onAboutNetError(originalTarget, ownerDoc);
     }
     else if (/^about:home$/i.test(ownerDoc.documentURI)) {
@@ -2766,7 +2768,7 @@ function getMeOutOfHere() {
     url = prefs.getComplexValue("browser.startup.homepage",
                                 Ci.nsIPrefLocalizedString).data;
     // If url is a pipe-delimited set of pages, just take the first one.
-    if (url.indexOf("|") != -1)
+    if (url.contains("|"))
       url = url.split("|")[0];
   } catch(e) {
     Components.utils.reportError("Couldn't get homepage pref: " + e);
@@ -3237,7 +3239,7 @@ const DOMLinkHandler = {
 
             if (type == "application/opensearchdescription+xml" && link.title &&
                 /^(?:https?|ftp):/i.test(link.href) &&
-                !gPrivateBrowsingUI.privateBrowsingEnabled) {
+                !PrivateBrowsingUtils.isWindowPrivate(window)) {
               var engine = { title: link.title, href: link.href };
               BrowserSearch.addEngine(engine, link.ownerDocument);
               searchAdded = true;
@@ -3324,12 +3326,9 @@ const BrowserSearch = {
     if (searchBar && window.fullScreen)
       FullScreen.mouseoverToggle(true);
     if (searchBar)
-      searchBar.focus();
-    if (searchBar && document.activeElement == searchBar.textbox.inputField) {
       searchBar.select();
-    } else {
+    if (!searchBar || document.activeElement != searchBar.textbox.inputField)
       openUILinkIn(Services.search.defaultEngine.searchForm, "current");
-    }
   },
 
   /**
@@ -3475,7 +3474,7 @@ function FillHistoryMenu(aParent) {
 
 function addToUrlbarHistory(aUrlToAdd) {
   if (aUrlToAdd &&
-      aUrlToAdd.indexOf(" ") == -1 &&
+      !aUrlToAdd.contains(" ") &&
       !/[\x00-\x1F]/.test(aUrlToAdd))
     PlacesUIUtils.markPageAsTyped(aUrlToAdd);
 }
@@ -3503,7 +3502,7 @@ function toOpenWindowByType(inType, uri, features)
     window.open(uri, "_blank", "chrome,extrachrome,menubar,resizable,scrollbars,status,toolbar");
 }
 
-function OpenBrowserWindow()
+function OpenBrowserWindow(options)
 {
   var telemetryObj = {};
   TelemetryStopwatch.start("FX_NEW_WINDOW_MS", telemetryObj);
@@ -3524,6 +3523,17 @@ function OpenBrowserWindow()
   var defaultArgs = handler.defaultArgs;
   var wintype = document.documentElement.getAttribute('windowtype');
 
+  var extraFeatures = "";
+#ifdef MOZ_PER_WINDOW_PRIVATE_BROWSING
+  if (typeof options == "object" &&
+      "private" in options &&
+      options.private) {
+    extraFeatures = ",private";
+    // Force the new window to load about:privatebrowsing instead of the default home page
+    defaultArgs = "about:privatebrowsing";
+  }
+#endif
+
   // if and only if the current window is a browser window and it has a document with a character
   // set, then extract the current charset menu setting from the current document and use it to
   // initialize the new browser window...
@@ -3534,11 +3544,11 @@ function OpenBrowserWindow()
     charsetArg = "charset="+DocCharset;
 
     //we should "inherit" the charset menu setting in a new window
-    win = window.openDialog("chrome://browser/content/", "_blank", "chrome,all,dialog=no", defaultArgs, charsetArg);
+    win = window.openDialog("chrome://browser/content/", "_blank", "chrome,all,dialog=no" + extraFeatures, defaultArgs, charsetArg);
   }
   else // forget about the charset information.
   {
-    win = window.openDialog("chrome://browser/content/", "_blank", "chrome,all,dialog=no", defaultArgs);
+    win = window.openDialog("chrome://browser/content/", "_blank", "chrome,all,dialog=no" + extraFeatures, defaultArgs);
   }
 
   return win;
@@ -3655,7 +3665,7 @@ function BrowserToolboxCustomizeDone(aToolboxChanged) {
   if (!getBoolPref("ui.click_hold_context_menus", false))
     SetClickAndHoldHandlers();
 
-  window.content.focus();
+  gBrowser.selectedBrowser.focus();
 }
 
 function BrowserToolboxCustomizeChange(aType) {
@@ -4024,6 +4034,7 @@ var XULBrowserWindow = {
   },
 
   onLocationChange: function (aWebProgress, aRequest, aLocationURI, aFlags) {
+    const nsIWebProgressListener = Ci.nsIWebProgressListener;
     var location = aLocationURI ? aLocationURI.spec : "";
     this._hostChanged = true;
 
@@ -4133,22 +4144,46 @@ var XULBrowserWindow = {
           document.documentElement.removeAttribute("disablechrome");
       }
 
+      // Utility functions for disabling find
+      function shouldDisableFind(aDocument) {
+        let docElt = aDocument.documentElement;
+        return docElt && docElt.getAttribute("disablefastfind") == "true";
+      }
+
+      function disableFindCommands(aDisable) {
+        let findCommands = [document.getElementById("cmd_find"),
+                            document.getElementById("cmd_findAgain"),
+                            document.getElementById("cmd_findPrevious")];
+        for (let elt of findCommands) {
+          if (aDisable)
+            elt.setAttribute("disabled", "true");
+          else
+            elt.removeAttribute("disabled");
+        }
+      }
+
+      function onContentRSChange(e) {
+        if (e.target.readyState != "interactive" && e.target.readyState != "complete")
+          return;
+
+        e.target.removeEventListener("readystate", onContentRSChange);
+        disableFindCommands(shouldDisableFind(e.target));
+      }
+
       // Disable find commands in documents that ask for them to be disabled.
-      let disableFind = false;
       if (aLocationURI &&
           (aLocationURI.schemeIs("about") || aLocationURI.schemeIs("chrome"))) {
-        let docElt = content.document.documentElement;
-        disableFind = docElt && docElt.getAttribute("disablefastfind") == "true";
-      }
-      let findCommands = [document.getElementById("cmd_find"),
-                          document.getElementById("cmd_findAgain"),
-                          document.getElementById("cmd_findPrevious")];
-      for (let elt of findCommands) {
-        if (disableFind)
-          elt.setAttribute("disabled", "true");
-        else
-          elt.removeAttribute("disabled");
-      }
+        // Don't need to re-enable/disable find commands for same-document location changes
+        // (e.g. the replaceStates in about:addons)
+        if (!(aFlags & nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT)) {
+          if (content.document.readyState == "interactive" || content.document.readyState == "complete")
+            disableFindCommands(shouldDisableFind(content.document));
+          else {
+            content.document.addEventListener("readystatechange", onContentRSChange);
+          }
+        }
+      } else
+        disableFindCommands(false);
 
       if (gFindBarInitialized) {
         if (gFindBar.findMode != gFindBar.FIND_NORMAL) {
@@ -4478,6 +4513,15 @@ var TabsProgressListener = {
     }
 #endif
 
+    // Collect telemetry data about tab load times.
+    if (aWebProgress.DOMWindow == aWebProgress.DOMWindow.top &&
+        aStateFlags & Ci.nsIWebProgressListener.STATE_IS_WINDOW) {
+      if (aStateFlags & Ci.nsIWebProgressListener.STATE_START)
+        TelemetryStopwatch.start("FX_PAGE_LOAD_MS", aBrowser);
+      else if (aStateFlags & Ci.nsIWebProgressListener.STATE_STOP)
+        TelemetryStopwatch.finish("FX_PAGE_LOAD_MS", aBrowser);
+    }
+
     // Attach a listener to watch for "click" events bubbling up from error
     // pages and other similar page. This lets us fix bugs like 401575 which
     // require error page UI to do privileged things, without letting error
@@ -4487,7 +4531,7 @@ var TabsProgressListener = {
 
     if (aStateFlags & Ci.nsIWebProgressListener.STATE_STOP &&
         Components.isSuccessCode(aStatus) &&
-        /^about:/.test(aWebProgress.DOMWindow.document.documentURI)) {
+        aWebProgress.DOMWindow.document.documentURI.startsWith("about:")) {
       aBrowser.addEventListener("click", BrowserOnClick, true);
       aBrowser.addEventListener("pagehide", function onPageHide(event) {
         if (event.target.defaultView.frameElement)
@@ -4643,7 +4687,7 @@ nsBrowserAccess.prototype = {
           gBrowser.loadURIWithFlags(aURI.spec, loadflags, referrer, null, null);
         }
         if (!gPrefService.getBoolPref("browser.tabs.loadDivertedInBackground"))
-          content.focus();
+          window.focus();
     }
     return newWindow;
   },
@@ -4961,7 +5005,7 @@ function toggleSidebar(commandID, forceOpen) {
       sidebarTitle.value = "";
       sidebarBox.hidden = true;
       sidebarSplitter.hidden = true;
-      content.focus();
+      gBrowser.selectedBrowser.focus();
     } else {
       fireSidebarFocusedEvent();
     }
@@ -5098,9 +5142,25 @@ function getBrowserSelection(aCharLen) {
   // selections of more than 150 characters aren't useful
   const kMaxSelectionLen = 150;
   const charLen = Math.min(aCharLen || kMaxSelectionLen, kMaxSelectionLen);
+  let commandDispatcher = document.commandDispatcher;
 
-  var focusedWindow = document.commandDispatcher.focusedWindow;
+  var focusedWindow = commandDispatcher.focusedWindow;
   var selection = focusedWindow.getSelection().toString();
+  // try getting a selected text in text input.
+  if (!selection) {
+    let element = commandDispatcher.focusedElement;
+    function isOnTextInput(elem) {
+      // we avoid to return a value if a selection is in password field.
+      // ref. bug 565717
+      return elem instanceof HTMLTextAreaElement ||
+             (elem instanceof HTMLInputElement && elem.mozIsTextField(true));
+    };
+
+    if (isOnTextInput(element)) {
+      selection = element.QueryInterface(Ci.nsIDOMNSEditableElement)
+                         .editor.selection.toString();
+    }
+  }
 
   if (selection) {
     if (selection.length > charLen) {
@@ -5312,7 +5372,7 @@ function handleLinkClick(event, href, linkNode) {
 
   if (where == "save") {
     saveURL(href, linkNode ? gatherTextUnder(linkNode) : "", null, true,
-            true, doc.documentURIObject);
+            true, doc.documentURIObject, doc);
     event.preventDefault();
     return true;
   }
@@ -5682,13 +5742,11 @@ var OfflineApps = {
   // OfflineApps Public Methods
   init: function ()
   {
-    Services.obs.addObserver(this, "dom-storage-warn-quota-exceeded", false);
     Services.obs.addObserver(this, "offline-cache-update-completed", false);
   },
 
   uninit: function ()
   {
-    Services.obs.removeObserver(this, "dom-storage-warn-quota-exceeded");
     Services.obs.removeObserver(this, "offline-cache-update-completed");
   },
 
@@ -5806,10 +5864,6 @@ var OfflineApps = {
         usage += cache.usage;
       }
     }
-
-    var storageManager = Cc["@mozilla.org/dom/storagemanager;1"].
-                         getService(Ci.nsIDOMStorageManager);
-    usage += storageManager.getUsage(host);
 
     return usage;
   },
@@ -5930,19 +5984,7 @@ var OfflineApps = {
   // nsIObserver
   observe: function (aSubject, aTopic, aState)
   {
-    if (aTopic == "dom-storage-warn-quota-exceeded") {
-      if (aSubject) {
-        var uri = makeURI(aSubject.location.href);
-
-        if (OfflineApps._checkUsage(uri)) {
-          var browserWindow =
-            this._getBrowserWindowForContentWindow(aSubject);
-          var browser = this._getBrowserForContentWindow(browserWindow,
-                                                         aSubject);
-          OfflineApps._warnUsage(browser, uri);
-        }
-      }
-    } else if (aTopic == "offline-cache-update-completed") {
+    if (aTopic == "offline-cache-update-completed") {
       var cacheUpdate = aSubject.QueryInterface(Ci.nsIOfflineCacheUpdate);
 
       var uri = cacheUpdate.manifestURI;
@@ -6136,7 +6178,7 @@ function WindowIsClosing()
  */
 function warnAboutClosingWindow() {
   // Popups aren't considered full browser windows.
-  let isPBWindow = gPrivateBrowsingUI.privateWindow;
+  let isPBWindow = PrivateBrowsingUtils.isWindowPrivate(window);
   if (!isPBWindow && !toolbar.visible)
     return gBrowser.warnAboutClosingTabs(true);
 
@@ -6147,9 +6189,7 @@ function warnAboutClosingWindow() {
   while (e.hasMoreElements()) {
     let win = e.getNext();
     if (win != window) {
-      if (isPBWindow &&
-          ("gPrivateBrowsingUI" in win) &&
-          win.gPrivateBrowsingUI.privateWindow)
+      if (isPBWindow && PrivateBrowsingUtils.isWindowPrivate(win))
         otherPBWindowExists = true;
       if (win.toolbar.visible)
         warnAboutClosingTabs = true;
@@ -7018,12 +7058,46 @@ function getTabModalPromptBox(aWindow) {
 function getBrowser() gBrowser;
 function getNavToolbox() gNavToolbox;
 
+#ifdef MOZ_PER_WINDOW_PRIVATE_BROWSING
+
+# We define a new gPrivateBrowsingUI object, as the per-window PB implementation
+# is completely different to the global PB one.  Specifically, the per-window
+# PB implementation does not expose many APIs on the gPrivateBrowsingUI object,
+# and only uses it as a way to initialize and uninitialize private browsing
+# windows.  While we could use #ifdefs all around the global PB mode code to
+# make it work in both modes, the amount of duplicated code is small and the
+# code is much more readable this way.
+let gPrivateBrowsingUI = {
+  init: function PBUI_init() {
+    // Do nothing for normal windows
+    if (!PrivateBrowsingUtils.isWindowPrivate(window)) {
+      return;
+    }
+
+    // Disable the Clear Recent History... menu item when in PB mode
+    // temporary fix until bug 463607 is fixed
+    document.getElementById("Tools:Sanitize").setAttribute("disabled", "true");
+
+    // Adjust the window's title
+    if (window.location.href == getBrowserURL()) {
+      let docElement = document.documentElement;
+      docElement.setAttribute("title",
+        docElement.getAttribute("title_privatebrowsing"));
+      docElement.setAttribute("titlemodifier",
+        docElement.getAttribute("titlemodifier_privatebrowsing"));
+      docElement.setAttribute("privatebrowsingmode", "temporary");
+      gBrowser.updateTitlebar();
+    }
+  }
+};
+
+#else
+
 let gPrivateBrowsingUI = {
   _privateBrowsingService: null,
   _searchBarValue: null,
   _findBarValue: null,
   _inited: false,
-  _initCallbacks: [],
 
   init: function PBUI_init() {
     Services.obs.addObserver(this, "private-browsing", false);
@@ -7036,9 +7110,6 @@ let gPrivateBrowsingUI = {
       this.onEnterPrivateBrowsing(true);
 
     this._inited = true;
-
-    this._initCallbacks.forEach(function (callback) callback.apply());
-    this._initCallbacks = [];
   },
 
   uninit: function PBUI_unint() {
@@ -7047,17 +7118,6 @@ let gPrivateBrowsingUI = {
 
     Services.obs.removeObserver(this, "private-browsing");
     Services.obs.removeObserver(this, "private-browsing-transition-complete");
-  },
-
-  get initialized() {
-    return this._inited;
-  },
-
-  addInitializationCallback: function PBUI_addInitializationCallback(aCallback) {
-    if (this._inited)
-      return;
-
-    this._initCallbacks.push(aCallback);
   },
 
   get _disableUIOnToggle() {
@@ -7262,25 +7322,12 @@ let gPrivateBrowsingUI = {
       !this.privateBrowsingEnabled;
   },
 
-  get autoStarted() {
-    return this._privateBrowsingService.autoStarted;
-  },
-
   get privateBrowsingEnabled() {
     return this._privateBrowsingService.privateBrowsingEnabled;
-  },
-
-  /**
-   * This accessor is used to support per-window Private Browsing mode.
-   */
-  get privateWindow() {
-    if (!gBrowser)
-      return false;
-
-    return gBrowser.docShell.QueryInterface(Ci.nsILoadContext)
-                            .usePrivateBrowsing;
   }
 };
+
+#endif
 
 
 /**
@@ -7509,14 +7556,14 @@ var StyleEditor = {
       this.StyleEditorManager.selectEditor(win);
       return win;
     } else {
-      return this.StyleEditorManager.newEditor(contentWindow,
+      return this.StyleEditorManager.newEditor(contentWindow, window,
                                                aSelectedStyleSheet, aLine, aCol);
     }
   },
 
   toggle: function SE_toggle()
   {
-    this.StyleEditorManager.toggleEditor(gBrowser.contentWindow);
+    this.StyleEditorManager.toggleEditor(gBrowser.contentWindow, window);
   }
 };
 
@@ -7566,9 +7613,9 @@ var MousePosTracker = {
   },
 
   handleEvent: function (event) {
-    var screenPixelsPerCSSPixel = this._windowUtils.screenPixelsPerCSSPixel;
-    this._x = event.screenX / screenPixelsPerCSSPixel - window.mozInnerScreenX;
-    this._y = event.screenY / screenPixelsPerCSSPixel - window.mozInnerScreenY;
+    var fullZoom = this._windowUtils.fullZoom;
+    this._x = event.screenX / fullZoom - window.mozInnerScreenX;
+    this._y = event.screenY / fullZoom - window.mozInnerScreenY;
 
     this._listeners.forEach(function (listener) {
       try {

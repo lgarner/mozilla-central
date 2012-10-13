@@ -158,9 +158,6 @@ public:
   NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                               const nsRect&           aDirtyRect,
                               const nsDisplayListSet& aLists);
-  virtual void InvalidateInternal(const nsRect& aDamageRect,
-                                  nscoord aX, nscoord aY, nsIFrame* aForChild,
-                                  uint32_t aFlags);
   virtual nsIAtom* GetType() const;
   virtual bool IsFrameOfType(uint32_t aFlags) const
   {
@@ -170,7 +167,7 @@ public:
   }
 
 #ifdef DEBUG
-  NS_IMETHOD List(FILE* out, int32_t aIndent) const;
+  NS_IMETHOD List(FILE* out, int32_t aIndent, uint32_t aFlags = 0) const;
   NS_IMETHOD_(nsFrameState) GetDebugStateBits() const;
   NS_IMETHOD GetFrameName(nsAString& aResult) const;
 #endif
@@ -267,6 +264,12 @@ public:
   NS_IMETHOD AttributeChanged(int32_t         aNameSpaceID,
                               nsIAtom*        aAttribute,
                               int32_t         aModType);
+
+  /**
+   * Move any frames on our overflow list to the end of our principal list.
+   * @return true if there were any overflow frames
+   */
+  virtual bool DrainSelfOverflowList();
 
   virtual nsresult StealFrame(nsPresContext* aPresContext,
                               nsIFrame*      aChild,
@@ -691,11 +694,14 @@ protected:
   bool RenumberLists(nsPresContext* aPresContext);
 
   static bool RenumberListsInBlock(nsPresContext* aPresContext,
-                                     nsBlockFrame* aBlockFrame,
-                                     int32_t* aOrdinal,
-                                     int32_t aDepth);
+                                   nsBlockFrame* aBlockFrame,
+                                   int32_t* aOrdinal,
+                                   int32_t aDepth,
+                                   int32_t aIncrement);
 
-  static bool RenumberListsFor(nsPresContext* aPresContext, nsIFrame* aKid, int32_t* aOrdinal, int32_t aDepth);
+  static bool RenumberListsFor(nsPresContext* aPresContext, nsIFrame* aKid,
+                               int32_t* aOrdinal, int32_t aDepth,
+                               int32_t aIncrement);
 
   static bool FrameStartsCounterScope(nsIFrame* aFrame);
 

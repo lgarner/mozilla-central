@@ -10,14 +10,14 @@ function test() {
     origin: "https://example.com",
     sidebarURL: "https://example.com/browser/browser/base/content/test/social_sidebar.html",
     workerURL: "https://example.com/browser/browser/base/content/test/social_worker.js",
-    iconURL: "chrome://branding/content/icon48.png"
+    iconURL: "https://example.com/browser/browser/base/content/test/moz.png"
   };
   runSocialTestWithProvider(manifest, doTest);
 }
 
 function doTest(finishcb) {
   ok(SocialSidebar.canShow, "social sidebar should be able to be shown");
-  ok(SocialSidebar.enabled, "social sidebar should be on by default");
+  ok(SocialSidebar.opened, "social sidebar should be open by default");
 
   let command = document.getElementById("Social:ToggleSidebar");
   let sidebar = document.getElementById("social-sidebar-box");

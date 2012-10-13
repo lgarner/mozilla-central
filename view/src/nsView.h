@@ -138,7 +138,11 @@ public:
   void RemoveChild(nsView *aChild);
 
   void SetParent(nsView *aParent) { mParent = aParent; }
-  void SetNextSibling(nsView *aSibling) { mNextSibling = aSibling; }
+  void SetNextSibling(nsView *aSibling)
+  {
+    NS_ASSERTION(aSibling != this, "Can't be our own sibling!");
+    mNextSibling = aSibling;
+  }
 
   uint32_t GetViewFlags() const { return mVFlags; }
   void SetViewFlags(uint32_t aFlags) { mVFlags = aFlags; }
@@ -175,16 +179,12 @@ public:
   nsPoint GetOffsetTo(const nsView* aOther, const int32_t aAPD) const;
   nsIWidget* GetNearestWidget(nsPoint* aOffset, const int32_t aAPD) const;
 
-  void SetForcedRepaint(bool aForceRepaint) { mForcedRepaint = aForceRepaint; }
-  bool ForcedRepaint() { return mForcedRepaint; }
-
 protected:
   // Do the actual work of ResetWidgetBounds, unconditionally.  Don't
   // call this method if we have no widget.
   void DoResetWidgetBounds(bool aMoveOnly, bool aInvalidateChangedSize);
 
   nsRegion*    mDirtyRegion;
-  bool mForcedRepaint;
 
 private:
   void InitializeWindow(bool aEnableDragDrop, bool aResetVisibility);

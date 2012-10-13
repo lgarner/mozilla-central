@@ -16,7 +16,6 @@
 #include "nsNodeInfoManager.h"
 #include "plbase64.h"
 #include "nsNetUtil.h"
-#include "prmem.h"
 #include "nsXPCOMStrings.h"
 #include "prlock.h"
 #include "nsThreadUtils.h"
@@ -150,7 +149,7 @@ nsHTMLVideoElement::GetAttributeMappingFunction() const
 
 nsresult nsHTMLVideoElement::SetAcceptHeader(nsIHttpChannel* aChannel)
 {
-  nsCAutoString value(
+  nsAutoCString value(
 #ifdef MOZ_WEBM
       "video/webm,"
 #endif

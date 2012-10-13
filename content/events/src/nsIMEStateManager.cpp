@@ -61,7 +61,7 @@ nsIMEStateManager::OnDestroyPresContext(nsPresContext* aPresContext)
                               InputContextAction::LOST_FOCUS);
     SetIMEState(newState, nullptr, widget, action);
   }
-  sContent = nullptr;
+  NS_IF_RELEASE(sContent);
   sPresContext = nullptr;
   OnTextStateBlur(nullptr, nullptr);
   return NS_OK;
@@ -89,7 +89,7 @@ nsIMEStateManager::OnRemoveContent(nsPresContext* aPresContext,
     SetIMEState(newState, nullptr, widget, action);
   }
 
-  sContent = nullptr;
+  NS_IF_RELEASE(sContent);
   sPresContext = nullptr;
 
   return NS_OK;
@@ -172,7 +172,10 @@ nsIMEStateManager::OnChangeFocusInternal(nsPresContext* aPresContext,
   SetIMEState(newState, aContent, widget, aAction);
 
   sPresContext = aPresContext;
-  sContent = aContent;
+  if (sContent != aContent) {
+    NS_IF_RELEASE(sContent);
+    NS_IF_ADDREF(sContent = aContent);
+  }
 
   return NS_OK;
 }
@@ -198,25 +201,25 @@ nsIMEStateManager::OnClickInEditor(nsPresContext* aPresContext,
   }
 
   nsCOMPtr<nsIWidget> widget = GetWidget(aPresContext);
-  NS_ENSURE_TRUE(widget, );
+  NS_ENSURE_TRUE_VOID(widget);
 
   bool isTrusted;
   nsresult rv = aMouseEvent->GetIsTrusted(&isTrusted);
-  NS_ENSURE_SUCCESS(rv, );
+  NS_ENSURE_SUCCESS_VOID(rv);
   if (!isTrusted) {
     return; // ignore untrusted event.
   }
 
   uint16_t button;
   rv = aMouseEvent->GetButton(&button);
-  NS_ENSURE_SUCCESS(rv, );
+  NS_ENSURE_SUCCESS_VOID(rv);
   if (button != 0) {
     return; // not a left click event.
   }
 
   int32_t clickCount;
   rv = aMouseEvent->GetDetail(&clickCount);
-  NS_ENSURE_SUCCESS(rv, );
+  NS_ENSURE_SUCCESS_VOID(rv);
   if (clickCount != 1) {
     return; // should notify only first click event.
   }
@@ -310,7 +313,7 @@ nsIMEStateManager::SetIMEState(const IMEState &aState,
                                nsIWidget* aWidget,
                                InputContextAction aAction)
 {
-  NS_ENSURE_TRUE(aWidget, );
+  NS_ENSURE_TRUE_VOID(aWidget);
 
   InputContext oldContext = aWidget->GetInputContext();
 

@@ -19,6 +19,7 @@
 #include "nsIWindowWatcher.h"
 #include "nsPIWindowWatcher.h"
 #include "nsIDOMWindow.h"
+#include "nsPIDOMWindow.h"
 #include "nsWebShellWindow.h"
 
 #include "nsIEnumerator.h"
@@ -39,6 +40,8 @@
 #include "nsICharsetConverterManager.h"
 #include "nsIUnicodeDecoder.h"
 #include "nsIChromeRegistry.h"
+#include "nsILoadContext.h"
+#include "nsIWebNavigation.h"
 
 #include "mozilla/Preferences.h"
 #include "mozilla/StartupTimeline.h"
@@ -82,7 +85,7 @@ nsAppShellService::CreateHiddenWindow()
 {
   nsresult rv;
   int32_t initialHeight = 100, initialWidth = 100;
-    
+
 #ifdef XP_MACOSX
   uint32_t    chromeMask = 0;
   nsAdoptingCString prefVal =
@@ -338,7 +341,7 @@ nsAppShellService::JustCreateTopWindow(nsIXULWindow *aParent,
   nsCOMPtr<nsIXULChromeRegistry> reg =
     mozilla::services::GetXULChromeRegistryService();
   if (reg) {
-    nsCAutoString package;
+    nsAutoCString package;
     package.AssignLiteral("global");
     bool isRTL = false;
     reg->IsLocaleRTL(package, &isRTL);
@@ -348,8 +351,22 @@ nsAppShellService::JustCreateTopWindow(nsIXULWindow *aParent,
   nsresult rv = window->Initialize(parent, center ? aParent : nullptr,
                                    aUrl, aInitialWidth, aInitialHeight,
                                    aIsHiddenWindow, widgetInitData);
-      
+
   NS_ENSURE_SUCCESS(rv, rv);
+
+  // Ensure that we propagate any existing private browsing status
+  // from the parent, even if it will not actually be used
+  // as a parent value.
+  nsCOMPtr<nsIDOMWindow> domWin = do_GetInterface(aParent);
+  nsCOMPtr<nsIWebNavigation> webNav = do_GetInterface(domWin);
+  nsCOMPtr<nsILoadContext> parentContext = do_QueryInterface(webNav);
+  nsCOMPtr<nsIDOMWindow> newDomWin =
+      do_GetInterface(NS_ISUPPORTS_CAST(nsIBaseWindow*, window));
+  nsCOMPtr<nsIWebNavigation> newWebNav = do_GetInterface(newDomWin);
+  nsCOMPtr<nsILoadContext> thisContext = do_GetInterface(newWebNav);
+  if (parentContext && thisContext) {
+    thisContext->SetUsePrivateBrowsing(parentContext->UsePrivateBrowsing());
+  }
 
   window.swap(*aResult); // transfer reference
   if (parent)
@@ -380,7 +397,7 @@ nsAppShellService::GetHiddenDOMWindow(nsIDOMWindow **aWindow)
 
   rv = mHiddenWindow->GetDocShell(getter_AddRefs(docShell));
   NS_ENSURE_SUCCESS(rv, rv);
-  
+
   nsCOMPtr<nsIDOMWindow> hiddenDOMWindow(do_GetInterface(docShell, &rv));
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -450,6 +467,14 @@ nsAppShellService::GetApplicationProvidedHiddenWindow(bool* aAPHW)
 NS_IMETHODIMP
 nsAppShellService::RegisterTopLevelWindow(nsIXULWindow* aWindow)
 {
+  NS_ENSURE_ARG_POINTER(aWindow);
+
+  nsCOMPtr<nsIDocShell> docShell;
+  aWindow->GetDocShell(getter_AddRefs(docShell));
+  nsCOMPtr<nsPIDOMWindow> domWindow(do_GetInterface(docShell));
+  NS_ENSURE_TRUE(domWindow, NS_ERROR_FAILURE);
+  domWindow->SetInitialPrincipalToSubject();
+
   // tell the window mediator about the new window
   nsCOMPtr<nsIWindowMediator> mediator
     ( do_GetService(NS_WINDOWMEDIATOR_CONTRACTID) );
@@ -461,16 +486,8 @@ nsAppShellService::RegisterTopLevelWindow(nsIXULWindow* aWindow)
   // tell the window watcher about the new window
   nsCOMPtr<nsPIWindowWatcher> wwatcher ( do_GetService(NS_WINDOWWATCHER_CONTRACTID) );
   NS_ASSERTION(wwatcher, "No windowwatcher?");
-  if (wwatcher) {
-    nsCOMPtr<nsIDocShell> docShell;
-    aWindow->GetDocShell(getter_AddRefs(docShell));
-    NS_ASSERTION(docShell, "Window has no docshell");
-    if (docShell) {
-      nsCOMPtr<nsIDOMWindow> domWindow(do_GetInterface(docShell));
-      NS_ASSERTION(domWindow, "Couldn't get DOM window.");
-      if (domWindow)
-        wwatcher->AddWindow(domWindow, 0);
-    }
+  if (wwatcher && domWindow) {
+    wwatcher->AddWindow(domWindow, 0);
   }
 
   // an ongoing attempt to quit is stopped by a newly opened window
@@ -499,7 +516,7 @@ nsAppShellService::UnregisterTopLevelWindow(nsIXULWindow* aWindow)
     */
     return NS_ERROR_FAILURE;
   }
-  
+
   NS_ENSURE_ARG_POINTER(aWindow);
 
   if (aWindow == mHiddenWindow) {
@@ -514,7 +531,7 @@ nsAppShellService::UnregisterTopLevelWindow(nsIXULWindow* aWindow)
 
   if (mediator)
     mediator->UnregisterWindow(aWindow);
-	
+
   // tell the window watcher
   nsCOMPtr<nsPIWindowWatcher> wwatcher ( do_GetService(NS_WINDOWWATCHER_CONTRACTID) );
   NS_ASSERTION(wwatcher, "Couldn't get windowwatcher, doing xpcom shutdown?");

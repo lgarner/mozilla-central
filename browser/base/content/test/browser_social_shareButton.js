@@ -29,7 +29,7 @@ function tabLoaded() {
     origin: "https://example.com",
     sidebarURL: "https://example.com/browser/browser/base/content/test/social_sidebar.html",
     workerURL: "https://example.com/browser/browser/base/content/test/social_worker.js",
-    iconURL: "chrome://branding/content/icon48.png"
+    iconURL: "https://example.com/browser/browser/base/content/test/moz.png"
   };
   runSocialTestWithProvider(manifest, function (finishcb) {
     gFinishCB = finishcb;
@@ -40,14 +40,16 @@ function tabLoaded() {
 function testInitial(finishcb) {
   ok(Social.provider, "Social provider is active");
   ok(Social.provider.enabled, "Social provider is enabled");
-  ok(Social.provider.port, "Social provider has a port to its FrameWorker");
+  let port = Social.provider.getWorkerPort();
+  ok(port, "Social provider has a port to its FrameWorker");
+  port.close();
 
-  let {shareButton, sharePopup} = SocialShareButton;
+  let {shareButton, unsharePopup} = SocialShareButton;
   ok(shareButton, "share button exists");
-  ok(sharePopup, "share popup exists");
+  ok(unsharePopup, "share popup exists");
 
-  let okButton = document.getElementById("editSharePopupOkButton");
-  let undoButton = document.getElementById("editSharePopupUndoButton");
+  let okButton = document.getElementById("unsharePopupContinueSharingButton");
+  let undoButton = document.getElementById("unsharePopupStopSharingButton");
   let shareStatusLabel = document.getElementById("share-button-status");
 
   // ensure the worker initialization and handshakes are all done and we
@@ -60,8 +62,8 @@ function testInitial(finishcb) {
     is(profile.portrait, portrait, "portrait is set");
     let displayName = document.getElementById("socialUserDisplayName");
     is(displayName.label, profile.displayName, "display name is set");
-    ok(!document.getElementById("editSharePopupHeader").hidden, "user profile is visible");
-  
+    ok(!document.getElementById("unsharePopupHeader").hidden, "user profile is visible");
+
     // Check the strings from our worker actually ended up on the button.
     is(shareButton.getAttribute("tooltiptext"), "Share this page", "check tooltip text is correct");
     is(shareStatusLabel.getAttribute("value"), "", "check status label text is blank");
@@ -83,9 +85,9 @@ function testInitial(finishcb) {
 }
 
 function testSecondClick(nextTest) {
-  let {shareButton, sharePopup} = SocialShareButton;
-  sharePopup.addEventListener("popupshown", function listener() {
-    sharePopup.removeEventListener("popupshown", listener);
+  let {shareButton, unsharePopup} = SocialShareButton;
+  unsharePopup.addEventListener("popupshown", function listener() {
+    unsharePopup.removeEventListener("popupshown", listener);
     ok(true, "popup was shown after second click");
     executeSoon(nextTest);
   });
@@ -93,10 +95,10 @@ function testSecondClick(nextTest) {
 }
 
 function testPopupOKButton() {
-  let {shareButton, sharePopup} = SocialShareButton;
-  let okButton = document.getElementById("editSharePopupOkButton");
-  sharePopup.addEventListener("popuphidden", function listener() {
-    sharePopup.removeEventListener("popuphidden", listener);
+  let {shareButton, unsharePopup} = SocialShareButton;
+  let okButton = document.getElementById("unsharePopupContinueSharingButton");
+  unsharePopup.addEventListener("popuphidden", function listener() {
+    unsharePopup.removeEventListener("popuphidden", listener);
     is(shareButton.hasAttribute("shared"), true, "Share button should still have 'shared' attribute after OK button is clicked");
     executeSoon(testSecondClick.bind(window, testPopupUndoButton));
   });
@@ -104,10 +106,10 @@ function testPopupOKButton() {
 }
 
 function testPopupUndoButton() {
-  let {shareButton, sharePopup} = SocialShareButton;
-  let undoButton = document.getElementById("editSharePopupUndoButton");
-  sharePopup.addEventListener("popuphidden", function listener() {
-    sharePopup.removeEventListener("popuphidden", listener);
+  let {shareButton, unsharePopup} = SocialShareButton;
+  let undoButton = document.getElementById("unsharePopupStopSharingButton");
+  unsharePopup.addEventListener("popuphidden", function listener() {
+    unsharePopup.removeEventListener("popuphidden", listener);
     is(shareButton.hasAttribute("shared"), false, "Share button should not have 'shared' attribute after Undo button is clicked");
     executeSoon(testShortcut);
   });
@@ -124,12 +126,12 @@ function testShortcut() {
 }
 
 function checkShortcutWorked(keyTarget) {
-  let {sharePopup, shareButton} = SocialShareButton;
+  let {unsharePopup, shareButton} = SocialShareButton;
   is(shareButton.hasAttribute("shared"), true, "Share button should be in the 'shared' state after keyboard shortcut is used");
 
   // Test a second invocation of the shortcut
-  sharePopup.addEventListener("popupshown", function listener() {
-    sharePopup.removeEventListener("popupshown", listener);
+  unsharePopup.addEventListener("popupshown", function listener() {
+    unsharePopup.removeEventListener("popupshown", listener);
     ok(true, "popup was shown after second use of keyboard shortcut");
     executeSoon(checkOKButton);
   });
@@ -137,13 +139,26 @@ function checkShortcutWorked(keyTarget) {
 }
 
 function checkOKButton() {
-  let okButton = document.getElementById("editSharePopupOkButton");
-  let undoButton = document.getElementById("editSharePopupUndoButton");
+  let okButton = document.getElementById("unsharePopupContinueSharingButton");
+  let undoButton = document.getElementById("unsharePopupStopSharingButton");
   is(document.activeElement, okButton, "ok button should be focused by default");
+
+  // the undo button text, label text, access keys, etc  should be as
+  // specified by the provider.
+  function isEltAttr(eltid, attr, expected) {
+    is(document.getElementById(eltid).getAttribute(attr), expected,
+       "element '" + eltid + "' has correct value for attribute '" + attr + "'");
+  }
+  isEltAttr("socialUserRecommendedText", "value", "You have already shared this page");
+  isEltAttr("unsharePopupContinueSharingButton", "label", "Got it!");
+  isEltAttr("unsharePopupContinueSharingButton", "accesskey", "G");
+  isEltAttr("unsharePopupStopSharingButton", "label", "Unshare it!");
+  isEltAttr("unsharePopupStopSharingButton", "accesskey", "U");
+  isEltAttr("socialUserPortrait", "aria-label", "Your pretty face");
 
   // This rest of particular test doesn't really apply on Mac, since buttons
   // aren't focusable by default.
-  if (navigator.platform.indexOf("Mac") != -1) {
+  if (navigator.platform.contains("Mac")) {
     executeSoon(testCloseBySpace);
     return;
   }
@@ -151,7 +166,7 @@ function checkOKButton() {
   let displayName = document.getElementById("socialUserDisplayName");
 
   // Linux has the buttons in the [unshare] [ok] order, so displayName will come first.
-  if (navigator.platform.indexOf("Linux") != -1) {
+  if (navigator.platform.contains("Linux")) {
     checkNextInTabOrder(displayName, function () {
       checkNextInTabOrder(undoButton, function () {
         checkNextInTabOrder(okButton, testCloseBySpace);
@@ -181,14 +196,77 @@ function checkNextInTabOrder(element, next) {
 }
 
 function testCloseBySpace() {
-  let sharePopup = SocialShareButton.sharePopup;
-  is(document.activeElement.id, "editSharePopupOkButton", "testCloseBySpace, the ok button should be focused");
-  sharePopup.addEventListener("popuphidden", function listener() {
-    sharePopup.removeEventListener("popuphidden", listener);
+  let unsharePopup = SocialShareButton.unsharePopup;
+  is(document.activeElement.id, "unsharePopupContinueSharingButton", "testCloseBySpace, the ok button should be focused");
+  unsharePopup.addEventListener("popuphidden", function listener() {
+    unsharePopup.removeEventListener("popuphidden", listener);
     ok(true, "space closed the share popup");
-    executeSoon(testDisable);
+    executeSoon(testStillSharedIn2Tabs);
   });
   EventUtils.synthesizeKey("VK_SPACE", {});
+}
+
+function testStillSharedIn2Tabs() {
+  let toShare = "http://example.com";
+  let {shareButton} = SocialShareButton;
+  let initialTab = gBrowser.selectedTab;
+  if (shareButton.hasAttribute("shared")) {
+    SocialShareButton.unsharePage();
+  }
+  is(shareButton.hasAttribute("shared"), false, "Share button should not have 'shared' for the initial tab");
+  let tab1 = gBrowser.selectedTab = gBrowser.addTab(toShare);
+  let tab1b = gBrowser.getBrowserForTab(tab1);
+
+  tab1b.addEventListener("load", function tabLoad(event) {
+    tab1b.removeEventListener("load", tabLoad, true);
+    let tab2 = gBrowser.selectedTab = gBrowser.addTab(toShare);
+    let tab2b = gBrowser.getBrowserForTab(tab2);
+    tab2b.addEventListener("load", function tabLoad(event) {
+      tab2b.removeEventListener("load", tabLoad, true);
+      // should start without either page being shared.
+      is(shareButton.hasAttribute("shared"), false, "Share button should not have 'shared' before we've done anything");
+      EventUtils.synthesizeMouseAtCenter(shareButton, {});
+      is(shareButton.hasAttribute("shared"), true, "Share button should reflect the share");
+      // and switching to the first tab (with the same URL) should still reflect shared.
+      gBrowser.selectedTab = tab1;
+      is(shareButton.hasAttribute("shared"), true, "Share button should reflect the share");
+      // but switching back the initial one should reflect not shared.
+      gBrowser.selectedTab = initialTab;
+      is(shareButton.hasAttribute("shared"), false, "Initial tab should not reflect shared");
+
+      gBrowser.selectedTab = tab1;
+      SocialShareButton.unsharePage();
+      gBrowser.removeTab(tab1);
+      gBrowser.removeTab(tab2);
+      executeSoon(testStillSharedAfterReopen);
+    }, true);
+  }, true);
+}
+
+function testStillSharedAfterReopen() {
+  let toShare = "http://example.com";
+  let {shareButton} = SocialShareButton;
+
+  is(shareButton.hasAttribute("shared"), false, "Reopen: Share button should not have 'shared' for the initial tab");
+  let tab = gBrowser.selectedTab = gBrowser.addTab(toShare);
+  let tabb = gBrowser.getBrowserForTab(tab);
+  tabb.addEventListener("load", function tabLoad(event) {
+    tabb.removeEventListener("load", tabLoad, true);
+    SocialShareButton.sharePage();
+    is(shareButton.hasAttribute("shared"), true, "Share button should reflect the share");
+    gBrowser.removeTab(tab);
+    // should be on the initial unshared tab now.
+    is(shareButton.hasAttribute("shared"), false, "Initial tab should be selected and be unshared.");
+    // now open the same URL - should be back to shared.
+    tab = gBrowser.selectedTab = gBrowser.addTab(toShare, {skipAnimation: true});
+    tab.linkedBrowser.addEventListener("load", function tabLoad(event) {
+      tab.linkedBrowser.removeEventListener("load", tabLoad, true);
+      is(shareButton.hasAttribute("shared"), true, "New tab to previously shared URL should reflect shared");
+      SocialShareButton.unsharePage();
+      gBrowser.removeTab(tab);
+      executeSoon(testDisable);
+    }, true);
+  }, true);
 }
 
 function testDisable() {

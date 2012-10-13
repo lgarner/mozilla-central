@@ -48,12 +48,7 @@ MOCHITEST_BROWSER_FILES = \
 	browser_454908_sample.html \
 	browser_456342.js \
 	browser_456342_sample.xhtml \
-	browser_459906.js \
-	browser_459906_empty.html \
-	browser_459906_sample.html \
 	browser_461634.js \
-	browser_461743.js \
-	browser_461743_sample.html \
 	browser_463205.js \
 	browser_463205_helper.html \
 	browser_463205_sample.html \
@@ -88,7 +83,15 @@ MOCHITEST_BROWSER_FILES = \
 	browser_581593.js \
 	browser_581937.js \
 	browser_586147.js \
-	browser_586068-cascaded_restore.js \
+	browser_586068-apptabs.js \
+	browser_586068-apptabs_ondemand.js \
+	browser_586068-browser_state_interrupted.js \
+	browser_586068-cascade.js \
+	browser_586068-multi_window.js \
+	browser_586068-reload.js \
+	browser_586068-select.js \
+	browser_586068-window_state.js \
+	browser_586068-window_state_override.js \
 	browser_588426.js \
 	browser_590268.js \
 	browser_590563.js \
@@ -130,6 +133,12 @@ MOCHITEST_BROWSER_FILES = \
 	browser_739531_sample.html \
 	browser_739805.js \
 	$(NULL)
+
+$(warning browser_459906.js is disabled for intermittent failures. Bug 766044)
+#	browser_459906_empty.html \
+#	browser_459906_sample.html \
+$(warning browser_461743.js is disabled for intermittent failures. Bug 765389)
+#	browser_461743_sample.html \
 
 # Disabled on Windows for frequent intermittent failures
 ifneq ($(OS_ARCH), WINNT)

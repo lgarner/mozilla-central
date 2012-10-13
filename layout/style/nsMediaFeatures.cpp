@@ -250,7 +250,15 @@ GetResolution(nsPresContext* aPresContext, const nsMediaFeature*,
 {
     // Resolution measures device pixels per CSS (inch/cm/pixel).  We
     // return it in device pixels per CSS inches.
-    float dpi = float(nsPresContext::AppUnitsPerCSSInch()) /
+    //
+    // However, on platforms where the CSS viewport is not fixed to the
+    // screen viewport, use the device resolution instead (bug 779527).
+    nsIPresShell *shell = aPresContext->PresShell();
+    float appUnitsPerInch = shell->GetIsViewportOverridden() ?
+            GetDeviceContextFor(aPresContext)->AppUnitsPerPhysicalInch() :
+            nsPresContext::AppUnitsPerCSSInch();
+
+    float dpi = appUnitsPerInch /
                 float(aPresContext->AppUnitsPerDevPixel());
     aResult.SetFloatValue(dpi, eCSSUnit_Inch);
     return NS_OK;
@@ -319,6 +327,14 @@ GetWindowsTheme(nsPresContext* aPresContext, const nsMediaFeature* aFeature,
         }
     }
 #endif
+    return NS_OK;
+}
+
+static nsresult
+GetIsGlyph(nsPresContext* aPresContext, const nsMediaFeature* aFeature,
+          nsCSSValue& aResult)
+{
+    aResult.SetIntValue(aPresContext->IsGlyph() ? 1 : 0, eCSSUnit_Integer);
     return NS_OK;
 }
 
@@ -558,6 +574,17 @@ nsMediaFeatures::features[] = {
         nsMediaFeature::eIdent,
         { nullptr },
         GetWindowsTheme
+    },
+
+    // Internal -moz-is-glyph media feature: applies only inside SVG glyphs.
+    // Internal because it is really only useful in the user agent anyway
+    //  and therefore not worth standardizing.
+    {
+        &nsGkAtoms::_moz_is_glyph,
+        nsMediaFeature::eMinMaxNotAllowed,
+        nsMediaFeature::eBoolInteger,
+        { nullptr },
+        GetIsGlyph
     },
     // Null-mName terminator:
     {

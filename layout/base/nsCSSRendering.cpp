@@ -280,13 +280,17 @@ struct GradientCacheKey : public PLDHashEntryHdr {
   enum { ALLOW_MEMMOVE = true };
   const nsRefPtr<nsStyleGradient> mGradient;
   const gfxSize mGradientSize;
+  enum { SINGLE_CELL = 0x01 };
+  const uint32_t mFlags;
 
-  GradientCacheKey(nsStyleGradient* aGradient, const gfxSize& aGradientSize)
-    : mGradient(aGradient), mGradientSize(aGradientSize)
+  GradientCacheKey(nsStyleGradient* aGradient, const gfxSize& aGradientSize,
+                   uint32_t aFlags)
+    : mGradient(aGradient), mGradientSize(aGradientSize), mFlags(aFlags)
   { }
 
   GradientCacheKey(const GradientCacheKey* aOther)
-    : mGradient(aOther->mGradient), mGradientSize(aOther->mGradientSize)
+    : mGradient(aOther->mGradient), mGradientSize(aOther->mGradientSize),
+      mFlags(aOther->mFlags)
   { }
 
   static PLDHashNumber
@@ -295,6 +299,7 @@ struct GradientCacheKey : public PLDHashEntryHdr {
     PLDHashNumber hash = 0;
     hash = AddToHash(hash, aKey->mGradientSize.width);
     hash = AddToHash(hash, aKey->mGradientSize.height);
+    hash = AddToHash(hash, aKey->mFlags);
     hash = aKey->mGradient->Hash(hash);
     return hash;
   }
@@ -302,7 +307,8 @@ struct GradientCacheKey : public PLDHashEntryHdr {
   bool KeyEquals(KeyTypePointer aKey) const
   {
     return (*aKey->mGradient == *mGradient) &&
-           (aKey->mGradientSize == mGradientSize);
+           (aKey->mGradientSize == mGradientSize) &&
+           (aKey->mFlags == mFlags);
   }
   static KeyTypePointer KeyToPointer(KeyType aKey)
   {
@@ -315,7 +321,8 @@ struct GradientCacheKey : public PLDHashEntryHdr {
  * to the cache entry to be able to be tracked by the nsExpirationTracker.
  * */
 struct GradientCacheData {
-  GradientCacheData(gfxPattern* aPattern, bool aCoversTile, GradientCacheKey aKey)
+  GradientCacheData(gfxPattern* aPattern, bool aCoversTile,
+                    const GradientCacheKey& aKey)
     : mPattern(aPattern), mCoversTile(aCoversTile), mKey(aKey)
   {}
 
@@ -368,7 +375,8 @@ class GradientCache MOZ_FINAL : public nsExpirationTracker<GradientCacheData,4>
       mHashEntries.Remove(aObject->mKey);
     }
 
-    GradientCacheData* Lookup(nsStyleGradient* aKey, const gfxSize& aGradientSize)
+    GradientCacheData* Lookup(nsStyleGradient* aKey, const gfxSize& aGradientSize,
+                              uint32_t aFlags)
     {
       // We don't cache gradient that have Calc value, because the Calc object
       // can be deallocated by the time we want to compute the hash, and thus we
@@ -378,7 +386,8 @@ class GradientCache MOZ_FINAL : public nsExpirationTracker<GradientCacheData,4>
         return nullptr;
       }
 
-      GradientCacheData* gradient = mHashEntries.Get(GradientCacheKey(aKey, aGradientSize));
+      GradientCacheData* gradient =
+        mHashEntries.Get(GradientCacheKey(aKey, aGradientSize, aFlags));
 
       if (gradient) {
         MarkUsed(gradient);
@@ -389,11 +398,11 @@ class GradientCache MOZ_FINAL : public nsExpirationTracker<GradientCacheData,4>
 
     // Returns true if we successfully register the gradient in the cache, false
     // otherwise.
-    bool RegisterEntry(nsStyleGradient* aKey, const gfxSize& aGradientSize, GradientCacheData* aValue)
+    bool RegisterEntry(GradientCacheData* aValue)
     {
       // We don't cache gradient that have Calc values (see
       // GradientCache::Lookup).
-      if (aKey->HasCalc()) {
+      if (aValue->mKey.mGradient->HasCalc()) {
         return false;
       }
       nsresult rv = AddObject(aValue);
@@ -405,7 +414,7 @@ class GradientCache MOZ_FINAL : public nsExpirationTracker<GradientCacheData,4>
         // anyway, we probably don't want to retain things.
         return false;
       }
-      mHashEntries.Put(GradientCacheKey(aKey, aGradientSize), aValue);
+      mHashEntries.Put(aValue->mKey, aValue);
       return true;
     }
 
@@ -1025,7 +1034,7 @@ nsCSSRendering::FindBackgroundStyleFrame(nsIFrame* aForFrame)
   // SCRIPT that does "document.location.href = 'foo'", then
   // nsParser::Terminate will call |DidBuildModel| methods
   // through to the content sink, which will call |StartLayout|
-  // and thus |InitialReflow| on the pres shell.  See bug 119351
+  // and thus |Initialize| on the pres shell.  See bug 119351
   // for the ugly details.
   if (!bodyContent) {
     return aForFrame;
@@ -1482,7 +1491,8 @@ nsCSSRendering::PaintBackground(nsPresContext* aPresContext,
                                 const nsRect& aDirtyRect,
                                 const nsRect& aBorderArea,
                                 uint32_t aFlags,
-                                nsRect* aBGClipRect)
+                                nsRect* aBGClipRect,
+                                int32_t aLayer)
 {
   SAMPLE_LABEL("nsCSSRendering", "PaintBackground");
   NS_PRECONDITION(aForFrame,
@@ -1510,7 +1520,7 @@ nsCSSRendering::PaintBackground(nsPresContext* aPresContext,
   PaintBackgroundWithSC(aPresContext, aRenderingContext, aForFrame,
                         aDirtyRect, aBorderArea, sc,
                         *aForFrame->GetStyleBorder(), aFlags,
-                        aBGClipRect);
+                        aBGClipRect, aLayer);
 }
 
 static bool
@@ -1945,6 +1955,7 @@ ComputeRadialGradientLine(nsPresContext* aPresContext,
     break;
   }
   default:
+    radiusX = radiusY = 0;
     NS_ABORT_IF_FALSE(false, "unknown radial gradient sizing method");
   }
   *aRadiusX = radiusX;
@@ -2010,9 +2021,13 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
   nscoord appUnitsPerPixel = aPresContext->AppUnitsPerDevPixel();
   gfxRect oneCellArea =
     nsLayoutUtils::RectToGfxRect(aOneCellArea, appUnitsPerPixel);
-
   bool gradientRegistered = true;
-  GradientCacheData* pattern = gGradientCache->Lookup(aGradient, oneCellArea.Size());
+  uint32_t flags = 0;
+  if (aOneCellArea.Contains(aFillArea)) {
+    flags |= GradientCacheKey::SINGLE_CELL;
+  }
+  GradientCacheData* pattern =
+    gGradientCache->Lookup(aGradient, oneCellArea.Size(), flags);
 
   if (pattern == nullptr) {
     // Compute "gradient line" start and end relative to oneCellArea
@@ -2066,6 +2081,13 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
       case eStyleUnit_Coord:
         position = lineLength < 1e-6 ? 0.0 :
             stop.mLocation.GetCoordValue() / appUnitsPerPixel / lineLength;
+        break;
+      case eStyleUnit_Calc:
+        nsStyleCoord::Calc *calc;
+        calc = stop.mLocation.GetCalcValue();
+        position = calc->mPercent +
+            ((lineLength < 1e-6) ? 0.0 :
+            (NSAppUnitsToFloatPixels(calc->mLength, appUnitsPerPixel) / lineLength));
         break;
       default:
         NS_ABORT_IF_FALSE(false, "Unknown stop position type");
@@ -2192,10 +2214,11 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
       // When the gradient line is parallel to the x axis from the left edge
       // to the right edge of a tile, then we can repeat by just repeating the
       // gradient.
-      if ((gradientStart.y == gradientEnd.y && gradientStart.x == 0 &&
-           gradientEnd.x == oneCellArea.width) ||
-          (gradientStart.x == gradientEnd.x && gradientStart.y == 0 &&
-           gradientEnd.y == oneCellArea.height)) {
+      if (!(flags & GradientCacheKey::SINGLE_CELL) &&
+          ((gradientStart.y == gradientEnd.y && gradientStart.x == 0 &&
+            gradientEnd.x == oneCellArea.width) ||
+           (gradientStart.x == gradientEnd.x && gradientStart.y == 0 &&
+            gradientEnd.y == oneCellArea.height))) {
         forceRepeatToCoverTiles = true;
       }
     } else {
@@ -2252,8 +2275,9 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
       gradientPattern->SetExtend(gfxPattern::EXTEND_REPEAT);
     }
     // Register the gradient newly computed in the cache.
-    pattern = new GradientCacheData(gradientPattern, forceRepeatToCoverTiles, GradientCacheKey(aGradient, oneCellArea.Size()));
-    gradientRegistered = gGradientCache->RegisterEntry(aGradient, oneCellArea.Size(), pattern);
+    pattern = new GradientCacheData(gradientPattern, forceRepeatToCoverTiles,
+      GradientCacheKey(aGradient, oneCellArea.Size(), flags));
+    gradientRegistered = gGradientCache->RegisterEntry(pattern);
   }
 
   // Paint gradient tiles. This isn't terribly efficient, but doing it this
@@ -2267,6 +2291,7 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
   gfxRect areaToFill =
     nsLayoutUtils::RectToGfxRect(aFillArea, appUnitsPerPixel);
   gfxMatrix ctm = ctx->CurrentMatrix();
+  bool isCTMPreservingAxisAlignedRectangles = ctm.PreservesAxisAlignedRectangles();
 
   // xStart/yStart are the top-left corner of the top-left tile.
   nscoord xStart = FindTileStart(dirty.x, aOneCellArea.x, aOneCellArea.width);
@@ -2286,27 +2311,30 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
       gfxRect fillRect =
         pattern->mCoversTile ? areaToFill : tileRect.Intersect(areaToFill);
       ctx->NewPath();
-      // If we can snap the gradient tile and fill rects, do so, but make sure
-      // that the gradient is scaled precisely to the tile rect.
-      gfxRect fillRectSnapped = fillRect;
-      // Don't snap the tileRect directly since that would lose information
-      // about the orientation of the current transform (i.e. vertical or
-      // horizontal flipping). Instead snap the corners independently so if
-      // the CTM has a flip, our Scale() below preserves the flip.
-      gfxPoint tileRectSnappedTopLeft = tileRect.TopLeft();
-      gfxPoint tileRectSnappedBottomRight = tileRect.BottomRight();
-      if (ctx->UserToDevicePixelSnapped(fillRectSnapped, true) &&
-          ctx->UserToDevicePixelSnapped(tileRectSnappedTopLeft, true) &&
-          ctx->UserToDevicePixelSnapped(tileRectSnappedBottomRight, true)) {
+      // Try snapping the fill rect. Snap its top-left and bottom-right
+      // independently to preserve the orientation.
+      gfxPoint snappedFillRectTopLeft = fillRect.TopLeft();
+      gfxPoint snappedFillRectBottomRight = fillRect.BottomRight();
+      if (isCTMPreservingAxisAlignedRectangles &&
+          ctx->UserToDevicePixelSnapped(snappedFillRectTopLeft, true) &&
+          ctx->UserToDevicePixelSnapped(snappedFillRectBottomRight, true)) {
+        if (snappedFillRectTopLeft.x == snappedFillRectBottomRight.x ||
+            snappedFillRectTopLeft.y == snappedFillRectBottomRight.y) {
+          // Nothing to draw; avoid scaling by zero and other weirdness that
+          // could put the context in an error state.
+          continue;
+        }
+        // Set the context's transform to the transform that maps fillRect to
+        // snappedFillRect. The part of the gradient that was going to
+        // exactly fill fillRect will fill snappedFillRect instead.
         ctx->IdentityMatrix();
-        ctx->Rectangle(fillRectSnapped);
-        ctx->Translate(tileRectSnappedTopLeft);
-        ctx->Scale((tileRectSnappedBottomRight.x - tileRectSnappedTopLeft.x)/tileRect.width,
-                   (tileRectSnappedBottomRight.y - tileRectSnappedTopLeft.y)/tileRect.height);
-      } else {
-        ctx->Rectangle(fillRect);
-        ctx->Translate(tileRect.TopLeft());
+        ctx->Translate(snappedFillRectTopLeft);
+        ctx->Scale((snappedFillRectBottomRight.x - snappedFillRectTopLeft.x)/fillRect.width,
+                   (snappedFillRectBottomRight.y - snappedFillRectTopLeft.y)/fillRect.height);
+        ctx->Translate(-fillRect.TopLeft());
       }
+      ctx->Rectangle(fillRect);
+      ctx->Translate(tileRect.TopLeft());
       ctx->SetPattern(pattern->mPattern);
       ctx->Fill();
       ctx->SetMatrix(ctm);
@@ -2328,7 +2356,8 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
                                       nsStyleContext* aBackgroundSC,
                                       const nsStyleBorder& aBorder,
                                       uint32_t aFlags,
-                                      nsRect* aBGClipRect)
+                                      nsRect* aBGClipRect,
+                                      int32_t aLayer)
 {
   NS_PRECONDITION(aForFrame,
                   "Frame is expected to be provided to PaintBackground");
@@ -2372,6 +2401,14 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
                                              drawBackgroundImage,
                                              drawBackgroundColor);
 
+  // If we're not drawing the back-most layer, we don't want to draw the
+  // background color.
+  const nsStyleBackground *bg = aBackgroundSC->GetStyleBackground();
+  if (drawBackgroundColor && aLayer >= 0 &&
+      static_cast<uint32_t>(aLayer) != bg->mImageCount - 1) {
+    drawBackgroundColor = false;
+  }
+
   // At this point, drawBackgroundImage and drawBackgroundColor are
   // true if and only if we are actually supposed to paint an image or
   // color into aDirtyRect, respectively.
@@ -2406,7 +2443,6 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
   // SetupCurrentBackgroundClip.  (Arguably it should be the
   // intersection, but that breaks the table painter -- in particular,
   // taking the intersection breaks reftests/bugs/403249-1[ab].)
-  const nsStyleBackground *bg = aBackgroundSC->GetStyleBackground();
   BackgroundClipState clipState;
   uint8_t currentBackgroundClip;
   bool isSolidBorder;
@@ -2456,13 +2492,27 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
     return;
   }
 
+  if (bg->mImageCount < 1) {
+    // Return if there are no background layers, all work from this point
+    // onwards happens iteratively on these.
+    return;
+  }
+
+  // Validate the layer range before we start iterating.
+  int32_t startLayer = aLayer;
+  int32_t nLayers = 1;
+  if (startLayer < 0) {
+    startLayer = (int32_t)bg->mImageCount - 1;
+    nLayers = bg->mImageCount;
+  }
+
   // Ensure we get invalidated for loads of the image.  We need to do
   // this here because this might be the only code that knows about the
   // association of the style data with the frame.
   if (aBackgroundSC != aForFrame->GetStyleContext()) {
     ImageLoader* loader = aPresContext->Document()->StyleImageLoader();
-    
-    NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT(i, bg) {
+
+    NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT_WITH_RANGE(i, bg, startLayer, nLayers) {
       if (bg->mLayers[i].mImage.GetType() == eStyleImageType_Image) {
         imgIRequest *image = bg->mLayers[i].mImage.GetImageData();
 
@@ -2479,7 +2529,7 @@ nsCSSRendering::PaintBackgroundWithSC(nsPresContext* aPresContext,
 
   if (drawBackgroundImage) {
     bool clipSet = false;
-    NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT(i, bg) {
+    NS_FOR_VISIBLE_BACKGROUND_LAYERS_BACK_TO_FRONT_WITH_RANGE(i, bg, startLayer, nLayers) {
       const nsStyleBackground::Layer &layer = bg->mLayers[i];
       if (!aBGClipRect) {
         uint8_t newBackgroundClip = layer.mClip;
@@ -2911,12 +2961,12 @@ DrawBorderImage(nsPresContext*       aPresContext,
   };
   const int32_t sliceWidth[3] = {
     slice.left,
-    PR_MAX(imageSize.width - slice.left - slice.right, 0),
+    NS_MAX(imageSize.width - slice.left - slice.right, 0),
     slice.right,
   };
   const int32_t sliceHeight[3] = {
     slice.top,
-    PR_MAX(imageSize.height - slice.top - slice.bottom, 0),
+    NS_MAX(imageSize.height - slice.top - slice.bottom, 0),
     slice.bottom,
   };
 

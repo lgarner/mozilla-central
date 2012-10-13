@@ -23,8 +23,6 @@ function WorkerAPI(provider, port) {
   this._port = port;
   this._port.onmessage = this._handleMessage.bind(this);
 
-  this.initialized = false;
-
   // Send an "intro" message so the worker knows this is the port
   // used for the api.
   // later we might even include an API version - version 0 for now!
@@ -35,6 +33,10 @@ function WorkerAPI(provider, port) {
 }
 
 WorkerAPI.prototype = {
+  terminate: function terminate() {
+    this._port.close();
+  },
+
   _handleMessage: function _handleMessage(event) {
     let {topic, data} = event.data;
     let handler = this.handlers[topic];
@@ -50,9 +52,6 @@ WorkerAPI.prototype = {
   },
 
   handlers: {
-    "social.initialize-response": function (data) {
-      this.initialized = true;
-    },
     "social.user-profile": function (data) {
       this._provider.updateUserProfile(data);
     },
@@ -76,6 +75,9 @@ WorkerAPI.prototype = {
       openChatWindow(xulWindow, this._provider, data, null, "minimized");
     },
     'social.notification-create': function(data) {
+      if (!Services.prefs.getBoolPref("social.toast-notifications.enabled"))
+        return;
+
       let port = this._port;
       let provider = this._provider;
       let {id, type, icon, body, action, actionArgs} = data;

@@ -119,6 +119,7 @@
 
 #include "nsRefreshDriver.h"
 #include "nsRuleProcessorData.h"
+#include "sampler.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -164,6 +165,8 @@ nsIFrame*
 NS_NewSVGContainerFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 nsIFrame*
 NS_NewSVGUseFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
+nsIFrame*
+NS_NewSVGViewFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 extern nsIFrame*
 NS_NewSVGLinearGradientFrame(nsIPresShell *aPresShell, nsStyleContext* aContext);
 extern nsIFrame*
@@ -3867,7 +3870,7 @@ nsCSSFrameConstructor::CreateAnonymousFrames(nsFrameConstructorState& aState,
 }
 
 static void
-SetFlagsOnSubtree(nsIContent *aNode, PtrBits aFlagsToSet)
+SetFlagsOnSubtree(nsIContent *aNode, uintptr_t aFlagsToSet)
 {
 #ifdef DEBUG
   // Make sure that the node passed to us doesn't have any XBL children
@@ -4974,6 +4977,7 @@ nsCSSFrameConstructor::FindSVGData(Element* aElement,
     SIMPLE_SVG_CREATE(radialGradient, NS_NewSVGRadialGradientFrame),
     SIMPLE_SVG_CREATE(stop, NS_NewSVGStopFrame),
     SIMPLE_SVG_CREATE(use, NS_NewSVGUseFrame),
+    SIMPLE_SVG_CREATE(view, NS_NewSVGViewFrame),
     SIMPLE_SVG_CREATE(marker, NS_NewSVGMarkerFrame),
     SIMPLE_SVG_CREATE(image, NS_NewSVGImageFrame),
     SIMPLE_SVG_CREATE(clipPath, NS_NewSVGClipPathFrame),
@@ -5511,7 +5515,7 @@ nsCSSFrameConstructor::ConstructFramesFromItem(nsFrameConstructorState& aState,
     // We don't do it for SVG text, since we might need to position and
     // measure the white space glyphs due to x/y/dx/dy attributes.
     if (AtLineBoundary(aIter) &&
-        !styleContext->GetStyleText()->NewlineIsSignificant() &&
+        !styleContext->GetStyleText()->WhiteSpaceOrNewlineIsSignificant() &&
         aIter.List()->ParentHasNoXBLChildren() &&
         !(aState.mAdditionalStateBits & NS_FRAME_GENERATED_CONTENT) &&
         (item.mFCData->mBits & FCDATA_IS_LINE_PARTICIPANT) &&
@@ -5688,6 +5692,9 @@ AdjustAppendParentForAfterContent(nsPresContext* aPresContext,
   if (nsLayoutUtils::HasPseudoStyle(aContainer, parentStyle,
                                     nsCSSPseudoElements::ePseudo_after,
                                     aPresContext)) {
+    // Ensure that the :after frame is on the principal child list.
+    aParentFrame->DrainSelfOverflowList();
+
     nsIFrame* afterFrame = nsLayoutUtils::GetAfterFrame(aParentFrame);
     if (afterFrame) {
       *aAfterFrame = afterFrame;
@@ -5730,8 +5737,13 @@ FindAppendPrevSibling(nsIFrame* aParentFrame, nsIFrame* aAfterFrame)
 {
   if (aAfterFrame) {
     NS_ASSERTION(aAfterFrame->GetParent() == aParentFrame, "Wrong parent");
+    NS_ASSERTION(aAfterFrame->GetPrevSibling() ||
+                 aParentFrame->GetFirstPrincipalChild() == aAfterFrame,
+                 ":after frame must be on the principal child list here");
     return aAfterFrame->GetPrevSibling();
   }
+
+  aParentFrame->DrainSelfOverflowList();
 
   return aParentFrame->GetLastChild(kPrincipalList);
 }
@@ -7692,11 +7704,6 @@ UpdateViewsForTree(nsIFrame* aFrame,
           DoApplyRenderingChangeToTree(child, aFrameManager,
                                        aChange);
         } else {  // regular frame
-          if ((child->GetStateBits() & NS_FRAME_HAS_CONTAINER_LAYER) &&
-              (aChange & nsChangeHint_RepaintFrame)) {
-            FrameLayerBuilder::InvalidateThebesLayerContents(child,
-              child->GetVisualOverflowRectRelativeToSelf());
-          }
           UpdateViewsForTree(child, aFrameManager, aChange);
         }
       }
@@ -7725,35 +7732,47 @@ DoApplyRenderingChangeToTree(nsIFrame* aFrame,
                        nsChangeHint(aChange & (nsChangeHint_RepaintFrame |
                                                nsChangeHint_SyncFrameView |
                                                nsChangeHint_UpdateOpacityLayer)));
+    // This must be set to true if the rendering change needs to
+    // invalidate content.  If it's false, a composite-only paint
+    // (empty transaction) will be scheduled.
+    bool needInvalidatingPaint = false;
 
     // if frame has view, will already be invalidated
     if (aChange & nsChangeHint_RepaintFrame) {
       if (aFrame->IsFrameOfType(nsIFrame::eSVG) &&
           !(aFrame->GetStateBits() & NS_STATE_IS_OUTER_SVG)) {
         if (aChange & nsChangeHint_UpdateEffects) {
+          needInvalidatingPaint = true;
           // Invalidate and update our area:
           nsSVGUtils::InvalidateAndScheduleReflowSVG(aFrame);
         } else {
+          needInvalidatingPaint = true;
           // Just invalidate our area:
           nsSVGUtils::InvalidateBounds(aFrame);
         }
       } else {
-        aFrame->InvalidateOverflowRect();
+        needInvalidatingPaint = true;
+        aFrame->InvalidateFrameSubtree();
       }
     }
     if (aChange & nsChangeHint_UpdateOpacityLayer) {
+      // FIXME/bug 796697: we can get away with empty transactions for
+      // opacity updates in many cases.
+      needInvalidatingPaint = true;
       aFrame->MarkLayersActive(nsChangeHint_UpdateOpacityLayer);
-      aFrame->InvalidateLayer(aFrame->GetVisualOverflowRectRelativeToSelf(),
-                              nsDisplayItem::TYPE_OPACITY);
     }
-    
     if (aChange & nsChangeHint_UpdateTransformLayer) {
       aFrame->MarkLayersActive(nsChangeHint_UpdateTransformLayer);
-      // Invalidate the old transformed area. The new transformed area
-      // will be invalidated by nsFrame::FinishAndStoreOverflowArea.
-      aFrame->InvalidateTransformLayer();
+      // If we're not already going to do an invalidating paint, see
+      // if we can get away with only updating the transform on a
+      // layer for this frame, and not scheduling an invalidating
+      // paint.
+      if (!needInvalidatingPaint) {
+        needInvalidatingPaint |= !aFrame->TryUpdateTransformOnly();
+      }
     }
     if (aChange & nsChangeHint_ChildrenOnlyTransform) {
+      needInvalidatingPaint = true;
       // The long comment in ProcessRestyledFrames that precedes the
       // |frame->GetContent()->GetPrimaryFrame()| and abort applies here too.
       nsIFrame *f = aFrame->GetContent()->GetPrimaryFrame();
@@ -7763,11 +7782,11 @@ DoApplyRenderingChangeToTree(nsIFrame* aFrame,
       nsIFrame* childFrame = f->GetFirstPrincipalChild();
       for ( ; childFrame; childFrame = childFrame->GetNextSibling()) {
         childFrame->MarkLayersActive(nsChangeHint_UpdateTransformLayer);
-        // Invalidate the old transformed area. The new transformed area
-        // will be invalidated by nsFrame::FinishAndStoreOverflowArea.
-        childFrame->InvalidateTransformLayer();
       }
     }
+    aFrame->SchedulePaint(needInvalidatingPaint ?
+                          nsIFrame::PAINT_DEFAULT :
+                          nsIFrame::PAINT_COMPOSITE_ONLY);
   }
 }
 
@@ -8009,6 +8028,8 @@ nsCSSFrameConstructor::ProcessRestyledFrames(nsStyleChangeList& aChangeList)
   if (!count)
     return NS_OK;
 
+  SAMPLE_LABEL("CSS", "ProcessRestyledFrames");
+
   // Make sure to not rebuild quote or counter lists while we're
   // processing restyles
   BeginUpdate();
@@ -8041,7 +8062,7 @@ nsCSSFrameConstructor::ProcessRestyledFrames(nsStyleChangeList& aChangeList)
     nsChangeHint hint;
     aChangeList.ChangeAt(index, frame, content, hint);
 
-    NS_ASSERTION(!(hint & nsChangeHint_ReflowFrame) ||
+    NS_ASSERTION(!(hint & nsChangeHint_AllReflowHints) ||
                  (hint & nsChangeHint_NeedReflow),
                  "Reflow hint bits set without actually asking for a reflow");
 
@@ -8178,10 +8199,9 @@ nsCSSFrameConstructor::ProcessRestyledFrames(nsStyleChangeList& aChangeList)
     // RepaintFrame changes can indicate changes in opacity etc which
     // can require plugin clipping to change. If we requested a reflow,
     // we don't need to do this since the reflow will do it for us.
-    nsIFrame* rootFrame = GetRootFrame();
     nsRootPresContext* rootPC = presContext->GetRootPresContext();
     if (rootPC) {
-      rootPC->RequestUpdatePluginGeometry(rootFrame);
+      rootPC->RequestUpdatePluginGeometry();
     }
   }
 
@@ -9028,23 +9048,42 @@ nsCSSFrameConstructor::CaptureStateForFramesOf(nsIContent* aContent,
   }
 }
 
+static bool EqualURIs(mozilla::css::URLValue *aURI1,
+                      mozilla::css::URLValue *aURI2)
+{
+  return aURI1 == aURI2 ||    // handle null==null, and optimize
+         (aURI1 && aURI2 && aURI1->URIEquals(*aURI2));
+}
+
 nsresult
 nsCSSFrameConstructor::MaybeRecreateFramesForElement(Element* aElement)
 {
-  nsresult result = NS_OK;
+  nsRefPtr<nsStyleContext> oldContext = GetUndisplayedContent(aElement);
+  if (!oldContext) {
+    return NS_OK;
+  }
 
-  nsStyleContext *oldContext = GetUndisplayedContent(aElement);
-  if (oldContext) {
-    // The parent has a frame, so try resolving a new context.
-    nsRefPtr<nsStyleContext> newContext = mPresShell->StyleSet()->
-      ResolveStyleFor(aElement, oldContext->GetParent());
+  // The parent has a frame, so try resolving a new context.
+  nsRefPtr<nsStyleContext> newContext = mPresShell->StyleSet()->
+    ResolveStyleFor(aElement, oldContext->GetParent());
 
-    ChangeUndisplayedContent(aElement, newContext);
-    if (newContext->GetStyleDisplay()->mDisplay != NS_STYLE_DISPLAY_NONE) {
-      result = RecreateFramesForContent(aElement, false);
+  ChangeUndisplayedContent(aElement, newContext);
+  const nsStyleDisplay* disp = newContext->GetStyleDisplay();
+  if (disp->mDisplay == NS_STYLE_DISPLAY_NONE) {
+    // We can skip trying to recreate frames here, but only if our style
+    // context does not have a binding URI that differs from our old one.
+    // Otherwise, we should try to recreate, because we may want to apply the
+    // new binding
+    if (!disp->mBinding) {
+      return NS_OK;
+    }
+    const nsStyleDisplay* oldDisp = oldContext->PeekStyleDisplay();
+    if (oldDisp && EqualURIs(disp->mBinding, oldDisp->mBinding)) {
+      return NS_OK;
     }
   }
-  return result;
+
+  return RecreateFramesForContent(aElement, false);
 }
 
 static nsIFrame*
@@ -9554,7 +9593,7 @@ nsCSSFrameConstructor::CreateNeededAnonFlexItems(
                                 true);
 
     newItem->mIsAllInline = newItem->mHasInlineEnds =
-      newItem->mStyleContext->GetStyleDisplay()->IsInlineOutside();
+      newItem->mStyleContext->GetStyleDisplay()->IsInlineOutsideStyle();
     newItem->mIsBlock = !newItem->mIsAllInline;
 
     NS_ABORT_IF_FALSE(!newItem->mIsAllInline && newItem->mIsBlock,
@@ -12405,11 +12444,22 @@ nsCSSFrameConstructor::RecomputePosition(nsIFrame* aFrame)
     return true;
   }
 
+  // Don't process position changes on frames which have views or the ones which
+  // have a view somewhere in their descendants, because the corresponding view
+  // needs to be repositioned properly as well.
+  if (aFrame->HasView() ||
+      (aFrame->GetStateBits() & NS_FRAME_HAS_CHILD_WITH_VIEW)) {
+    StyleChangeReflow(aFrame, nsChangeHint_NeedReflow);
+    return false;
+  }
+
   const nsStyleDisplay* display = aFrame->GetStyleDisplay();
   // Changes to the offsets of a non-positioned element can safely be ignored.
   if (display->mPosition == NS_STYLE_POSITION_STATIC) {
     return true;
   }
+
+  aFrame->SchedulePaint();
 
   // For relative positioning, we can simply update the frame rect
   if (display->mPosition == NS_STYLE_POSITION_RELATIVE) {
@@ -12417,9 +12467,6 @@ nsCSSFrameConstructor::RecomputePosition(nsIFrame* aFrame)
     const nsSize size = cb->GetSize();
     const nsPoint oldOffsets = aFrame->GetRelativeOffset();
     nsMargin newOffsets;
-
-    // Invalidate the old rect
-    aFrame->InvalidateOverflowRect();
 
     // Move the frame
     nsHTMLReflowState::ComputeRelativeOffsets(
@@ -12430,9 +12477,6 @@ nsCSSFrameConstructor::RecomputePosition(nsIFrame* aFrame)
                  "ComputeRelativeOffsets should return valid results");
     aFrame->SetPosition(aFrame->GetPosition() - oldOffsets +
                         nsPoint(newOffsets.left, newOffsets.top));
-
-    // Invalidate the new rect
-    aFrame->InvalidateFrameSubtree();
 
     return true;
   }
@@ -12504,19 +12548,13 @@ nsCSSFrameConstructor::RecomputePosition(nsIFrame* aFrame)
                                          size.height -
                                          reflowState.mComputedMargin.top;
     }
-
-    // Invalidate the old rect
-    aFrame->InvalidateFrameSubtree();
-
+    
     // Move the frame
     nsPoint pos(parentBorder.left + reflowState.mComputedOffsets.left +
                 reflowState.mComputedMargin.left,
                 parentBorder.top + reflowState.mComputedOffsets.top +
                 reflowState.mComputedMargin.top);
     aFrame->SetPosition(pos);
-
-    // Invalidate the new rect
-    aFrame->InvalidateFrameSubtree();
 
     return true;
   }

@@ -20,6 +20,7 @@ import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 
@@ -31,7 +32,7 @@ import java.util.HashSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class Tab {
+public class Tab {
     private static final String LOGTAG = "GeckoTab";
 
     private static Pattern sColorPattern;
@@ -65,6 +66,7 @@ public final class Tab {
     private ByteBuffer mThumbnailBuffer;
     private Bitmap mThumbnailBitmap;
     private boolean mDesktopMode;
+    private boolean mEnteringReaderMode;
 
     public static final int STATE_DELAYED = 0;
     public static final int STATE_LOADING = 1;
@@ -83,6 +85,7 @@ public final class Tab {
         mFaviconSize = 0;
         mIdentityData = null;
         mReaderEnabled = false;
+        mEnteringReaderMode = false;
         mThumbnail = null;
         mHistoryIndex = -1;
         mHistorySize = 0;
@@ -94,7 +97,7 @@ public final class Tab {
         mZoomConstraints = new ZoomConstraints(false);
         mPluginViews = new ArrayList<View>();
         mPluginLayers = new HashMap<Object, Layer>();
-        mState = "about:home".equals(url) ? STATE_SUCCESS : STATE_LOADING;
+        mState = GeckoApp.shouldShowProgress(url) ? STATE_SUCCESS : STATE_LOADING;
         mContentResolver = Tabs.getInstance().getContentResolver();
         mContentObserver = new ContentObserver(GeckoAppShell.getHandler()) {
             public void onChange(boolean selfChange) {
@@ -260,7 +263,7 @@ public final class Tab {
     }
 
     public void setContentType(String contentType) {
-        mContentType = contentType;
+        mContentType = (contentType == null) ? "" : contentType;
     }
 
     public String getContentType() {
@@ -268,6 +271,10 @@ public final class Tab {
     }
 
     public synchronized void updateTitle(String title) {
+        // Keep the title unchanged while entering reader mode
+        if (mEnteringReaderMode)
+            return;
+
         mTitle = (title == null ? "" : title);
 
         Log.d(LOGTAG, "Updated title for tab with id: " + mId);
@@ -281,7 +288,15 @@ public final class Tab {
         });
     }
 
-    private void updateHistory(final String uri, final String title) {
+    protected void addHistory(final String uri) {
+        GeckoAppShell.getHandler().post(new Runnable() {
+            public void run() {
+                GlobalHistory.getInstance().add(uri);
+            }
+        });
+    }
+
+    protected void updateHistory(final String uri, final String title) {
         GeckoAppShell.getHandler().post(new Runnable() {
             public void run() {
                 GlobalHistory.getInstance().update(uri, title);
@@ -291,7 +306,10 @@ public final class Tab {
 
     public void setState(int state) {
         mState = state;
-    }
+
+        if (mState != Tab.STATE_LOADING)
+            mEnteringReaderMode = false;
+        }
 
     public int getState() {
         return mState;
@@ -341,6 +359,10 @@ public final class Tab {
     }
 
     public synchronized void clearFavicon() {
+        // Keep the favicon unchanged while entering reader mode
+        if (mEnteringReaderMode)
+            return;
+
         mFavicon = null;
         mFaviconUrl = null;
         mFaviconSize = 0;
@@ -439,9 +461,12 @@ public final class Tab {
         if (!mReaderEnabled)
             return;
 
-        GeckoApp.mAppContext.loadUrl("about:reader?tabId=" + mId +
-                                     "&url=" + Uri.encode(getURL()) +
-                                     "&readingList=" + (mReadingListItem ? 1 : 0));
+        mEnteringReaderMode = true;
+        Tabs.getInstance().loadUrl(ReaderModeUtils.getAboutReaderForUrl(getURL(), mId, mReadingListItem));
+    }
+
+    public boolean isEnteringReaderMode() {
+        return mEnteringReaderMode;
     }
 
     public void doReload() {
@@ -487,11 +512,7 @@ public final class Tab {
             final String url = message.getString("url");
             mHistoryIndex++;
             mHistorySize = mHistoryIndex + 1;
-            GeckoAppShell.getHandler().post(new Runnable() {
-                public void run() {
-                    GlobalHistory.getInstance().add(url);
-                }
-            });
+            addHistory(url);
         } else if (event.equals("Back")) {
             if (!canDoBack()) {
                 Log.e(LOGTAG, "Received unexpected back notification");
@@ -531,6 +552,7 @@ public final class Tab {
 
     void handleLocationChange(JSONObject message) throws JSONException {
         final String uri = message.getString("uri");
+        mEnteringReaderMode = ReaderModeUtils.isEnteringReaderMode(mUrl, uri);
         updateURL(uri);
 
         setDocumentURI(message.getString("documentURI"));
@@ -555,7 +577,7 @@ public final class Tab {
         });
     }
 
-    private void saveThumbnailToDB() {
+    protected void saveThumbnailToDB() {
         try {
             String url = getURL();
             if (url == null)
@@ -641,5 +663,9 @@ public final class Tab {
 
     public boolean getDesktopMode() {
         return mDesktopMode;
+    }
+
+    public boolean isPrivate() {
+        return false;
     }
 }

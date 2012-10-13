@@ -870,14 +870,6 @@ FullTrustSecMan::GetCxSubjectPrincipal(JSContext *cx)
     return mSystemPrincipal;
 }
 
-NS_IMETHODIMP_(nsIPrincipal *)
-FullTrustSecMan::GetCxSubjectPrincipalAndFrame(JSContext *cx,
-                                               JSStackFrame **fp)
-{
-    *fp = nullptr;
-    return mSystemPrincipal;
-}
-
 NS_IMETHODIMP
 FullTrustSecMan::GetExtendedOrigin(nsIURI* aURI, uint32_t aAppId,
                                    bool aInMozBrowser,
@@ -1088,9 +1080,7 @@ XPCShellEnvironment::Init()
 
     nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
     rv = xpc->InitClassesWithNewWrappedGlobal(cx, backstagePass,
-                                              principal,
-                                              nsIXPConnect::
-                                                  FLAG_SYSTEM_GLOBAL_OBJECT,
+                                              principal, 0,
                                               getter_AddRefs(holder));
     if (NS_FAILED(rv)) {
         NS_ERROR("InitClassesWithNewWrappedGlobal failed!");

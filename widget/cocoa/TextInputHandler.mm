@@ -712,6 +712,12 @@ TISInputSourceWrapper::InitKeyEvent(NSEvent *aNativeKeyEvent,
   UInt32 nativeKeyCode = [aNativeKeyEvent keyCode];
 
   bool isPrintableKey = !TextInputHandler::IsSpecialGeckoKey(nativeKeyCode);
+  if (isPrintableKey &&
+      [aNativeKeyEvent type] != NSKeyDown &&
+      [aNativeKeyEvent type] != NSKeyUp) {
+    NS_WARNING("Why the printable key doesn't cause NSKeyDown or NSKeyUp?");
+    isPrintableKey = false;
+  }
 
   // Decide what string will be input.
   nsAutoString insertString;
@@ -2588,7 +2594,7 @@ IMEInputHandler::FirstRectForCharacterRange(NSRange& aRange)
   if (!rootWindow || !rootView) {
     return rect;
   }
-  nsCocoaUtils::GeckoRectToNSRect(r, rect);
+  rect = nsCocoaUtils::DevPixelsToCocoaPoints(r, mWidget->GetDefaultScale());
   rect = [rootView convertRect:rect toView:nil];
   rect.origin = [rootWindow convertBaseToScreen:rect.origin];
 

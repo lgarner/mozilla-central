@@ -59,11 +59,13 @@ XPCOMUtils.defineLazyGetter(SocialServiceInternal, "providers", function () {
   let providers = {};
   let MANIFEST_PREFS = Services.prefs.getBranch("social.manifest.");
   let prefs = MANIFEST_PREFS.getChildList("", {});
+  let appinfo = Cc["@mozilla.org/xre/app-info;1"]
+                  .getService(Ci.nsIXULRuntime);
   prefs.forEach(function (pref) {
     try {
       var manifest = JSON.parse(MANIFEST_PREFS.getCharPref(pref));
       if (manifest && typeof(manifest) == "object") {
-        let provider = new SocialProvider(manifest, SocialServiceInternal.enabled);
+        let provider = new SocialProvider(manifest, appinfo.inSafeMode ? false : SocialServiceInternal.enabled);
         providers[provider.origin] = provider;
       }
     } catch (err) {
@@ -86,7 +88,11 @@ const SocialService = {
   },
   set enabled(val) {
     let enable = !!val;
-    if (enable == SocialServiceInternal.enabled)
+
+    // Allow setting to the same value when in safe mode so the
+    // feature can be force enabled.
+    if (enable == SocialServiceInternal.enabled &&
+        !Services.appinfo.inSafeMode)
       return;
 
     Services.prefs.setBoolPref("social.enabled", enable);
@@ -191,25 +197,30 @@ SocialProvider.prototype = {
     }
   },
 
-  // Active port to the provider's FrameWorker. Null if the provider has no
-  // FrameWorker, or is disabled.
-  port: null,
-
   // Reference to a workerAPI object for this provider. Null if the provider has
   // no FrameWorker, or is disabled.
   workerAPI: null,
 
   // Contains information related to the user's profile. Populated by the
-  // workerAPI via updateUserProfile. Null if the provider has no FrameWorker.
+  // workerAPI via updateUserProfile.
   // Properties:
   //   iconURL, portrait, userName, displayName, profileURL
   // See https://github.com/mozilla/socialapi-dev/blob/develop/docs/socialAPI.md
-  profile: null,
+  // A value of null or an empty object means 'user not logged in'.
+  // A value of undefined means the service has not yet told us the status of
+  // the profile (ie, the service is still loading/initing, or the provider has
+  // no FrameWorker)
+  // This distinction might be used to cache certain data between runs - eg,
+  // browser-social.js caches the notification icons so they can be displayed
+  // quickly at startup without waiting for the provider to initialize -
+  // 'undefined' means 'ok to use cached values' versus 'null' meaning 'cached
+  // values aren't to be used as the user is logged out'.
+  profile: undefined,
 
   // Map of objects describing the provider's notification icons, whose
   // properties include:
   //   name, iconURL, counter, contentPanel
-  // See https://github.com/mozilla/socialapi-dev/blob/develop/docs/socialAPI.md
+  // See https://developer.mozilla.org/en-US/docs/Social_API
   ambientNotificationIcons: null,
 
   // Called by the workerAPI to update our profile information.
@@ -261,11 +272,9 @@ SocialProvider.prototype = {
   _activate: function _activate() {
     // Initialize the workerAPI and its port first, so that its initialization
     // occurs before any other messages are processed by other ports.
-    let workerAPIPort = this._getWorkerPort();
+    let workerAPIPort = this.getWorkerPort();
     if (workerAPIPort)
       this.workerAPI = new WorkerAPI(this, workerAPIPort);
-
-    this.port = this._getWorkerPort();
   },
 
   _terminate: function _terminate() {
@@ -276,7 +285,9 @@ SocialProvider.prototype = {
         Cu.reportError("SocialProvider FrameWorker termination failed: " + e);
       }
     }
-    this.port = null;
+    if (this.workerAPI) {
+      this.workerAPI.terminate();
+    }
     this.workerAPI = null;
   },
 
@@ -288,14 +299,9 @@ SocialProvider.prototype = {
    *
    * @param {DOMWindow} window (optional)
    */
-  _getWorkerPort: function _getWorkerPort(window) {
+  getWorkerPort: function getWorkerPort(window) {
     if (!this.workerURL || !this.enabled)
       return null;
-    try {
-      return getFrameWorkerHandle(this.workerURL, window).port;
-    } catch (ex) {
-      Cu.reportError("SocialProvider: retrieving worker port failed:" + ex);
-      return null;
-    }
+    return getFrameWorkerHandle(this.workerURL, window).port;
   }
 }

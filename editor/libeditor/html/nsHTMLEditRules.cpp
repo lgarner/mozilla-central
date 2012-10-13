@@ -1271,9 +1271,10 @@ nsHTMLEditRules::WillInsertText(EditAction aAction,
   nsCOMPtr<nsIDOMNode> selNode;
   int32_t selOffset;
 
-  // if the selection isn't collapsed, delete it.
+  // If the selection isn't collapsed, delete it.  Don't delete existing inline
+  // tags, because we're hopefully going to insert text (bug 787432).
   if (!aSelection->Collapsed()) {
-    res = mHTMLEditor->DeleteSelection(nsIEditor::eNone, nsIEditor::eStrip);
+    res = mHTMLEditor->DeleteSelection(nsIEditor::eNone, nsIEditor::eNoStrip);
     NS_ENSURE_SUCCESS(res, res);
   }
 
@@ -4553,9 +4554,11 @@ nsHTMLEditRules::WillAlign(Selection* aSelection,
 
     // Skip insignificant formatting text nodes to prevent
     // unnecessary structure splitting!
+    bool isEmptyTextNode = false;
     if (nsEditor::IsTextNode(curNode) &&
        ((nsHTMLEditUtils::IsTableElement(curParent) && !nsHTMLEditUtils::IsTableCellOrCaption(curParent)) ||
-        nsHTMLEditUtils::IsList(curParent)))
+        nsHTMLEditUtils::IsList(curParent) ||
+        (NS_SUCCEEDED(mHTMLEditor->IsEmptyNode(curNode, &isEmptyTextNode)) && isEmptyTextNode)))
       continue;
 
     // if it's a list item, or a list

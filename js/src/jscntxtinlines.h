@@ -78,11 +78,11 @@ NewObjectCache::fill(EntryIndex entry_, Class *clasp, gc::Cell *key, gc::AllocKi
 }
 
 inline void
-NewObjectCache::fillProto(EntryIndex entry, Class *clasp, JSObject *proto, gc::AllocKind kind, JSObject *obj)
+NewObjectCache::fillProto(EntryIndex entry, Class *clasp, js::TaggedProto proto, gc::AllocKind kind, JSObject *obj)
 {
-    JS_ASSERT(!proto->isGlobal());
-    JS_ASSERT(obj->getProto() == proto);
-    return fill(entry, clasp, proto, kind, obj);
+    JS_ASSERT_IF(proto.isObject(), !proto.toObject()->isGlobal());
+    JS_ASSERT(obj->getTaggedProto() == proto);
+    return fill(entry, clasp, proto.raw(), kind, obj);
 }
 
 inline void
@@ -134,12 +134,6 @@ struct PreserveRegsGuard
     FrameRegs &regs_;
 };
 
-inline GSNCache *
-GetGSNCache(JSContext *cx)
-{
-    return &cx->runtime->gsnCache;
-}
-
 #if JS_HAS_XML_SUPPORT
 
 class AutoNamespaceArray : protected AutoGCRooter {
@@ -176,7 +170,7 @@ class AutoPtr
   public:
     explicit AutoPtr(JSContext *cx) : cx(cx), value(NULL) {}
     ~AutoPtr() {
-        cx->delete_<T>(value);
+        js_delete<T>(value);
     }
 
     void operator=(T *ptr) { value = ptr; }
@@ -226,8 +220,6 @@ class CompartmentChecker
                 fail(compartment, c);
         }
     }
-
-    void check(JSPrincipals *) { /* nothing for now */ }
 
     void check(JSObject *obj) {
         if (obj)
@@ -414,16 +406,22 @@ CallJSNativeConstructor(JSContext *cx, Native native, const CallArgs &args)
      * constructor to return the callee, the assertion can be removed or
      * (another) conjunct can be added to the antecedent.
      *
-     * Proxies are exceptions to both rules: they can return primitives and
-     * they allow content to return the callee.
+     * Exceptions:
      *
-     * CallOrConstructBoundFunction is an exception as well because we
-     * might have used bind on a proxy function.
+     * - Proxies are exceptions to both rules: they can return primitives and
+     *   they allow content to return the callee.
      *
-     * (new Object(Object)) returns the callee.
+     * - CallOrConstructBoundFunction is an exception as well because we might
+     *   have used bind on a proxy function.
+     *
+     * - new Iterator(x) is user-hookable; it returns x.__iterator__() which
+     *   could be any object.
+     *
+     * - (new Object(Object)) returns the callee.
      */
     JS_ASSERT_IF(native != FunctionProxyClass.construct &&
                  native != js::CallOrConstructBoundFunction &&
+                 native != js::IteratorConstructor &&
                  (!callee->isFunction() || callee->toFunction()->native() != js_Object),
                  !args.rval().isPrimitive() && callee != &args.rval().toObject());
 
@@ -551,7 +549,7 @@ JSContext::ensureParseMapPool()
 {
     if (parseMapPool_)
         return true;
-    parseMapPool_ = js::OffTheBooks::new_<js::frontend::ParseMapPool>(this);
+    parseMapPool_ = js_new<js::frontend::ParseMapPool>(this);
     return parseMapPool_;
 }
 
@@ -559,44 +557,6 @@ inline js::PropertyTree&
 JSContext::propertyTree()
 {
     return compartment->propertyTree;
-}
-
-inline bool
-JSContext::hasEnteredCompartment() const
-{
-    return enterCompartmentDepth_ > 0;
-}
-
-inline void
-JSContext::enterCompartment(JSCompartment *c)
-{
-    enterCompartmentDepth_++;
-    compartment = c;
-    if (throwing)
-        wrapPendingException();
-}
-
-inline void
-JSContext::leaveCompartment(JSCompartment *oldCompartment)
-{
-    JS_ASSERT(hasEnteredCompartment());
-    enterCompartmentDepth_--;
-
-    /*
-     * Before we entered the current compartment, 'compartment' was
-     * 'oldCompartment', so we might want to simply set it back. However, we
-     * currently have this terrible scheme whereby defaultCompartmentObject_
-     * can be updated while enterCompartmentDepth_ > 0. In this case,
-     * oldCompartment != defaultCompartmentObject_->compartment and we must
-     * ignore oldCompartment.
-     */
-    if (hasEnteredCompartment() || !defaultCompartmentObject_)
-        compartment = oldCompartment;
-    else
-        compartment = defaultCompartmentObject_->compartment();
-
-    if (throwing)
-        wrapPendingException();
 }
 
 inline void
@@ -623,18 +583,6 @@ JSContext::setDefaultCompartmentObjectIfUnset(JSObject *obj)
 {
     if (!defaultCompartmentObject_)
         setDefaultCompartmentObject(obj);
-}
-
-/* Get the current frame, first lazily instantiating stack frames if needed. */
-static inline js::StackFrame *
-js_GetTopStackFrame(JSContext *cx, FrameExpandKind expand)
-{
-#ifdef JS_METHODJIT
-    if (expand)
-        js::mjit::ExpandInlineFrames(cx->compartment);
-#endif
-
-    return cx->maybefp();
 }
 
 #endif /* jscntxtinlines_h___ */

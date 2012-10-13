@@ -50,7 +50,9 @@ if (typeof Components != "undefined") {
       libc = ctypes.open(libc_candidates[i]);
       break;
     } catch (x) {
-      LOG("Could not open libc "+libc_candidates[i]);
+      if (exports.OS.Shared.DEBUG) {
+        LOG("Could not open libc "+libc_candidates[i]);
+      }
     }
   }
   if (!libc) {
@@ -182,5 +184,9 @@ if (typeof Components != "undefined") {
   // Special constructors that need to be defined on all threads
   OSError.closed = function closed(operation) {
     return new OSError(operation, OS.Constants.libc.EBADF);
+  };
+
+  OSError.exists = function exists(operation) {
+    return new OSError(operation, OS.Constants.libc.EEXIST);
   };
 })(this);

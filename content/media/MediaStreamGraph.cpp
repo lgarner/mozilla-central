@@ -295,6 +295,10 @@ public:
    */
   GraphTime GetAudioPosition(MediaStream* aStream);
   /**
+   * Call NotifyHaveCurrentData on aStream's listeners.
+   */
+  void NotifyHasCurrentData(MediaStream* aStream);
+  /**
    * If aStream needs an audio stream but doesn't have one, create it.
    * If aStream doesn't need an audio stream but has one, destroy it.
    */
@@ -914,10 +918,7 @@ MediaStreamGraphImpl::UpdateStreamOrderForStream(nsTArray<MediaStream*>* aStack,
     }
     return;
   }
-  SourceMediaStream* s = stream->AsSourceStream();
-  if (s) {
-    DetermineWhetherStreamIsConsumed(stream);
-  }
+  DetermineWhetherStreamIsConsumed(stream);
   ProcessedMediaStream* ps = stream->AsProcessedStream();
   if (ps) {
     aStack->AppendElement(stream);
@@ -946,6 +947,7 @@ MediaStreamGraphImpl::UpdateStreamOrder()
     MediaStream* stream = oldStreams[i];
     stream->mHasBeenOrdered = false;
     stream->mKnowIsConsumed = false;
+    stream->mIsConsumed = false;
     stream->mIsOnOrderingStack = false;
     stream->mInBlockingSet = false;
     ProcessedMediaStream* ps = stream->AsProcessedStream();
@@ -1105,6 +1107,16 @@ MediaStreamGraphImpl::RecomputeBlockingAt(const nsTArray<MediaStream*>& aStreams
   for (uint32_t i = 0; i < aStreams.Length(); ++i) {
     MediaStream* stream = aStreams[i];
     stream->mBlocked.SetAtAndAfter(aTime, stream->mBlockInThisPhase);
+  }
+}
+
+void
+MediaStreamGraphImpl::NotifyHasCurrentData(MediaStream* aStream)
+{
+  for (uint32_t j = 0; j < aStream->mListeners.Length(); ++j) {
+    MediaStreamListener* l = aStream->mListeners[j];
+    l->NotifyHasCurrentData(this,
+      GraphTimeToStreamTime(aStream, mCurrentTime) < aStream->mBuffer.GetEnd());
   }
 }
 
@@ -1399,6 +1411,7 @@ MediaStreamGraphImpl::RunThread()
                      GraphTimeToStreamTime(stream, mStateComputedTime),
                      "Stream did not produce enough data");
       }
+      NotifyHasCurrentData(stream);
       CreateOrDestroyAudioStreams(prevComputedTime, stream);
       PlayAudio(stream, prevComputedTime, mStateComputedTime);
       audioStreamsActive += stream->mAudioOutputStreams.Length();

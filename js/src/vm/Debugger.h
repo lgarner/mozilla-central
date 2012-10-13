@@ -141,9 +141,9 @@ class Debugger {
 
     JSObject *unwrapDebuggeeArgument(JSContext *cx, const Value &v);
 
-    static void traceObject(JSTracer *trc, JSObject *obj);
+    static void traceObject(JSTracer *trc, RawObject obj);
     void trace(JSTracer *trc);
-    static void finalize(FreeOp *fop, JSObject *obj);
+    static void finalize(FreeOp *fop, RawObject obj);
     void markKeysInCompartment(JSTracer *tracer);
 
     static Class jsclass;
@@ -523,8 +523,9 @@ Debugger::onNewScript(JSContext *cx, JSScript *script, GlobalObject *compileAndG
 }
 
 extern JSBool
-EvaluateInEnv(JSContext *cx, Handle<Env*> env, StackFrame *fp, const jschar *chars,
-              unsigned length, const char *filename, unsigned lineno, Value *rval);
+EvaluateInEnv(JSContext *cx, Handle<Env*> env, HandleValue thisv, StackFrame *fp,
+              StableCharPtr chars, unsigned length, const char *filename, unsigned lineno,
+              Value *rval);
 
 }
 

@@ -5,12 +5,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsIDOMEventTarget.idl"
-#include "nsIDOMDOMRequest.idl"
 
 interface nsIDOMEventListener;
 interface nsIDOMTelephonyCall;
 
-[scriptable, builtinclass, uuid(b3875982-7327-478f-98a2-54cc2de36d7d)]
+[scriptable, builtinclass, uuid(ec253100-630d-4366-ac77-b67525167960)]
 interface nsIDOMTelephony : nsIDOMEventTarget
 {
   nsIDOMTelephonyCall dial(in DOMString number);
@@ -29,11 +28,6 @@ interface nsIDOMTelephony : nsIDOMEventTarget
   void startTone(in DOMString tone);
   void stopTone();
 
-  attribute nsIDOMEventListener onincoming;
-  attribute nsIDOMEventListener oncallschanged;
-
-  // UICC SE API
-  nsIDOMDOMRequest iccOpenChannel(in DOMString aid);
-  nsIDOMDOMRequest iccExchangeAPDU(in long channel, in jsval apdu);
-  nsIDOMDOMRequest iccCloseChannel(in long channel);
+  [implicit_jscontext] attribute jsval onincoming;
+  [implicit_jscontext] attribute jsval oncallschanged;
 };

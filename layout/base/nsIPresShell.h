@@ -354,22 +354,22 @@ public:
   virtual NS_HIDDEN_(void) EndObservingDocument() = 0;
 
   /**
-   * Return whether InitialReflow() was previously called.
+   * Return whether Initialize() was previously called.
    */
-  bool DidInitialReflow() const { return mDidInitialReflow; }
+  bool DidInitialize() const { return mDidInitialize; }
 
   /**
-   * Perform the initial reflow. Constructs the frame for the root content
-   * object and then reflows the frame model into the specified width and
-   * height.
+   * Perform initialization. Constructs the frame for the root content
+   * object and then enqueues a reflow of the frame model into the
+   * specified width and height.
    *
    * The coordinates for aWidth and aHeight must be in standard nscoords.
    *
    * Callers of this method must hold a reference to this shell that
    * is guaranteed to survive through arbitrary script execution.
-   * Calling InitialReflow can execute arbitrary script.
+   * Calling Initialize can execute arbitrary script.
    */
-  virtual NS_HIDDEN_(nsresult) InitialReflow(nscoord aWidth, nscoord aHeight) = 0;
+  virtual NS_HIDDEN_(nsresult) Initialize(nscoord aWidth, nscoord aHeight) = 0;
 
   /**
    * Reflow the frame model into a new width and height.  The
@@ -568,7 +568,8 @@ public:
   };
   typedef struct ScrollAxis {
     int16_t mWhereToScroll;
-    WhenToScroll mWhenToScroll : 16;
+    WhenToScroll mWhenToScroll : 8;
+    bool mOnlyIfPerceivedScrollableDirection : 1;
   /**
    * @param aWhere: Either a percentage or a special value.
    *                nsIPresShell defines:
@@ -599,10 +600,17 @@ public:
    *                is visible.
    *                * SCROLL_ALWAYS: Move the frame regardless of its current
    *                visibility.
+   * @param aOnlyIfPerceivedScrollableDirection:
+   *                If the direction is not a perceived scrollable direction (i.e.
+   *                no scrollbar showing and less than one device pixel of
+   *                scrollable distance), don't scroll. Defaults to false.
    */
     ScrollAxis(int16_t aWhere = SCROLL_MINIMUM,
-               WhenToScroll aWhen = SCROLL_IF_NOT_FULLY_VISIBLE) :
-                 mWhereToScroll(aWhere), mWhenToScroll(aWhen) {}
+               WhenToScroll aWhen = SCROLL_IF_NOT_FULLY_VISIBLE,
+               bool aOnlyIfPerceivedScrollableDirection = false) :
+      mWhereToScroll(aWhere), mWhenToScroll(aWhen),
+      mOnlyIfPerceivedScrollableDirection(aOnlyIfPerceivedScrollableDirection)
+    {}
   } ScrollAxis;
   /**
    * Scrolls the view of the document so that the primary frame of the content
@@ -1231,6 +1239,11 @@ public:
    * root pres shell.
    */
   virtual void DidPaint() = 0;
+
+  /**
+   * Ensures that the refresh driver is running, and schedules a view 
+   * manager flush on the next tick.
+   */
   virtual void ScheduleViewManagerFlush() = 0;
   virtual void ClearMouseCaptureOnView(nsIView* aView) = 0;
   virtual bool IsVisible() = 0;
@@ -1257,6 +1270,10 @@ public:
   uint32_t FontSizeInflationLineThreshold() const {
     return mFontSizeInflationLineThreshold;
   }
+
+  virtual void AddInvalidateHiddenPresShellObserver(nsRefreshDriver *aDriver) = 0;
+
+  void InvalidatePresShellIfHidden();
 
   /**
    * Refresh observer management.
@@ -1312,6 +1329,12 @@ public:
   virtual void SysColorChanged() = 0;
   virtual void ThemeChanged() = 0;
 
+  nscoord MaxLineBoxWidth() {
+    return mMaxLineBoxWidth;
+  }
+
+  void SetMaxLineBoxWidth(nscoord aMaxLineBoxWidth);
+
 protected:
   friend class nsRefreshDriver;
 
@@ -1332,6 +1355,7 @@ protected:
   // GetRootFrame() can be inlined:
   nsFrameManagerBase*       mFrameManager;
   nsWeakPtr                 mForwardingContainer;
+  nsRefreshDriver*          mHiddenInvalidationObserverRefreshDriver;
 #ifdef ACCESSIBILITY
   DocAccessible* mAccDocument;
 #endif
@@ -1368,7 +1392,7 @@ protected:
   RenderFlags               mRenderFlags;
 
   bool                      mStylesHaveChanged : 1;
-  bool                      mDidInitialReflow : 1;
+  bool                      mDidInitialize : 1;
   bool                      mIsDestroying : 1;
   bool                      mIsReflowing : 1;
 
@@ -1397,6 +1421,10 @@ protected:
   uint32_t mFontSizeInflationEmPerLine;
   uint32_t mFontSizeInflationMinTwips;
   uint32_t mFontSizeInflationLineThreshold;
+
+  // The maximum width of a line box. Text on a single line that exceeds this
+  // width will be wrapped. A value of 0 indicates that no limit is enforced.
+  nscoord mMaxLineBoxWidth;
 };
 
 /**

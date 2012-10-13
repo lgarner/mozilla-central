@@ -14,6 +14,36 @@
 
 namespace js {
 
+inline bool
+ParallelArrayObject::IndexInfo::inBounds() const
+{
+    JS_ASSERT(isInitialized());
+    JS_ASSERT(indices.length() <= dimensions.length());
+
+    for (uint32_t d = 0; d < indices.length(); d++) {
+        if (indices[d] >= dimensions[d])
+            return false;
+    }
+
+    return true;
+}
+
+inline bool
+ParallelArrayObject::IndexInfo::bump()
+{
+    JS_ASSERT(isInitialized());
+    JS_ASSERT(indices.length() > 0);
+
+    uint32_t d = indices.length() - 1;
+    while (++indices[d] == dimensions[d]) {
+        if (d == 0)
+            return false;
+        indices[d--] = 0;
+    }
+
+    return true;
+}
+
 inline uint32_t
 ParallelArrayObject::IndexInfo::scalarLengthOfDimensions()
 {
@@ -165,19 +195,6 @@ inline bool
 ParallelArrayObject::isOneDimensional()
 {
     return dimensionArray()->getDenseArrayInitializedLength() == 1;
-}
-
-inline bool
-ParallelArrayObject::inOutermostDimensionRange(uint32_t index)
-{
-    return index < outermostDimension();
-}
-
-inline bool
-ParallelArrayObject::inOutermostDimensionRange(JSContext *cx, HandleId id)
-{
-    uint32_t i;
-    return js_IdIsIndex(id, &i) && inOutermostDimensionRange(i);
 }
 
 inline bool

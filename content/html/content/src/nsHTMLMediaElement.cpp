@@ -6,11 +6,13 @@
 
 #include "mozilla/Util.h"
 
+#include "base/basictypes.h"
 #include "nsIDOMHTMLMediaElement.h"
 #include "nsIDOMHTMLSourceElement.h"
 #include "nsHTMLMediaElement.h"
 #include "nsTimeRanges.h"
 #include "nsGenericHTMLElement.h"
+#include "nsAttrValueInlines.h"
 #include "nsPresContext.h"
 #include "nsIPresShell.h"
 #include "nsGkAtoms.h"
@@ -86,6 +88,12 @@
 #ifdef MOZ_MEDIA_PLUGINS
 #include "nsMediaPluginHost.h"
 #include "nsMediaPluginDecoder.h"
+#endif
+#ifdef MOZ_WIDGET_GONK
+#include "nsMediaOmxDecoder.h"
+#endif
+#ifdef MOZ_DASH
+#include "nsDASHDecoder.h"
 #endif
 
 #ifdef PR_LOGGING
@@ -358,9 +366,12 @@ NS_IMETHODIMP nsHTMLMediaElement::MediaLoadListener::OnStopRequest(nsIRequest* a
   return NS_OK;
 }
 
-NS_IMETHODIMP nsHTMLMediaElement::MediaLoadListener::OnDataAvailable(nsIRequest* aRequest, nsISupports* aContext,
-                                                                     nsIInputStream* aStream, uint32_t aOffset,
-                                                                     uint32_t aCount)
+NS_IMETHODIMP
+nsHTMLMediaElement::MediaLoadListener::OnDataAvailable(nsIRequest* aRequest,
+                                                       nsISupports* aContext,
+                                                       nsIInputStream* aStream,
+                                                       uint64_t aOffset,
+                                                       uint32_t aCount)
 {
   if (!mNextListener) {
     NS_ERROR("Must have a chained listener; OnStartRequest should have canceled this request");
@@ -426,6 +437,8 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsHTMLMediaElement)
 NS_INTERFACE_MAP_END_INHERITING(nsGenericHTMLElement)
 
 // nsIDOMHTMLMediaElement
+NS_IMPL_URI_ATTR(nsHTMLMediaElement, Src, src)
+NS_IMPL_STRING_ATTR(nsHTMLMediaElement, Crossorigin, crossorigin)
 NS_IMPL_BOOL_ATTR(nsHTMLMediaElement, Controls, controls)
 NS_IMPL_BOOL_ATTR(nsHTMLMediaElement, Autoplay, autoplay)
 NS_IMPL_BOOL_ATTR(nsHTMLMediaElement, Loop, loop)
@@ -433,47 +446,38 @@ NS_IMPL_BOOL_ATTR(nsHTMLMediaElement, DefaultMuted, muted)
 NS_IMPL_ENUM_ATTR_DEFAULT_VALUE(nsHTMLMediaElement, Preload, preload, NULL)
 
 NS_IMETHODIMP
-nsHTMLMediaElement::GetSrc(JSContext* aCtx, jsval *aParams)
+nsHTMLMediaElement::GetMozSrcObject(JSContext* aCtx, jsval *aParams)
 {
   if (mSrcAttrStream) {
     NS_ASSERTION(mSrcAttrStream->GetStream(), "MediaStream should have been set up properly");
     return nsContentUtils::WrapNative(aCtx, JS_GetGlobalForScopeChain(aCtx),
                                       mSrcAttrStream, aParams);
   }
-
-  nsAutoString str;
-  nsresult rv = GetURIAttr(nsGkAtoms::src, nullptr, str);
-  NS_ENSURE_SUCCESS(rv, rv);
-  if (!xpc::StringToJsval(aCtx, str, aParams)) {
-    return NS_ERROR_FAILURE;
-  }
+  *aParams = JSVAL_NULL;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsHTMLMediaElement::SetSrc(JSContext* aCtx, const jsval & aParams)
+nsHTMLMediaElement::SetMozSrcObject(JSContext* aCtx, const jsval & aParams)
 {
+  if (aParams.isNull()) {
+    mSrcAttrStream = nullptr;
+    Load();
+    return NS_OK;
+  }
   if (aParams.isObject()) {
     nsCOMPtr<nsIDOMMediaStream> stream;
     stream = do_QueryInterface(nsContentUtils::XPConnect()->
         GetNativeOfWrapper(aCtx, JSVAL_TO_OBJECT(aParams)));
     if (stream) {
       mSrcAttrStream = static_cast<nsDOMMediaStream*>(stream.get());
-      UnsetAttr(kNameSpaceID_None, nsGkAtoms::src, true);
       Load();
       return NS_OK;
     }
   }
-
-  mSrcAttrStream = nullptr;
-  JSString* jsStr = JS_ValueToString(aCtx, aParams);
-  if (!jsStr)
-    return NS_ERROR_DOM_TYPE_MISMATCH_ERR;
-  nsDependentJSString str;
-  if (!str.init(aCtx, jsStr))
-    return NS_ERROR_DOM_TYPE_MISMATCH_ERR;
-  // Will trigger Load()
-  return SetAttrHelper(nsGkAtoms::src, str);
+  // Should we store unsupported values on the element's attribute anyway?
+  // Let's not.
+  return NS_OK;
 }
 
 /* readonly attribute nsIDOMHTMLMediaElement mozAutoplayEnabled; */
@@ -506,7 +510,7 @@ NS_IMETHODIMP nsHTMLMediaElement::GetEnded(bool *aEnded)
 /* readonly attribute DOMString currentSrc; */
 NS_IMETHODIMP nsHTMLMediaElement::GetCurrentSrc(nsAString & aCurrentSrc)
 {
-  nsCAutoString src;
+  nsAutoCString src;
   GetCurrentSpec(src);
   aCurrentSrc = NS_ConvertUTF8toUTF16(src);
   return NS_OK;
@@ -535,7 +539,7 @@ nsHTMLMediaElement::OnChannelRedirect(nsIChannel *aChannel,
 
   NS_NAMED_LITERAL_CSTRING(rangeHdr, "Range");
  
-  nsCAutoString rangeVal;
+  nsAutoCString rangeVal;
   if (NS_SUCCEEDED(http->GetRequestHeader(rangeHdr, rangeVal))) {
     NS_ENSURE_STATE(!rangeVal.IsEmpty());
 
@@ -1034,6 +1038,11 @@ nsresult nsHTMLMediaElement::LoadResource()
   if (other) {
     // Clone it.
     nsresult rv = InitializeDecoderAsClone(other->mDecoder);
+    // Get the mimetype from the element we clone, since we will not get it via
+    // the channel, and we won't be able to sniff for it, because we will not
+    // open a channel to get the beginning of the media (it is likely to already
+    // be in the cache).
+    mMimeType = other->mMimeType;
     if (NS_SUCCEEDED(rv))
       return rv;
   }
@@ -1072,7 +1081,8 @@ nsresult nsHTMLMediaElement::LoadResource()
                      nullptr,
                      loadGroup,
                      nullptr,
-                     nsICachingChannel::LOAD_BYPASS_LOCAL_CACHE_IF_BUSY,
+                     nsICachingChannel::LOAD_BYPASS_LOCAL_CACHE_IF_BUSY |
+                     nsIChannel::LOAD_TREAT_APPLICATION_OCTET_STREAM_AS_UNKNOWN,
                      channelPolicy);
   NS_ENSURE_SUCCESS(rv,rv);
 
@@ -1088,20 +1098,21 @@ nsresult nsHTMLMediaElement::LoadResource()
 
   nsCOMPtr<nsIStreamListener> listener;
   if (ShouldCheckAllowOrigin()) {
-    listener =
+    nsRefPtr<nsCORSListenerProxy> corsListener =
       new nsCORSListenerProxy(loadListener,
                               NodePrincipal(),
-                              channel,
-                              GetCORSMode() == CORS_USE_CREDENTIALS,
-                              &rv);
+                              GetCORSMode() == CORS_USE_CREDENTIALS);
+    rv = corsListener->Init(channel);
+    NS_ENSURE_SUCCESS(rv, rv);
+    listener = corsListener;
   } else {
     rv = nsContentUtils::GetSecurityManager()->
            CheckLoadURIWithPrincipal(NodePrincipal(),
                                      mLoadingSrc,
                                      nsIScriptSecurityManager::STANDARD);
     listener = loadListener;
+    NS_ENSURE_SUCCESS(rv, rv);
   }
-  NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIHttpChannel> hc = do_QueryInterface(channel);
   if (hc) {
@@ -1424,6 +1435,7 @@ nsHTMLMediaElement::GetMozSampleRate(uint32_t *aMozSampleRate)
 typedef struct {
   JSContext* cx;
   JSObject*  tags;
+  bool error;
 } MetadataIterCx;
 
 PLDHashOperator
@@ -1436,8 +1448,11 @@ nsHTMLMediaElement::BuildObjectFromTags(nsCStringHashKey::KeyType aKey,
   nsString wideValue = NS_ConvertUTF8toUTF16(aValue);
   JSString* string = JS_NewUCStringCopyZ(args->cx, wideValue.Data());
   JS::Value value = STRING_TO_JSVAL(string);
-  if (!JS_SetProperty(args->cx, args->tags, aKey.Data(), &value)) {
+  if (!JS_DefineProperty(args->cx, args->tags, aKey.Data(), value,
+                         NULL, NULL, JSPROP_ENUMERATE)) {
     NS_WARNING("Failed to set metadata property");
+    args->error = true;
+    return PL_DHASH_STOP;
   }
 
   return PL_DHASH_NEXT;
@@ -1455,8 +1470,12 @@ nsHTMLMediaElement::MozGetMetadata(JSContext* cx, JS::Value* aValue)
     return NS_ERROR_FAILURE;
   }
   if (mTags) {
-    MetadataIterCx iter = {cx, tags};
+    MetadataIterCx iter = {cx, tags, false};
     mTags->EnumerateRead(BuildObjectFromTags, static_cast<void*>(&iter));
+    if (iter.error) {
+      NS_WARNING("couldn't create metadata object!");
+      return NS_ERROR_FAILURE;
+    }
   }
   *aValue = OBJECT_TO_JSVAL(tags);
 
@@ -1833,8 +1852,6 @@ NS_IMETHODIMP nsHTMLMediaElement::Play()
   return NS_OK;
 }
 
-NS_IMPL_STRING_ATTR(nsHTMLMediaElement, Crossorigin, crossorigin)
-
 bool nsHTMLMediaElement::ParseAttribute(int32_t aNamespaceID,
                                           nsIAtom* aAttribute,
                                           const nsAString& aValue,
@@ -2116,21 +2133,23 @@ nsHTMLMediaElement::IsWebMType(const nsACString& aType)
 }
 #endif
 
+#if defined(MOZ_GSTREAMER) || defined(MOZ_WIDGET_GONK)
+char const *const nsHTMLMediaElement::gH264Codecs[7] = {
+  "avc1.42E01E",  // H.264 Constrained Baseline Profile Level 3.0
+  "avc1.42001E",  // H.264 Baseline Profile Level 3.0
+  "avc1.58A01E",  // H.264 Extended Profile Level 3.0
+  "avc1.4D401E",  // H.264 Main Profile Level 3.0
+  "avc1.64001E",  // H.264 High Profile Level 3.0
+  "mp4a.40.2",    // AAC-LC
+  nullptr
+};
+#endif
+
 #ifdef MOZ_GSTREAMER
 const char nsHTMLMediaElement::gH264Types[3][16] = {
   "video/mp4",
   "video/3gpp",
   "video/quicktime",
-};
-
-char const *const nsHTMLMediaElement::gH264Codecs[7] = {
-  "avc1.42E01E",
-  "avc1.42001E",
-  "avc1.58A01E",
-  "avc1.4D401E",
-  "avc1.64001E",
-  "mp4a.40.2",
-  nullptr
 };
 
 bool
@@ -2148,6 +2167,38 @@ nsHTMLMediaElement::IsH264Type(const nsACString& aType)
 
   for (uint32_t i = 0; i < ArrayLength(gH264Types); ++i) {
     if (aType.EqualsASCII(gH264Types[i])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+#endif
+
+#ifdef MOZ_WIDGET_GONK
+const char nsHTMLMediaElement::gOmxTypes[5][16] = {
+  "audio/mpeg",
+  "audio/mp4",
+  "video/mp4",
+  "video/3gpp",
+  "video/quicktime",
+};
+
+bool
+nsHTMLMediaElement::IsOmxEnabled()
+{
+  return Preferences::GetBool("media.omx.enabled", false);
+}
+
+bool
+nsHTMLMediaElement::IsOmxSupportedType(const nsACString& aType)
+{
+  if (!IsOmxEnabled()) {
+    return false;
+  }
+
+  for (uint32_t i = 0; i < ArrayLength(gOmxTypes); ++i) {
+    if (aType.EqualsASCII(gOmxTypes[i])) {
       return true;
     }
   }
@@ -2182,6 +2233,37 @@ nsHTMLMediaElement::IsMediaPluginsType(const nsACString& aType)
 }
 #endif
 
+#ifdef MOZ_DASH
+/* static */
+const char nsHTMLMediaElement::gDASHMPDTypes[1][21] = {
+  "application/dash+xml"
+};
+
+/* static */
+bool
+nsHTMLMediaElement::IsDASHEnabled()
+{
+  return Preferences::GetBool("media.dash.enabled");
+}
+
+/* static */
+bool
+nsHTMLMediaElement::IsDASHMPDType(const nsACString& aType)
+{
+  if (!IsDASHEnabled()) {
+    return false;
+  }
+
+  for (uint32_t i = 0; i < ArrayLength(gDASHMPDTypes); ++i) {
+    if (aType.EqualsASCII(gDASHMPDTypes[i])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+#endif
+
 /* static */
 nsHTMLMediaElement::CanPlayStatus 
 nsHTMLMediaElement::CanHandleMediaType(const char* aMIMEType,
@@ -2211,9 +2293,22 @@ nsHTMLMediaElement::CanHandleMediaType(const char* aMIMEType,
     return CANPLAY_YES;
   }
 #endif
+#ifdef MOZ_DASH
+  if (IsDASHMPDType(nsDependentCString(aMIMEType))) {
+    // DASH manifest uses WebM codecs only.
+    *aCodecList = gWebMCodecs;
+    return CANPLAY_YES;
+  }
+#endif
 
 #ifdef MOZ_GSTREAMER
   if (IsH264Type(nsDependentCString(aMIMEType))) {
+    *aCodecList = gH264Codecs;
+    return CANPLAY_MAYBE;
+  }
+#endif
+#ifdef MOZ_WIDGET_GONK
+  if (IsOmxSupportedType(nsDependentCString(aMIMEType))) {
     *aCodecList = gH264Codecs;
     return CANPLAY_MAYBE;
   }
@@ -2243,6 +2338,11 @@ bool nsHTMLMediaElement::ShouldHandleMediaType(const char* aMIMEType)
 #ifdef MOZ_GSTREAMER
   if (IsH264Type(nsDependentCString(aMIMEType)))
     return true;
+#endif
+#ifdef MOZ_WIDGET_GONK
+  if (IsOmxSupportedType(nsDependentCString(aMIMEType))) {
+    return true;
+  }
 #endif
 #ifdef MOZ_MEDIA_PLUGINS
   if (IsMediaPluginsEnabled() && GetMediaPluginHost()->FindDecoder(nsDependentCString(aMIMEType), NULL))
@@ -2360,6 +2460,14 @@ nsHTMLMediaElement::CreateDecoder(const nsACString& aType)
     }
   }
 #endif
+#ifdef MOZ_WIDGET_GONK
+  if (IsOmxSupportedType(aType)) {
+    nsRefPtr<nsMediaOmxDecoder> decoder = new nsMediaOmxDecoder();
+    if (decoder->Init(this)) {
+      return decoder.forget();
+    }
+  }
+#endif
 #ifdef MOZ_MEDIA_PLUGINS
   if (IsMediaPluginsEnabled() && GetMediaPluginHost()->FindDecoder(aType, NULL)) {
     nsRefPtr<nsMediaPluginDecoder> decoder = new nsMediaPluginDecoder(aType);
@@ -2375,6 +2483,15 @@ nsHTMLMediaElement::CreateDecoder(const nsACString& aType)
 #else
     nsRefPtr<nsWebMDecoder> decoder = new nsWebMDecoder();
 #endif
+    if (decoder->Init(this)) {
+      return decoder.forget();
+    }
+  }
+#endif
+
+#ifdef MOZ_DASH
+  if (IsDASHMPDType(aType)) {
+    nsRefPtr<nsDASHDecoder> decoder = new nsDASHDecoder();
     if (decoder->Init(this)) {
       return decoder.forget();
     }
@@ -2432,20 +2549,22 @@ nsresult nsHTMLMediaElement::InitializeDecoderForChannel(nsIChannel *aChannel,
   NS_ASSERTION(mLoadingSrc, "mLoadingSrc must already be set");
   NS_ASSERTION(mDecoder == nullptr, "Shouldn't have a decoder");
 
-  nsCAutoString mimeType;
-  aChannel->GetContentType(mimeType);
+  nsAutoCString mimeType;
 
-  nsRefPtr<nsMediaDecoder> decoder = CreateDecoder(mimeType);
+  aChannel->GetContentType(mMimeType);
+  NS_ASSERTION(!mMimeType.IsEmpty(), "We should have the Content-Type.");
+
+  nsRefPtr<nsMediaDecoder> decoder = CreateDecoder(mMimeType);
   if (!decoder) {
     nsAutoString src;
     GetCurrentSrc(src);
-    NS_ConvertUTF8toUTF16 mimeUTF16(mimeType);
+    NS_ConvertUTF8toUTF16 mimeUTF16(mMimeType);
     const PRUnichar* params[] = { mimeUTF16.get(), src.get() };
     ReportLoadError("MediaLoadUnsupportedMimeType", params, ArrayLength(params));
     return NS_ERROR_FAILURE;
   }
 
-  LOG(PR_LOG_DEBUG, ("%p Created decoder %p for type %s", this, decoder.get(), mimeType.get()));
+  LOG(PR_LOG_DEBUG, ("%p Created decoder %p for type %s", this, decoder.get(), mMimeType.get()));
 
   MediaResource* resource = MediaResource::Create(decoder, aChannel);
   if (!resource)
@@ -2522,8 +2641,11 @@ class nsHTMLMediaElement::StreamListener : public MediaStreamListener {
 public:
   StreamListener(nsHTMLMediaElement* aElement) :
     mElement(aElement),
+    mHaveCurrentData(false),
+    mBlocked(false),
     mMutex("nsHTMLMediaElement::StreamListener"),
-    mPendingNotifyOutput(false)
+    mPendingNotifyOutput(false),
+    mDidHaveCurrentData(false)
   {}
   void Forget() { mElement = nullptr; }
 
@@ -2534,17 +2656,22 @@ public:
       mElement->PlaybackEnded();
     }
   }
+  void UpdateReadyStateForData()
+  {
+    if (mElement && mHaveCurrentData) {
+      mElement->UpdateReadyStateForData(
+        mBlocked ? NEXT_FRAME_UNAVAILABLE_BUFFERING : NEXT_FRAME_AVAILABLE);
+    }
+  }
   void DoNotifyBlocked()
   {
-    if (mElement) {
-      mElement->UpdateReadyStateForData(NEXT_FRAME_UNAVAILABLE_BUFFERING);
-    }
+    mBlocked = true;
+    UpdateReadyStateForData();
   }
   void DoNotifyUnblocked()
   {
-    if (mElement) {
-      mElement->UpdateReadyStateForData(NEXT_FRAME_AVAILABLE);
-    }
+    mBlocked = false;
+    UpdateReadyStateForData();
   }
   void DoNotifyOutput()
   {
@@ -2552,9 +2679,18 @@ public:
       MutexAutoLock lock(mMutex);
       mPendingNotifyOutput = false;
     }
-    if (mElement) {
+    if (mElement && mHaveCurrentData) {
       mElement->FireTimeUpdate(true);
     }
+  }
+  void DoNotifyHaveCurrentData()
+  {
+    mHaveCurrentData = true;
+    if (mElement) {
+      mElement->FirstFrameLoaded(false);
+    }
+    UpdateReadyStateForData();
+    DoNotifyOutput();
   }
 
   // These notifications run on the media graph thread so we need to
@@ -2575,6 +2711,22 @@ public:
       NS_NewRunnableMethod(this, &StreamListener::DoNotifyFinished);
     aGraph->DispatchToMainThreadAfterStreamStateUpdate(event);
   }
+  virtual void NotifyHasCurrentData(MediaStreamGraph* aGraph,
+                                    bool aHasCurrentData)
+  {
+    MutexAutoLock lock(mMutex);
+    if (mDidHaveCurrentData == aHasCurrentData)
+      return;
+    mDidHaveCurrentData = aHasCurrentData;
+    // Ignore the case where aHasCurrentData is false. If aHasCurrentData
+    // changes from true to false, we don't worry about it. Video elements
+    // preserve the last played frame anyway.
+    if (aHasCurrentData) {
+      nsCOMPtr<nsIRunnable> event =
+        NS_NewRunnableMethod(this, &StreamListener::DoNotifyHaveCurrentData);
+      aGraph->DispatchToMainThreadAfterStreamStateUpdate(event);
+    }
+  }
   virtual void NotifyOutput(MediaStreamGraph* aGraph)
   {
     MutexAutoLock lock(mMutex);
@@ -2587,10 +2739,15 @@ public:
   }
 
 private:
+  // These fields may only be accessed on the main thread
   nsHTMLMediaElement* mElement;
+  bool mHaveCurrentData;
+  bool mBlocked;
 
+  // mMutex protects the fields below; they can be accessed on any thread
   Mutex mMutex;
   bool mPendingNotifyOutput;
+  bool mDidHaveCurrentData;
 };
 
 void nsHTMLMediaElement::SetupSrcMediaStreamPlayback()
@@ -2618,7 +2775,11 @@ void nsHTMLMediaElement::SetupSrcMediaStreamPlayback()
   ChangeReadyState(nsIDOMHTMLMediaElement::HAVE_METADATA);
   DispatchAsyncEvent(NS_LITERAL_STRING("durationchange"));
   DispatchAsyncEvent(NS_LITERAL_STRING("loadedmetadata"));
-  ResourceLoaded();
+  DispatchAsyncEvent(NS_LITERAL_STRING("suspend"));
+  mNetworkState = nsIDOMHTMLMediaElement::NETWORK_IDLE;
+  AddRemoveSelfReference();
+  // FirstFrameLoaded(false) will be called when the stream has current data,
+  // to complete the setup by entering the HAVE_CURRENT_DATA state.
 }
 
 void nsHTMLMediaElement::EndSrcMediaStreamPlayback()
@@ -2676,7 +2837,7 @@ nsresult nsHTMLMediaElement::NewURIFromString(const nsAutoString& aURISpec, nsIU
 
 void nsHTMLMediaElement::ProcessMediaFragmentURI()
 {
-  nsCAutoString ref;
+  nsAutoCString ref;
   GetCurrentSpec(ref);
   nsMediaFragmentURIParser parser(ref);
   parser.Parse();
@@ -2749,6 +2910,8 @@ void nsHTMLMediaElement::FirstFrameLoaded(bool aResourceFullyLoaded)
 
 void nsHTMLMediaElement::ResourceLoaded()
 {
+  NS_ASSERTION(!mSrcStream, "Don't call this for streams");
+
   mBegun = false;
   mNetworkState = nsIDOMHTMLMediaElement::NETWORK_IDLE;
   AddRemoveSelfReference();
@@ -3526,6 +3689,11 @@ NS_IMETHODIMP nsHTMLMediaElement::GetMozFragmentEnd(double *aTime)
   // duration, return the duration.
   *aTime = (mFragmentEnd < 0.0 || mFragmentEnd > duration) ? duration : mFragmentEnd;
   return NS_OK;
+}
+
+void nsHTMLMediaElement::GetMimeType(nsCString& aMimeType)
+{
+  aMimeType = mMimeType;
 }
 
 void nsHTMLMediaElement::NotifyAudioAvailableListener()

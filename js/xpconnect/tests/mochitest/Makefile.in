@@ -66,6 +66,10 @@ MOCHITEST_FILES =	bug500931_helper.html \
 		test_bug772288.html \
 		test_bug781476.html \
 		file_bug781476.html \
+		test_bug789713.html \
+		file_bug795275.html \
+		file_bug795275.xml \
+		file_bug799348.html \
 		file_nodelists.html \
 		file_exnstack.html \
 		file_expandosharing.html \
@@ -74,6 +78,9 @@ MOCHITEST_FILES =	bug500931_helper.html \
 		test_lookupMethod.html \
 		file_bug738244.html \
 		file_mozMatchesSelector.html \
+		file_bug720619.html \
+		test_bug720619.html \
+		test_bug785096.html \
 		$(NULL)
 
 MOCHITEST_CHROME_FILES	= \
@@ -83,9 +90,7 @@ MOCHITEST_CHROME_FILES	= \
 
 ifneq ($(OS_TARGET),Android)
 ifndef MOZ_PLATFORM_MAEMO
-MOCHITEST_FILES +=	test_bug657267.html \
-		bug657267.jar \
-		test_bug564330.html \
+MOCHITEST_FILES +=	test_bug564330.html \
 		test_bug618017.html
 endif
 endif

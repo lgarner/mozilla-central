@@ -64,7 +64,7 @@ struct VisitData {
   , sessionId(0)
   , hidden(true)
   , typed(false)
-  , transitionType(PR_UINT32_MAX)
+  , transitionType(UINT32_MAX)
   , visitTime(0)
   , frecency(-1)
   , titleChanged(false)
@@ -80,7 +80,7 @@ struct VisitData {
   , sessionId(0)
   , hidden(true)
   , typed(false)
-  , transitionType(PR_UINT32_MAX)
+  , transitionType(UINT32_MAX)
   , visitTime(0)
   , frecency(-1)
   , titleChanged(false)
@@ -907,7 +907,7 @@ private:
       mozStorageStatementScoper scoper(stmt);
       nsresult rv = stmt->BindInt64ByName(NS_LITERAL_CSTRING("visit_date"),
                                           _place.visitTime);
-      NS_ENSURE_SUCCESS(rv, rv);
+      NS_ENSURE_SUCCESS(rv, false);
 
       scoper.Abandon();
     }
@@ -938,7 +938,7 @@ private:
     NS_ENSURE_SUCCESS(rv, false);
     rv = stmt->GetInt64(1, &_place.sessionId);
     NS_ENSURE_SUCCESS(rv, false);
-    rv = stmt->GetInt64(2, &_place.visitTime);
+    rv = stmt->GetInt64(2, reinterpret_cast<int64_t*>(&_place.visitTime));
     NS_ENSURE_SUCCESS(rv, false);
 
     // If we have been given a visit threshold start time, go ahead and
@@ -1293,7 +1293,7 @@ public:
     rv = destinationFile->GetLeafName(destinationFileName);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsCAutoString destinationURISpec;
+    nsAutoCString destinationURISpec;
     rv = destinationFileURL->GetSpec(destinationURISpec);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1462,12 +1462,15 @@ History::NotifyVisited(nsIURI* aURI)
   nsAutoScriptBlocker scriptBlocker;
 
   if (XRE_GetProcessType() == GeckoProcessType_Default) {
-    URIParams uri;
-    SerializeURI(aURI, uri);
     nsTArray<ContentParent*> cplist;
     ContentParent::GetAll(cplist);
-    for (uint32_t i = 0; i < cplist.Length(); ++i) {
-      unused << cplist[i]->SendNotifyVisited(uri);
+
+    if (!cplist.IsEmpty()) {
+      URIParams uri;
+      SerializeURI(aURI, uri);
+      for (uint32_t i = 0; i < cplist.Length(); ++i) {
+        unused << cplist[i]->SendNotifyVisited(uri);
+      }
     }
   }
 
@@ -1563,7 +1566,7 @@ History::InsertPlace(const VisitData& aPlace)
   NS_ENSURE_SUCCESS(rv, rv);
   rv = stmt->BindInt32ByName(NS_LITERAL_CSTRING("hidden"), aPlace.hidden);
   NS_ENSURE_SUCCESS(rv, rv);
-  nsCAutoString guid(aPlace.guid);
+  nsAutoCString guid(aPlace.guid);
   if (aPlace.guid.IsVoid()) {
     rv = GenerateGUID(guid);
     NS_ENSURE_SUCCESS(rv, rv);

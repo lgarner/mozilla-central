@@ -23,6 +23,7 @@
 #include "nsCSSProps.h"
 #include "nsCSSKeywords.h"
 #include "nsDOMCSSRect.h"
+#include "nsFlexContainerFrame.h"
 #include "nsGkAtoms.h"
 #include "nsHTMLReflowState.h"
 #include "nsThemeConstants.h"
@@ -404,6 +405,19 @@ nsComputedDOMStyle::GetPropertyCSSValue(const nsAString& aPropertyName,
 
   nsCSSProperty prop = nsCSSProps::LookupProperty(aPropertyName,
                                                   nsCSSProps::eEnabled);
+
+  // We don't (for now, anyway, though it may make sense to change it
+  // for all aliases, including those in nsCSSPropAliasList) want
+  // aliases to be enumerable (via GetLength and IndexedGetter), so
+  // handle them here rather than adding entries to
+  // GetQueryablePropertyMap.
+  if (prop != eCSSProperty_UNKNOWN &&
+      nsCSSProps::PropHasFlags(prop, CSS_PROPERTY_IS_ALIAS)) {
+    const nsCSSProperty* subprops = nsCSSProps::SubpropertyEntryFor(prop);
+    NS_ABORT_IF_FALSE(subprops[1] == eCSSProperty_UNKNOWN,
+                      "must have list of length 1");
+    prop = subprops[0];
+  }
 
   const ComputedStyleMapEntry* propEntry = nullptr;
   {
@@ -1230,17 +1244,8 @@ nsComputedDOMStyle::DoGetFontWeight()
   const nsStyleFont* font = GetStyleFont();
 
   uint16_t weight = font->mFont.weight;
-  if (weight % 100 == 0) {
-    val->SetNumber(font->mFont.weight);
-  } else if (weight % 100 > 50) {
-    // FIXME: This doesn't represent the full range of computed values,
-    // but at least it's legal CSS.
-    val->SetIdent(eCSSKeyword_lighter);
-  } else {
-    // FIXME: This doesn't represent the full range of computed values,
-    // but at least it's legal CSS.
-    val->SetIdent(eCSSKeyword_bolder);
-  }
+  NS_ASSERTION(weight % 100 == 0, "unexpected value of font-weight");
+  val->SetNumber(weight);
 
   return val;
 }
@@ -2876,7 +2881,7 @@ nsComputedDOMStyle::DoGetBorderImageSlice()
   NS_FOR_CSS_SIDES (side) {
     nsROCSSPrimitiveValue* val = GetROCSSPrimitiveValue();
     valueList->AppendCSSValue(val);
-    SetValueToCoord(val, border->mBorderImageSlice.Get(side), nullptr, nullptr);
+    SetValueToCoord(val, border->mBorderImageSlice.Get(side), false, nullptr);
   }
 
   // Fill keyword.
@@ -2898,7 +2903,7 @@ nsComputedDOMStyle::DoGetBorderImageWidth()
     nsROCSSPrimitiveValue* val = GetROCSSPrimitiveValue();
     valueList->AppendCSSValue(val);
     SetValueToCoord(val, border->mBorderImageWidth.Get(side),
-                    nullptr, nullptr);
+                    false, nullptr);
   }
 
   return valueList;
@@ -2915,7 +2920,7 @@ nsComputedDOMStyle::DoGetBorderImageOutset()
     nsROCSSPrimitiveValue* val = GetROCSSPrimitiveValue();
     valueList->AppendCSSValue(val);
     SetValueToCoord(val, border->mBorderImageOutset.Get(side),
-                    nullptr, nullptr);
+                    false, nullptr);
   }
 
   return valueList;
@@ -3361,7 +3366,17 @@ nsIDOMCSSValue*
 nsComputedDOMStyle::DoGetMinHeight()
 {
   nsROCSSPrimitiveValue *val = GetROCSSPrimitiveValue();
-  SetValueToCoord(val, GetStylePosition()->mMinHeight, true,
+  nsStyleCoord minHeight = GetStylePosition()->mMinHeight;
+
+  if (eStyleUnit_Auto == minHeight.GetUnit()) {
+    // In non-flexbox contexts, "min-height: auto" means "min-height: 0"
+    // XXXdholbert For flex items, we should set |minHeight| to the
+    // -moz-min-content keyword, instead of 0, once we support -moz-min-content
+    // as a height value.
+    minHeight.SetCoordValue(0);
+  }
+
+  SetValueToCoord(val, minHeight, true,
                   &nsComputedDOMStyle::GetCBContentHeight);
   return val;
 }
@@ -3370,7 +3385,27 @@ nsIDOMCSSValue*
 nsComputedDOMStyle::DoGetMinWidth()
 {
   nsROCSSPrimitiveValue *val = GetROCSSPrimitiveValue();
-  SetValueToCoord(val, GetStylePosition()->mMinWidth, true,
+
+  nsStyleCoord minWidth = GetStylePosition()->mMinWidth;
+
+  if (eStyleUnit_Auto == minWidth.GetUnit()) {
+    // "min-width: auto" means "0", unless we're a flex item in a horizontal
+    // flex container, in which case it means "min-content"
+    minWidth.SetCoordValue(0);
+#ifdef MOZ_FLEXBOX
+    if (mOuterFrame && mOuterFrame->IsFlexItem()) {
+      nsIFrame* flexContainer = mOuterFrame->GetParent();
+      MOZ_ASSERT(flexContainer &&
+                 flexContainer->GetType() == nsGkAtoms::flexContainerFrame,
+                 "IsFlexItem() lied...?");
+
+      if (static_cast<nsFlexContainerFrame*>(flexContainer)->IsHorizontal()) {
+        minWidth.SetIntValue(NS_STYLE_WIDTH_MIN_CONTENT, eStyleUnit_Enumerated);
+      }
+    }
+#endif // MOZ_FLEXBOX
+  }
+  SetValueToCoord(val, minWidth, true,
                   &nsComputedDOMStyle::GetCBContentWidth,
                   nsCSSProps::kWidthKTable);
   return val;
@@ -3935,6 +3970,16 @@ nsComputedDOMStyle::GetSVGPaintFor(bool aFill)
       val->SetURI(paint->mPaint.mPaintServer);
       SetToRGBAColor(fallback, paint->mFallbackColor);
       return valueList;
+    }
+    case eStyleSVGPaintType_ObjectFill:
+    {
+      val->SetIdent(eCSSKeyword__moz_objectfill);
+      break;
+    }
+    case eStyleSVGPaintType_ObjectStroke:
+    {
+      val->SetIdent(eCSSKeyword__moz_objectstroke);
+      break;
     }
   }
 

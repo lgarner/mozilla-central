@@ -22,7 +22,7 @@ ParseContext::blockid()
 inline bool
 ParseContext::atBodyLevel()
 {
-    return !topStmt || topStmt->isFunctionBodyBlock;
+    return !topStmt;
 }
 
 inline
@@ -41,7 +41,6 @@ ParseContext::ParseContext(Parser *prs, SharedContext *sc, unsigned staticLevel,
     args_(prs->context),
     vars_(prs->context),
     yieldNode(NULL),
-    functionList(NULL),
     queuedStrictModeError(NULL),
     parserPC(&prs->pc),
     lexdeps(prs->context),
@@ -79,7 +78,7 @@ ParseContext::~ParseContext()
     // die, make |*parserPC| point to this object's parent.
     JS_ASSERT(*parserPC == this);
     *parserPC = this->parent;
-    sc->context->delete_(funcStmts);
+    js_delete(funcStmts);
     if (queuedStrictModeError) {
         // If the parent context is looking for strict mode violations, pass
         // ours up. Otherwise, free it.
@@ -87,7 +86,7 @@ ParseContext::~ParseContext()
             !parent->queuedStrictModeError)
             parent->queuedStrictModeError = queuedStrictModeError;
         else
-            sc->context->delete_(queuedStrictModeError);
+            js_delete(queuedStrictModeError);
     }
 }
 

@@ -8,8 +8,8 @@
 #ifndef Stack_h__
 #define Stack_h__
 
-#include "jsapi.h"
 #include "jsfun.h"
+#include "ion/IonFrameIterator.h"
 #include "jsautooplen.h"
 
 struct JSContext;
@@ -27,6 +27,7 @@ class InvokeArgsGuard;
 class InvokeFrameGuard;
 class FrameGuard;
 class ExecuteFrameGuard;
+class BailoutFrameGuard;
 class GeneratorFrameGuard;
 
 class CallIter;
@@ -53,6 +54,11 @@ typedef mjit::CallSite InlinedSite;
 struct InlinedSite {};
 #endif
 typedef size_t FrameRejoinState;
+
+namespace ion {
+    class IonBailoutIterator;
+    class SnapshotIterator;
+}
 
 /*****************************************************************************/
 
@@ -260,7 +266,11 @@ class StackFrame
         PREV_UP_TO_DATE    =   0x100000,  /* see DebugScopes::updateLiveScopes */
 
         /* Used in tracking calls and profiling (see vm/SPSProfiler.cpp) */
-        HAS_PUSHED_SPS_FRAME = 0x200000  /* SPS was notified of enty */
+        HAS_PUSHED_SPS_FRAME = 0x200000,  /* SPS was notified of enty */
+
+        /* Ion frame state */
+        RUNNING_IN_ION       = 0x400000,  /* frame is running in Ion */
+        CALLING_INTO_ION     = 0x800000   /* frame is calling into Ion */
     };
 
   private:
@@ -302,11 +312,13 @@ class StackFrame
      * accessed. Normal code should prefer the StackFrame::unaliased* members
      * (or FrameRegs::stackDepth for the usual "depth is at least" assertions).
      */
+  public:
     Value *slots() const { return (Value *)(this + 1); }
     Value *base() const { return slots() + script()->nfixed; }
     Value *formals() const { return (Value *)this - fun()->nargs; }
     Value *actuals() const { return formals() - (flags_ & OVERFLOW_ARGS ? 2 + u.nactual : 0); }
 
+  private:
     friend class FrameRegs;
     friend class ContextStack;
     friend class StackSpace;
@@ -365,6 +377,10 @@ class StackFrame
     /* Subsets of 'prologue' called from jit code. */
     inline bool jitHeavyweightFunctionPrologue(JSContext *cx);
     bool jitStrictEvalPrologue(JSContext *cx);
+
+    /* Called from IonMonkey to transition from bailouts. */
+    void initFromBailout(JSContext *cx, ion::SnapshotIterator &iter);
+    bool initCallObject(JSContext *cx);
 
     /* Initialize local variables of newly-pushed frame. */
     void initVarsToUndefined();
@@ -485,6 +501,13 @@ class StackFrame
     inline unsigned numFormalArgs() const;
     inline unsigned numActualArgs() const;
 
+    inline Value &canonicalActualArg(unsigned i) const;
+    template <class Op>
+    inline bool forEachCanonicalActualArg(Op op, unsigned start = 0, unsigned count = unsigned(-1));
+    template <class Op> inline bool forEachFormalArg(Op op);
+
+
+
     /*
      * Arguments object
      *
@@ -582,10 +605,12 @@ class StackFrame
      *   the same VMFrame. Other calls force expansion of the inlined frames.
      */
 
-    JSScript *script() const {
+    HandleScript script() const {
         return isFunctionFrame()
-               ? isEvalFrame() ? u.evalScript : fun()->script()
-               : exec.script;
+               ? isEvalFrame()
+                 ? HandleScript::fromMarkedLocation(&u.evalScript)
+                 : fun()->script()
+               : HandleScript::fromMarkedLocation(&exec.script);
     }
 
     /*
@@ -784,6 +809,10 @@ class StackFrame
         flags_ |= HAS_PUSHED_SPS_FRAME;
     }
 
+    void unsetPushedSPSFrame() {
+        flags_ &= ~HAS_PUSHED_SPS_FRAME;
+    }
+
     /* Return value */
 
     bool hasReturnValue() const {
@@ -896,6 +925,10 @@ class StackFrame
         return InitialFrameFlags(flags_ & mask);
     }
 
+    void setConstructing() {
+        flags_ |= CONSTRUCTING;
+    }
+
     bool isConstructing() const {
         return !!(flags_ & CONSTRUCTING);
     }
@@ -938,6 +971,10 @@ class StackFrame
 
     void setPrevUpToDate() {
         flags_ |= PREV_UP_TO_DATE;
+    }
+
+    bool hasOverflowArgs() const {
+        return !!(flags_ & OVERFLOW_ARGS);
     }
 
     bool isYielding() {
@@ -1026,6 +1063,31 @@ class StackFrame
 
   public:
     void mark(JSTracer *trc);
+
+    // Entered IonMonkey from the interpreter.
+    bool runningInIon() const {
+        return !!(flags_ & RUNNING_IN_ION);
+    }
+    // Entered IonMonkey from JaegerMonkey.
+    bool callingIntoIon() const {
+        return !!(flags_ & CALLING_INTO_ION);
+    }
+    // Entered IonMonkey in any way.
+    bool beginsIonActivation() const {
+        return !!(flags_ & (RUNNING_IN_ION | CALLING_INTO_ION));
+    }
+    void setRunningInIon() {
+        flags_ |= RUNNING_IN_ION;
+    }
+    void setCallingIntoIon() {
+        flags_ |= CALLING_INTO_ION;
+    }
+    void clearRunningInIon() {
+        flags_ &= ~RUNNING_IN_ION;
+    }
+    void clearCallingIntoIon() {
+        flags_ &= ~CALLING_INTO_ION;
+    }
 };
 
 static const size_t VALUES_PER_STACK_FRAME = sizeof(StackFrame) / sizeof(Value);
@@ -1236,7 +1298,6 @@ class StackSegment
     }
 
     void repointRegs(FrameRegs *regs) {
-        JS_ASSERT_IF(regs, regs->fp());
         regs_ = regs;
     }
 
@@ -1382,6 +1443,7 @@ class StackSpace
     JS_FRIEND_API(size_t) sizeOfCommitted();
 
 #ifdef DEBUG
+    /* Only used in assertion of debuggers API. */
     bool containsSlow(StackFrame *fp);
 #endif
 };
@@ -1472,18 +1534,21 @@ class ContextStack
     /* The StackSpace currently hosting this ContextStack. */
     StackSpace &space() const { return *space_; }
 
-    /* Return whether the given frame is in this context's stack. */
-    bool containsSlow(const StackFrame *target) const;
-
     /*** Stack manipulation ***/
 
     /*
      * pushInvokeArgs allocates |argc + 2| rooted values that will be passed as
      * the arguments to Invoke. A single allocation can be used for multiple
-     * Invoke calls. The InvokeArgumentsGuard passed to Invoke must come from
+     * Invoke calls. The InvokeArgsGuard passed to Invoke must come from
      * an immediately-enclosing (stack-wise) call to pushInvokeArgs.
      */
-    bool pushInvokeArgs(JSContext *cx, unsigned argc, InvokeArgsGuard *ag);
+    bool pushInvokeArgs(JSContext *cx, unsigned argc, InvokeArgsGuard *ag,
+                        MaybeReportError report = REPORT_ERROR);
+
+    /* Factor common code between pushInvokeFrame and pushBailoutFrame */
+    StackFrame *pushInvokeFrame(JSContext *cx, MaybeReportError report,
+                                const CallArgs &args, JSFunction *fun,
+                                InitialFrameFlags initial, FrameGuard *fg);
 
     /* Called by Invoke for a scripted function call. */
     bool pushInvokeFrame(JSContext *cx, const CallArgs &args,
@@ -1493,6 +1558,14 @@ class ContextStack
     bool pushExecuteFrame(JSContext *cx, JSScript *script, const Value &thisv,
                           JSObject &scopeChain, ExecuteType type,
                           StackFrame *evalInFrame, ExecuteFrameGuard *efg);
+
+    /* Allocate actual argument space for the bailed frame */
+    bool pushBailoutArgs(JSContext *cx, const ion::IonBailoutIterator &it,
+                         InvokeArgsGuard *iag);
+
+    /* Bailout for normal functions. */
+    StackFrame *pushBailoutFrame(JSContext *cx, const ion::IonBailoutIterator &it,
+                                 const CallArgs &args, BailoutFrameGuard *bfg);
 
     /*
      * Called by SendToGenerator to resume a yielded generator. In addition to
@@ -1509,7 +1582,8 @@ class ContextStack
      */
     bool pushInlineFrame(JSContext *cx, FrameRegs &regs, const CallArgs &args,
                          JSFunction &callee, JSScript *script,
-                         InitialFrameFlags initial);
+                         InitialFrameFlags initial,
+                         MaybeReportError report = REPORT_ERROR);
     bool pushInlineFrame(JSContext *cx, FrameRegs &regs, const CallArgs &args,
                          JSFunction &callee, JSScript *script,
                          InitialFrameFlags initial, Value **stackLimit);
@@ -1518,8 +1592,18 @@ class ContextStack
     /* Pop a partially-pushed frame after hitting the limit before throwing. */
     void popFrameAfterOverflow();
 
-    /* Get the topmost script and optional pc on the stack. */
-    inline JSScript *currentScript(jsbytecode **pc = NULL) const;
+    /*
+     * Get the topmost script and optional pc on the stack. By default, this
+     * function only returns a JSScript in the current compartment, returning
+     * NULL if the current script is in a different compartment. This behavior
+     * can be overridden by passing ALLOW_CROSS_COMPARTMENT.
+     */
+    enum MaybeAllowCrossCompartment {
+        DONT_ALLOW_CROSS_COMPARTMENT = false,
+        ALLOW_CROSS_COMPARTMENT = true
+    };
+    inline JSScript *currentScript(jsbytecode **pc = NULL,
+                                   MaybeAllowCrossCompartment = DONT_ALLOW_CROSS_COMPARTMENT) const;
 
     /* Get the scope chain for the topmost scripted call on the stack. */
     inline HandleObject currentScriptedScopeChain() const;
@@ -1582,6 +1666,12 @@ class InvokeFrameGuard : public FrameGuard
 class ExecuteFrameGuard : public FrameGuard
 {};
 
+class BailoutFrameGuard : public FrameGuard
+{};
+
+class DummyFrameGuard : public FrameGuard
+{};
+
 class GeneratorFrameGuard : public FrameGuard
 {
     friend class ContextStack;
@@ -1620,7 +1710,8 @@ class StackIter
   private:
     SavedOption  savedOption_;
 
-    enum State { DONE, SCRIPTED, NATIVE };
+    enum State { DONE, SCRIPTED, NATIVE, ION };
+
     State        state_;
 
     StackFrame   *fp_;
@@ -1631,9 +1722,18 @@ class StackIter
     JSScript     *script_;
     CallArgs     args_;
 
+#ifdef JS_ION
+    ion::IonActivationIterator ionActivations_;
+    ion::IonFrameIterator ionFrames_;
+    ion::InlineFrameIterator ionInlineFrames_;
+#endif
+
     void poisonRegs();
     void popFrame();
     void popCall();
+#ifdef JS_ION
+    void popIonFrame();
+#endif
     void settleOnNewSegment();
     void settleOnNewState();
     void startOnSegment(StackSegment *seg);
@@ -1648,9 +1748,26 @@ class StackIter
     bool operator==(const StackIter &rhs) const;
     bool operator!=(const StackIter &rhs) const { return !(*this == rhs); }
 
-    bool isScript() const { JS_ASSERT(!done()); return state_ == SCRIPTED; }
+    JSCompartment *compartment() const;
+
+    bool isScript() const {
+        JS_ASSERT(!done());
+#ifdef JS_ION
+        if (state_ == ION)
+            return ionFrames_.isScripted();
+#endif
+        return state_ == SCRIPTED;
+    }
+    bool isIon() const {
+        JS_ASSERT(!done());
+        return state_ == ION;
+    }
     bool isNativeCall() const {
         JS_ASSERT(!done());
+#ifdef JS_ION
+        if (state_ == ION)
+            return ionFrames_.isNative();
+#endif
         return state_ == NATIVE;
     }
 
@@ -1659,14 +1776,38 @@ class StackIter
     bool isNonEvalFunctionFrame() const;
     bool isConstructing() const;
 
-    StackFrame *fp() const { JS_ASSERT(isScript()); return fp_; }
+    /*
+     * When entering IonMonkey, the top interpreter frame (pushed by the caller)
+     * is kept on the stack as bookkeeping (with runningInIon() set). The
+     * contents of the frame are ignored by Ion code (and GC) and thus
+     * immediately become garbage and must not be touched directly.
+     */
+    StackFrame *interpFrame() const { JS_ASSERT(isScript() && !isIon()); return fp_; }
+
     jsbytecode *pc() const { JS_ASSERT(isScript()); return pc_; }
     JSScript   *script() const { JS_ASSERT(isScript()); return script_; }
     JSFunction *callee() const;
     Value       calleev() const;
+    unsigned    numActualArgs() const;
+
+    JSObject   *scopeChain() const;
+
+    // Ensure that thisv is correct, see ComputeThis.
+    bool        computeThis() const;
     Value       thisv() const;
 
+    JSFunction *maybeCallee() const {
+        return isFunctionFrame() ? callee() : NULL;
+    }
+
+    // These are only valid for the top frame.
+    size_t      numFrameSlots() const;
+    Value       frameSlotValue(size_t index) const;
+
     CallArgs nativeArgs() const { JS_ASSERT(isNativeCall()); return args_; }
+
+    template <class Op>
+    inline void ionForEachCanonicalActualArg(Op op);
 };
 
 /* A filtering of the StackIter to only stop at scripts. */
@@ -1688,7 +1829,7 @@ class ScriptFrameIter : public StackIter
 class NonBuiltinScriptFrameIter : public StackIter
 {
     void settle() {
-        while (!done() && (!isScript() || (isFunctionFrame() && fp()->fun()->isSelfHostedBuiltin())))
+        while (!done() && (!isScript() || (isFunctionFrame() && callee()->isSelfHostedBuiltin())))
             StackIter::operator++();
     }
 
@@ -1713,7 +1854,8 @@ class AllFramesIter
     bool done() const { return fp_ == NULL; }
     AllFramesIter& operator++();
 
-    StackFrame *fp() const { return fp_; }
+    bool        isIon() const { return fp_->runningInIon(); }
+    StackFrame *interpFrame() const { return fp_; }
 
   private:
     void settle();

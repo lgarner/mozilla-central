@@ -10,7 +10,7 @@ function test() {
     origin: "https://example.com",
     sidebarURL: "https://example.com/browser/browser/base/content/test/social_sidebar.html",
     workerURL: "https://example.com/browser/browser/base/content/test/social_worker.js",
-    iconURL: "chrome://branding/content/icon48.png"
+    iconURL: "https://example.com/browser/browser/base/content/test/moz.png"
   };
   runSocialTestWithProvider(manifest, function (finishcb) {
     runSocialTests(tests, undefined, undefined, finishcb);
@@ -28,18 +28,28 @@ var tests = {
     }
 
     function triggerIconPanel() {
-      let statusIcons = document.getElementById("social-status-iconbox");
-      ok(!statusIcons.firstChild.hidden, "status icon is visible");
-      // Click the button to trigger its contentPanel
-      let panel = document.getElementById("social-notification-panel");
-      EventUtils.synthesizeMouseAtCenter(statusIcons.firstChild, {});
+      let statusIcon = document.querySelector("#social-toolbar-item > box");
+      info("status icon is " + statusIcon);
+      waitForCondition(function() {
+        statusIcon = document.querySelector("#social-toolbar-item > box");
+        info("status icon is " + statusIcon);
+        return !!statusIcon;
+      }, function() {
+        // Click the button to trigger its contentPanel
+        let panel = document.getElementById("social-notification-panel");
+        EventUtils.synthesizeMouseAtCenter(statusIcon, {});
+      }, "Status icon didn't become non-hidden");
     }
 
-    let port = Social.provider.port;
+    let port = Social.provider.getWorkerPort();
     ok(port, "provider has a port");
     port.onmessage = function (e) {
       let topic = e.data.topic;
       switch (topic) {
+        case "test-init-done":
+          iconsReady = true;
+          checkNext();
+          break;
         case "got-panel-message":
           ok(true, "got panel message");
           // Check the panel isn't in our history.
@@ -52,6 +62,7 @@ var tests = {
             panel.hidePopup();
           } else if (e.data.result == "hidden") {
             ok(true, "panel hidden");
+            port.close();
             next();
           }
           break;
@@ -59,29 +70,12 @@ var tests = {
           // The sidebar message will always come first, since it loads by default
           ok(true, "got sidebar message");
           gotSidebarMessage = true;
+          // load a status panel
+          port.postMessage({topic: "test-ambient-notification"});
           checkNext();
           break;
       }
     }
     port.postMessage({topic: "test-init"});
-
-    // Our worker sets up ambient notification at the same time as it responds to
-    // the workerAPI initialization. If it's already initialized, we can
-    // immediately check the icons, otherwise wait for initialization by
-    // observing the topic sent out by the social service.
-    if (Social.provider.workerAPI.initialized) {
-      iconsReady = true;
-      checkNext();
-    } else {
-      Services.obs.addObserver(function obs() {
-        Services.obs.removeObserver(obs, "social:ambient-notification-changed");
-        // Let the other observers (like the one that updates the UI) run before
-        // checking the icons.
-        executeSoon(function () {
-          iconsReady = true;
-          checkNext();
-        });
-      }, "social:ambient-notification-changed", false);
-    }
   }
 }

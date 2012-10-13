@@ -88,6 +88,25 @@ notification[type="critical"] {
               0 0 0 2px -moz-mac-focusring inset;
 }
 
+@media (min-resolution: 2dppx) {
+  .messageCloseButton {
+    list-style-image: url("chrome://global/skin/icons/close@2x.png");
+    -moz-image-region: rect(0, 32px, 32px, 0);
+  }
+
+  .messageCloseButton:hover {
+    -moz-image-region: rect(0, 64px, 32px, 32px);
+  }
+
+  .messageCloseButton:hover:active {
+    -moz-image-region: rect(0, 96px, 32px, 64px);
+  }
+
+  .messageCloseButton > .toolbarbutton-icon {
+    width: 16px;
+  }
+}
+
 /* Popup notification */
 
 .popup-notification-description {
@@ -102,6 +121,7 @@ notification[type="critical"] {
   -moz-appearance: none;
 }
 
+.popup-notification-menubutton:not([type="menu-button"]):-moz-focusring,
 .popup-notification-menubutton:-moz-focusring > .button-menubutton-dropmarker,
 .popup-notification-menubutton > .button-menubutton-button:-moz-focusring {
   box-shadow: @focusRingShadow@;
@@ -122,10 +142,6 @@ notification[type="critical"] {
   background-clip: padding-box;
   background-origin: padding-box;
   padding: 2px 6px;
-}
-
-.popup-notification-menubutton:not([type="menu-button"]) {
-  padding: 2px 9px;
 }
 
 .popup-notification-menubutton > .button-menubutton-button {

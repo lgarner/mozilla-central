@@ -45,14 +45,6 @@ GetBuildConfiguration(JSContext *cx, unsigned argc, jsval *vp)
     if (!JS_SetProperty(cx, info, "exact-rooting", &value))
         return false;
 
-#ifdef JSGC_ROOT_ANALYSIS
-    value = BooleanValue(true);
-#else
-    value = BooleanValue(false);
-#endif
-    if (!JS_SetProperty(cx, info, "rooting-analysis", &value))
-        return false;
-
 #ifdef DEBUG
     value = BooleanValue(true);
 #else
@@ -82,7 +74,7 @@ GetBuildConfiguration(JSContext *cx, unsigned argc, jsval *vp)
 #else
     value = BooleanValue(false);
 #endif
-    if (!JS_SetProperty(cx, info, "has-gczeal", &value))
+    if (!JS_SetProperty(cx, info, "threadsafe", &value))
         return false;
 
 #ifdef JS_MORE_DETERMINISTIC
@@ -542,7 +534,7 @@ CountHeapNotify(JSTracer *trc, void **thingp, JSGCTraceKind kind)
     if (node) {
         countTracer->recycleList = node->next;
     } else {
-        node = (JSCountHeapNode *) js_malloc(sizeof *node);
+        node = js_pod_malloc<JSCountHeapNode>();
         if (!node) {
             countTracer->ok = false;
             return;

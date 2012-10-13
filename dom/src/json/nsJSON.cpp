@@ -450,12 +450,12 @@ nsJSON::DecodeInternal(JSContext* cx,
     if (!available)
       break; // blocking input stream has none available when done
 
-    if (available > PR_UINT32_MAX)
-      available = PR_UINT32_MAX;
+    if (available > UINT32_MAX)
+      available = UINT32_MAX;
 
     rv = jsonListener->OnDataAvailable(jsonChannel, nullptr,
                                        aStream,
-                                       (uint32_t)NS_MIN(offset, (uint64_t)PR_UINT32_MAX),
+                                       offset,
                                        (uint32_t)available);
     if (NS_FAILED(rv)) {
       jsonChannel->Cancel(rv);
@@ -500,10 +500,11 @@ nsJSON::LegacyDecodeToJSVal(const nsAString &str, JSContext *cx, jsval *result)
 {
   JSAutoRequest ar(cx);
 
-  JS::RootedValue reviver(cx, JS::NullValue()), value(cx);
+  js::RootedValue reviver(cx, JS::NullValue()), value(cx);
 
-  if (!js::ParseJSONWithReviver(cx, static_cast<const jschar*>(PromiseFlatString(str).get()),
-                                str.Length(), reviver,
+  JS::StableCharPtr chars(static_cast<const jschar*>(PromiseFlatString(str).get()),
+                          str.Length());
+  if (!js::ParseJSONWithReviver(cx, chars, str.Length(), reviver,
                                 &value, LEGACY)) {
     return NS_ERROR_UNEXPECTED;
   }
@@ -570,9 +571,10 @@ nsJSONListener::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  JS::RootedValue reviver(mCx, JS::NullValue()), value(mCx);
+  js::RootedValue reviver(mCx, JS::NullValue()), value(mCx);
 
-  const jschar* chars = reinterpret_cast<const jschar*>(mBufferedChars.Elements());
+  JS::StableCharPtr chars(reinterpret_cast<const jschar*>(mBufferedChars.Elements()),
+                          mBufferedChars.Length());
   JSBool ok = js::ParseJSONWithReviver(mCx, chars,
                                        (uint32) mBufferedChars.Length(),
                                        reviver, &value,
@@ -586,7 +588,7 @@ nsJSONListener::OnStopRequest(nsIRequest *aRequest, nsISupports *aContext,
 NS_IMETHODIMP
 nsJSONListener::OnDataAvailable(nsIRequest *aRequest, nsISupports *aContext,
                                 nsIInputStream *aStream,
-                                uint32_t aOffset, uint32_t aLength)
+                                uint64_t aOffset, uint32_t aLength)
 {
   nsresult rv = NS_OK;
 
@@ -620,7 +622,7 @@ nsJSONListener::ProcessBytes(const char* aBuffer, uint32_t aByteLength)
 {
   nsresult rv;
   // Check for BOM, or sniff charset
-  nsCAutoString charset;
+  nsAutoCString charset;
   if (mNeedsConverter && !mDecoder) {
     if (!nsContentUtils::CheckForBOM((const unsigned char*) mSniffBuffer.get(),
                                       mSniffBuffer.Length(), charset)) {

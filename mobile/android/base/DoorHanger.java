@@ -86,6 +86,11 @@ public class DoorHanger extends LinearLayout implements Button.OnClickListener {
             }
          }
 
+        // Enable the button layout if we have buttons.
+        if (buttons.length() > 0) {
+            mChoicesLayout.setVisibility(LinearLayout.VISIBLE);
+        }
+
         setOptions(options);
     }
 
@@ -145,7 +150,7 @@ public class DoorHanger extends LinearLayout implements Button.OnClickListener {
             URLSpan linkSpan = new URLSpan(linkUrl) {
                 @Override
                 public void onClick(View view) {
-                    mActivity.loadUrlInTab(this.getURL());
+                    Tabs.getInstance().loadUrlInTab(this.getURL());
                 }
             };
 

@@ -191,8 +191,12 @@ nsresult nsClipboard::SetupNativeDataObject(nsITransferable * aTransferable, IDa
                 strcmp(flavorStr, kNativeImageMime) == 0  ) {
         // if we're an image, register the native bitmap flavor
         FORMATETC imageFE;
+        // Add DIBv5
         SET_FORMATETC(imageFE, CF_DIBV5, 0, DVASPECT_CONTENT, -1, TYMED_HGLOBAL)
-        dObj->AddDataFlavor(flavorStr, &imageFE);      
+        dObj->AddDataFlavor(flavorStr, &imageFE);
+        // Add DIBv3 
+        SET_FORMATETC(imageFE, CF_DIB, 0, DVASPECT_CONTENT, -1, TYMED_HGLOBAL)
+        dObj->AddDataFlavor(flavorStr, &imageFE);
       }
       else if ( strcmp(flavorStr, kFilePromiseMime) == 0 ) {
          // if we're a file promise flavor, also register the 
@@ -773,7 +777,7 @@ nsClipboard :: FindURLFromLocalFile ( IDataObject* inDataObject, UINT inIndex, v
 
     if ( IsInternetShortcut(filepath) ) {
       nsMemory::Free(*outData);
-      nsCAutoString url;
+      nsAutoCString url;
       ResolveShortcut( file, url );
       if ( !url.IsEmpty() ) {
         // convert it to unicode and pass it out
@@ -794,7 +798,7 @@ nsClipboard :: FindURLFromLocalFile ( IDataObject* inDataObject, UINT inIndex, v
     }
     else {
       // we have a normal file, use some Necko objects to get our file path
-      nsCAutoString urlSpec;
+      nsAutoCString urlSpec;
       NS_GetURLSpecFromFile(file, urlSpec);
 
       // convert it to unicode and pass it out

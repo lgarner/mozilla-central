@@ -217,10 +217,12 @@ struct OpSetLayerAttributes {
 
 
 // Monkey with the tree structure
-struct OpSetRoot      { PLayer root; };
-struct OpInsertAfter  { PLayer container; PLayer childLayer; PLayer after; };
-struct OpAppendChild  { PLayer container; PLayer childLayer; };
-struct OpRemoveChild  { PLayer container; PLayer childLayer; };
+struct OpSetRoot          { PLayer root; };
+struct OpInsertAfter      { PLayer container; PLayer childLayer; PLayer after; };
+struct OpAppendChild      { PLayer container; PLayer childLayer; };
+struct OpRemoveChild      { PLayer container; PLayer childLayer; };
+struct OpRepositionChild  { PLayer container; PLayer childLayer; PLayer after; };
+struct OpRaiseToTopChild  { PLayer container; PLayer childLayer; };
 
 
 // Paint (buffer update)
@@ -264,6 +266,8 @@ union Edit {
   OpInsertAfter;
   OpAppendChild;
   OpRemoveChild;
+  OpRepositionChild;
+  OpRaiseToTopChild;
 
   OpPaintThebesBuffer;
   OpPaintTiledLayerBuffer;
@@ -319,10 +323,6 @@ parent:
   // for a particular document.
   sync Update(Edit[] cset, TargetConfig targetConfig, bool isFirstPaint)
     returns (EditReply[] reply);
-
-  // Composite the layer tree to the given surface, and return the surface.
-  sync DrawToSurface(SurfaceDescriptor surfaceIn)
-    returns (SurfaceDescriptor surfaceOut);
 
   // We don't need to send a sync transaction if
   // no transaction operate require a swap.

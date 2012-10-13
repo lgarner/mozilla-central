@@ -744,8 +744,6 @@ public:
     Block mFirstBlock;
     nsPurpleBufferEntry *mFreeList;
 
-    // For objects compiled against Gecko 1.9 and 1.9.1.
-    PointerSet mCompatObjects;
 #ifdef DEBUG_CC
     PointerSet mNormalObjects; // duplicates our blocks
     nsCycleCollectorStats &mStats;
@@ -759,14 +757,12 @@ public:
     {
         InitBlocks();
         mNormalObjects.Init();
-        mCompatObjects.Init();
     }
 #else
     nsPurpleBuffer(nsCycleCollectorParams &params) 
         : mParams(params)
     {
         InitBlocks();
-        mCompatObjects.Init();
     }
 #endif
 
@@ -841,7 +837,8 @@ public:
 
     // RemoveSkippable removes entries from the purple buffer if
     // nsPurpleBufferEntry::mObject is null or if the object's
-    // nsXPCOMCycleCollectionParticipant::CanSkip() returns true.
+    // nsXPCOMCycleCollectionParticipant::CanSkip() returns true or
+    // if nsPurpleBufferEntry::mNotPurple is true.
     // If removeChildlessNodes is true, then any nodes in the purple buffer
     // that will have no children in the cycle collector graph will also be
     // removed. CanSkip() may be run on these children.
@@ -850,7 +847,7 @@ public:
 #ifdef DEBUG_CC
     bool Exists(void *p) const
     {
-        return mNormalObjects.GetEntry(p) || mCompatObjects.GetEntry(p);
+        return mNormalObjects.GetEntry(p);
     }
 #endif
 
@@ -886,10 +883,7 @@ public:
 
         e->mObject = p;
         e->mParticipant = cp;
-
-#ifdef DEBUG_CC
-        mNormalObjects.PutEntry(p);
-#endif
+        e->mNotPurple = false;
 
         // Caller is responsible for filling in result's mRefCnt.
         return e;
@@ -910,18 +904,6 @@ public:
         --mCount;
     }
 
-    bool PutCompatObject(nsISupports *p)
-    {
-        ++mCount;
-        return !!mCompatObjects.PutEntry(p);
-    }
-
-    void RemoveCompatObject(nsISupports *p)
-    {
-        --mCount;
-        mCompatObjects.RemoveEntry(p);
-    }
-
     uint32_t Count() const
     {
         return mCount;
@@ -937,30 +919,6 @@ public:
 static bool
 AddPurpleRoot(GCGraphBuilder &builder, void *root, nsCycleCollectionParticipant *cp);
 
-struct CallbackClosure
-{
-    CallbackClosure(nsPurpleBuffer *aPurpleBuffer, GCGraphBuilder &aBuilder)
-        : mPurpleBuffer(aPurpleBuffer),
-          mBuilder(aBuilder)
-    {
-    }
-    nsPurpleBuffer *mPurpleBuffer;
-    GCGraphBuilder &mBuilder;
-};
-
-static PLDHashOperator
-selectionCallback(nsPtrHashKey<const void>* key, void* userArg)
-{
-    CallbackClosure *closure = static_cast<CallbackClosure*>(userArg);
-    if (AddPurpleRoot(closure->mBuilder,
-                      static_cast<nsISupports *>(
-                        const_cast<void*>(key->GetKey())),
-                      nullptr))
-        return PL_DHASH_REMOVE;
-
-    return PL_DHASH_NEXT;
-}
-
 void
 nsPurpleBuffer::SelectPointers(GCGraphBuilder &aBuilder)
 {
@@ -972,24 +930,16 @@ nsPurpleBuffer::SelectPointers(GCGraphBuilder &aBuilder)
                               *eEnd = ArrayEnd(b->mEntries);
             e != eEnd; ++e) {
             if (!(uintptr_t(e->mObject) & uintptr_t(1))) {
-                if (e->mObject) {
+                if (e->mObject && !e->mNotPurple) {
                     ++realCount;
                 }
             }
         }
     }
 
-    NS_ABORT_IF_FALSE(mCompatObjects.Count() + mNormalObjects.Count() ==
-                          realCount,
+    NS_ABORT_IF_FALSE(mNormalObjects.Count() == realCount,
                       "count out of sync");
 #endif
-
-    if (mCompatObjects.Count()) {
-        mCount -= mCompatObjects.Count();
-        CallbackClosure closure(this, aBuilder);
-        mCompatObjects.EnumerateEntries(selectionCallback, &closure);
-        mCount += mCompatObjects.Count(); // in case of allocation failure
-    }
 
     // Walk through all the blocks.
     for (Block *b = &mFirstBlock; b; b = b->mNext) {
@@ -999,8 +949,14 @@ nsPurpleBuffer::SelectPointers(GCGraphBuilder &aBuilder)
             if (!(uintptr_t(e->mObject) & uintptr_t(1))) {
                 // This is a real entry (rather than something on the
                 // free list).
-                if (!e->mObject || AddPurpleRoot(aBuilder, e->mObject,
-                                                 e->mParticipant)) {
+                if (e->mObject && e->mNotPurple) {
+                    void* o = e->mObject;
+                    nsCycleCollectionParticipant* cp = e->mParticipant;
+                    CanonicalizeParticipant(&o, &cp);
+                    cp->UnmarkIfPurple(o);
+                    Remove(e);
+                } else if (!e->mObject || AddPurpleRoot(aBuilder, e->mObject,
+                                                        e->mParticipant)) {
                     Remove(e);
                 }
             }
@@ -1062,10 +1018,6 @@ struct nsCycleCollector
     nsCycleCollector();
     ~nsCycleCollector();
 
-    // The first pair of Suspect and Forget functions are only used by
-    // old XPCOM binary components.
-    bool Suspect(nsISupports *n);
-    bool Forget(nsISupports *n);
     nsPurpleBufferEntry* Suspect2(void *n, nsCycleCollectionParticipant *cp);
     bool Forget2(nsPurpleBufferEntry *e);
 
@@ -1100,6 +1052,7 @@ struct nsCycleCollector
     FILE *mPtrLog;
     PointerSet mExpectedGarbage;
 
+    bool LogPurpleAddition(void* aObject, nsCycleCollectionParticipant *cp);
     void LogPurpleRemoval(void* aObject);
 
     void ShouldBeFreed(nsISupports *n);
@@ -1350,17 +1303,22 @@ public:
         }
         char basename[MAXPATHLEN] = {'\0'};
         char ccname[MAXPATHLEN] = {'\0'};
+        char* env;
+        if ((env = PR_GetEnv("MOZ_CC_LOG_DIRECTORY"))) {
+            strcpy(basename, env);
+        } else {
 #ifdef XP_WIN
-        // On Windows, tmpnam returns useless stuff, such as "\\s164.".
-        // Therefore we need to call the APIs directly.
-        GetTempPathA(mozilla::ArrayLength(basename), basename);
+            // On Windows, tmpnam returns useless stuff, such as "\\s164.".
+            // Therefore we need to call the APIs directly.
+            GetTempPathA(mozilla::ArrayLength(basename), basename);
 #else
-        tmpnam(basename);
-        char *lastSlash = strrchr(basename, XPCOM_FILE_PATH_SEPARATOR[0]);
-        if (lastSlash) {
-            *lastSlash = '\0';
-        }
+            tmpnam(basename);
+            char *lastSlash = strrchr(basename, XPCOM_FILE_PATH_SEPARATOR[0]);
+            if (lastSlash) {
+                *lastSlash = '\0';
+            }
 #endif
+        }
 
         ++gLogCounter;
 
@@ -1387,8 +1345,13 @@ public:
         nsCOMPtr<nsIConsoleService> cs =
             do_GetService(NS_CONSOLESERVICE_CONTRACTID);
         if (cs) {
-            cs->LogStringMessage(NS_ConvertUTF8toUTF16(ccname).get());
-            cs->LogStringMessage(NS_ConvertUTF8toUTF16(gcname).get());
+            nsString msg = NS_LITERAL_STRING("Cycle Collector log dumped to ");
+            AppendUTF8toUTF16(ccname, msg);
+            cs->LogStringMessage(msg.get());
+
+            msg = NS_LITERAL_STRING("Garbage Collector log dumped to ");
+            AppendUTF8toUTF16(gcname, msg);
+            cs->LogStringMessage(msg.get());
         }
 
         return NS_OK;
@@ -1823,7 +1786,7 @@ GCGraphBuilder::DescribeRefCountedNode(nsrefcnt refCount, const char *objName)
 {
     if (refCount == 0)
         Fault("zero refcount", mCurrPi);
-    if (refCount == PR_UINT32_MAX)
+    if (refCount == UINT32_MAX)
         Fault("overflowing refcount", mCurrPi);
     sCollector->mVisitedRefCounted++;
 
@@ -1838,7 +1801,7 @@ GCGraphBuilder::DescribeRefCountedNode(nsrefcnt refCount, const char *objName)
 NS_IMETHODIMP_(void)
 GCGraphBuilder::DescribeGCedNode(bool isMarked, const char *objName)
 {
-    uint32_t refCount = isMarked ? PR_UINT32_MAX : 0;
+    uint32_t refCount = isMarked ? UINT32_MAX : 0;
     sCollector->mVisitedGCed++;
 
     if (mListener) {
@@ -2045,7 +2008,7 @@ nsPurpleBuffer::RemoveSkippable(bool removeChildlessNodes)
                     void *o = e->mObject;
                     nsCycleCollectionParticipant *cp = e->mParticipant;
                     CanonicalizeParticipant(&o, &cp);
-                    if (!cp->CanSkip(o, false) &&
+                    if (!e->mNotPurple && !cp->CanSkip(o, false) &&
                         (!removeChildlessNodes || MayHaveChild(o, cp))) {
                         continue;
                     }
@@ -2468,70 +2431,6 @@ nsCycleCollector_isScanSafe(void *s, nsCycleCollectionParticipant *cp)
 }
 #endif
 
-bool
-nsCycleCollector::Suspect(nsISupports *n)
-{
-    AbortIfOffMainThreadIfCheckFast();
-
-    // Re-entering ::Suspect during collection used to be a fault, but
-    // we are canonicalizing nsISupports pointers using QI, so we will
-    // see some spurious refcount traffic here. 
-
-    if (mScanInProgress)
-        return false;
-
-    NS_ASSERTION(nsCycleCollector_isScanSafe(n, nullptr),
-                 "suspected a non-scansafe pointer");
-
-    if (mParams.mDoNothing)
-        return false;
-
-#ifdef DEBUG_CC
-    mStats.mSuspectNode++;
-
-    if (nsCycleCollector_shouldSuppress(n))
-        return false;
-
-    if (mParams.mLogPointers) {
-        if (!mPtrLog)
-            mPtrLog = fopen("pointer_log", "w");
-        fprintf(mPtrLog, "S %p\n", static_cast<void*>(n));
-    }
-#endif
-
-    return mPurpleBuf.PutCompatObject(n);
-}
-
-
-bool
-nsCycleCollector::Forget(nsISupports *n)
-{
-    AbortIfOffMainThreadIfCheckFast();
-
-    // Re-entering ::Forget during collection used to be a fault, but
-    // we are canonicalizing nsISupports pointers using QI, so we will
-    // see some spurious refcount traffic here. 
-
-    if (mScanInProgress)
-        return false;
-
-    if (mParams.mDoNothing)
-        return true; // it's as good as forgotten
-
-#ifdef DEBUG_CC
-    mStats.mForgetNode++;
-
-    if (mParams.mLogPointers) {
-        if (!mPtrLog)
-            mPtrLog = fopen("pointer_log", "w");
-        fprintf(mPtrLog, "F %p\n", static_cast<void*>(n));
-    }
-#endif
-
-    mPurpleBuf.RemoveCompatObject(n);
-    return true;
-}
-
 nsPurpleBufferEntry*
 nsCycleCollector::Suspect2(void *n, nsCycleCollectionParticipant *cp)
 {
@@ -2551,16 +2450,8 @@ nsCycleCollector::Suspect2(void *n, nsCycleCollectionParticipant *cp)
         return nullptr;
 
 #ifdef DEBUG_CC
-    mStats.mSuspectNode++;
-
-    if (!cp && nsCycleCollector_shouldSuppress(static_cast<nsISupports *>(n)))
+    if (!LogPurpleAddition(n, cp))
         return nullptr;
-
-    if (mParams.mLogPointers) {
-        if (!mPtrLog)
-            mPtrLog = fopen("pointer_log", "w");
-        fprintf(mPtrLog, "S %p\n", static_cast<void*>(n));
-    }
 #endif
 
     // Caller is responsible for filling in result's mRefCnt.
@@ -2589,6 +2480,42 @@ nsCycleCollector::Forget2(nsPurpleBufferEntry *e)
 }
 
 #ifdef DEBUG_CC
+void
+nsCycleCollector_logPurpleAddition(void* aObject,
+                                   nsCycleCollectionParticipant *cp)
+{
+    if (sCollector) {
+        sCollector->LogPurpleAddition(aObject, cp);
+    }
+}
+
+bool
+nsCycleCollector::LogPurpleAddition(void* aObject,
+                                    nsCycleCollectionParticipant *cp)
+{
+
+    if (mScanInProgress)
+        return false;
+
+    if (mParams.mDoNothing)
+        return false;
+
+    mStats.mSuspectNode++;
+
+    if (!cp &&
+        nsCycleCollector_shouldSuppress(static_cast<nsISupports *>(aObject)))
+        return false;
+
+    if (mParams.mLogPointers) {
+        if (!mPtrLog)
+            mPtrLog = fopen("pointer_log", "w");
+        fprintf(mPtrLog, "S %p\n", static_cast<void*>(aObject));
+    }
+
+    mPurpleBuf.mNormalObjects.PutEntry(aObject);
+    return true;
+}
+
 void
 nsCycleCollector_logPurpleRemoval(void* aObject)
 {
@@ -2809,7 +2736,7 @@ nsCycleCollector::BeginCollection(bool aMergeCompartments,
             while (!etor.IsDone()) {
                 PtrInfo *pi = etor.GetNext();
                 if (pi->mColor == black &&
-                    pi->mRefCount > 0 && pi->mRefCount < PR_UINT32_MAX &&
+                    pi->mRefCount > 0 && pi->mRefCount < UINT32_MAX &&
                     pi->mInternalRefs != pi->mRefCount) {
                     aListener->DescribeRoot((uint64_t)pi->mPointer,
                                             pi->mInternalRefs);
@@ -2987,21 +2914,6 @@ nsCycleCollector_forgetJSRuntime()
 {
     if (sCollector)
         sCollector->ForgetJSRuntime();
-}
-
-
-bool
-NS_CycleCollectorSuspect(nsISupports *n)
-{
-    if (sCollector)
-        return sCollector->Suspect(n);
-    return false;
-}
-
-bool
-NS_CycleCollectorForget(nsISupports *n)
-{
-    return sCollector ? sCollector->Forget(n) : true;
 }
 
 nsPurpleBufferEntry*

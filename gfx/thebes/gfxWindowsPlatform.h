@@ -107,7 +107,7 @@ public:
       CreateOffscreenImageSurface(const gfxIntSize& aSize,
                                   gfxASurface::gfxContentType aContentType);
 
-    virtual mozilla::RefPtr<mozilla::gfx::ScaledFont>
+    virtual mozilla::TemporaryRef<mozilla::gfx::ScaledFont>
       GetScaledFontForFont(mozilla::gfx::DrawTarget* aTarget, gfxFont *aFont);
     virtual already_AddRefed<gfxASurface>
       GetThebesSurfaceForDrawTarget(mozilla::gfx::DrawTarget *aTarget);
@@ -208,7 +208,8 @@ public:
         kWindowsXP = 0x50001,
         kWindowsServer2003 = 0x50002,
         kWindowsVista = 0x60000,
-        kWindows7 = 0x60001
+        kWindows7 = 0x60001,
+        kWindows8 = 0x60002
     };
 
     static int32_t WindowsOSVersion(int32_t *aBuildNum = nullptr);
@@ -242,13 +243,6 @@ public:
     static bool IsRunningInWindows8Metro();
 
 protected:
-    virtual mozilla::gfx::BackendType GetContentBackend()
-    {
-      return UseAzureContentDrawing() && mRenderMode == RENDER_DIRECT2D ?
-               mozilla::gfx::BACKEND_DIRECT2D :
-               mozilla::gfx::BACKEND_NONE;
-    }
-
     RenderMode mRenderMode;
 
     int8_t mUseClearTypeForDownloadableFonts;

@@ -17,9 +17,6 @@
 #include "nsIIOService.h"
 #include "nsIServiceManager.h"
 #include "nsNetUtil.h"
-#include "plstr.h"
-#include "prprf.h"
-#include "prmem.h"
 #include "nsCOMPtr.h"
 #include "nsEscape.h"
 #include "nsIDOMWindow.h"
@@ -138,14 +135,14 @@ nsLocation::GetDocShell()
   return docshell;
 }
 
-// Try to get the the document corresponding to the given JSStackFrame.
+// Try to get the the document corresponding to the given JSScript.
 static already_AddRefed<nsIDocument>
-GetFrameDocument(JSContext *cx, JSStackFrame *fp)
+GetScriptDocument(JSContext *cx, JSScript *script)
 {
-  if (!cx || !fp)
+  if (!cx || !script)
     return nullptr;
 
-  JSObject* scope = JS_GetGlobalForFrame(fp);
+  JSObject* scope = JS_GetGlobalFromScript(script);
   if (!scope)
     return nullptr;
 
@@ -206,15 +203,6 @@ nsLocation::CheckURL(nsIURI* aURI, nsIDocShellLoadInfo** aLoadInfo)
     rv = secMan->CheckLoadURIFromScript(cx, aURI);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    // Now get the principal to use when loading the URI
-    // First, get the principal and frame.
-    JSStackFrame *fp;
-    nsIPrincipal* principal = secMan->GetCxSubjectPrincipalAndFrame(cx, &fp);
-    NS_ENSURE_TRUE(principal, NS_ERROR_FAILURE);
-
-    nsCOMPtr<nsIURI> principalURI;
-    principal->GetURI(getter_AddRefs(principalURI));
-
     // Make the load's referrer reflect changes to the document's URI caused by
     // push/replaceState, if possible.  First, get the document corresponding to
     // fp.  If the document's original URI (i.e. its URI before
@@ -222,11 +210,16 @@ nsLocation::CheckURL(nsIURI* aURI, nsIDocShellLoadInfo** aLoadInfo)
     // current URI as the referrer.  If they don't match, use the principal's
     // URI.
 
-    nsCOMPtr<nsIDocument> frameDoc = GetFrameDocument(cx, fp);
-    nsCOMPtr<nsIURI> docOriginalURI, docCurrentURI;
-    if (frameDoc) {
-      docOriginalURI = frameDoc->GetOriginalURI();
-      docCurrentURI = frameDoc->GetDocumentURI();
+    JSScript* script = nullptr;
+    if (!JS_DescribeScriptedCaller(cx, &script, nullptr))
+      return NS_ERROR_FAILURE;
+    nsCOMPtr<nsIDocument> doc = GetScriptDocument(cx, script);
+    nsCOMPtr<nsIURI> docOriginalURI, docCurrentURI, principalURI;
+    if (doc) {
+      docOriginalURI = doc->GetOriginalURI();
+      docCurrentURI = doc->GetDocumentURI();
+      rv = doc->NodePrincipal()->GetURI(getter_AddRefs(principalURI));
+      NS_ENSURE_SUCCESS(rv, rv);
     }
 
     bool urisEqual = false;
@@ -241,7 +234,7 @@ nsLocation::CheckURL(nsIURI* aURI, nsIDocShellLoadInfo** aLoadInfo)
       sourceURI = principalURI;
     }
 
-    owner = do_QueryInterface(principal);
+    owner = do_QueryInterface(doc ? doc->NodePrincipal() : secMan->GetCxSubjectPrincipal(cx));
   }
 
   // Create load info
@@ -348,7 +341,7 @@ nsLocation::GetHash(nsAString& aHash)
     return rv;
   }
 
-  nsCAutoString ref;
+  nsAutoCString ref;
   nsAutoString unicodeRef;
 
   rv = uri->GetRef(ref);
@@ -357,7 +350,7 @@ nsLocation::GetHash(nsAString& aHash)
         do_GetService(NS_ITEXTTOSUBURI_CONTRACTID, &rv));
 
     if (NS_SUCCEEDED(rv)) {
-      nsCAutoString charset;
+      nsAutoCString charset;
       uri->GetOriginCharset(charset);
         
       rv = textToSubURI->UnEscapeURIForUI(charset, ref, unicodeRef);
@@ -420,7 +413,7 @@ nsLocation::GetHost(nsAString& aHost)
   result = GetURI(getter_AddRefs(uri), true);
 
   if (uri) {
-    nsCAutoString hostport;
+    nsAutoCString hostport;
 
     result = uri->GetHostPort(hostport);
 
@@ -459,7 +452,7 @@ nsLocation::GetHostname(nsAString& aHostname)
   result = GetURI(getter_AddRefs(uri), true);
 
   if (uri) {
-    nsCAutoString host;
+    nsAutoCString host;
 
     result = uri->GetHost(host);
 
@@ -498,7 +491,7 @@ nsLocation::GetHref(nsAString& aHref)
   result = GetURI(getter_AddRefs(uri));
 
   if (uri) {
-    nsCAutoString uriString;
+    nsAutoCString uriString;
 
     result = uri->GetSpec(uriString);
 
@@ -572,7 +565,7 @@ nsLocation::SetHrefWithBase(const nsAString& aHref, nsIURI* aBase,
 
   nsCOMPtr<nsIDocShell> docShell(do_QueryReferent(mDocShell));
 
-  nsCAutoString docCharset;
+  nsAutoCString docCharset;
   if (NS_SUCCEEDED(GetDocumentCharacterSetForURI(aHref, docCharset)))
     result = NS_NewURI(getter_AddRefs(newUri), aHref, docCharset.get(), aBase);
   else
@@ -631,7 +624,7 @@ nsLocation::GetPathname(nsAString& aPathname)
 
   nsCOMPtr<nsIURL> url(do_QueryInterface(uri));
   if (url) {
-    nsCAutoString file;
+    nsAutoCString file;
 
     result = url->GetFilePath(file);
 
@@ -727,7 +720,7 @@ nsLocation::GetProtocol(nsAString& aProtocol)
   result = GetURI(getter_AddRefs(uri));
 
   if (uri) {
-    nsCAutoString protocol;
+    nsAutoCString protocol;
 
     result = uri->GetScheme(protocol);
 
@@ -769,7 +762,7 @@ nsLocation::GetSearch(nsAString& aSearch)
   nsCOMPtr<nsIURL> url(do_QueryInterface(uri));
 
   if (url) {
-    nsCAutoString search;
+    nsAutoCString search;
 
     result = url->GetQuery(search);
 
