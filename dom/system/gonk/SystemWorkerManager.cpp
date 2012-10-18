@@ -604,11 +604,12 @@ SystemWorkerManager::GetInterface(const nsIID &aIID, void **aResult)
     NS_IF_ADDREF(*reinterpret_cast<nsIRadioInterfaceLayer**>(aResult) = mRIL);
     return NS_OK;
   }
-
+#ifdef MOZ_B2G_NFC
   if (aIID.Equals(NS_GET_IID(nsINfc))) {
     return CallQueryInterface(mNfcWorker,
                               reinterpret_cast<nsINfc**>(aResult));
   }
+#endif
 
   if (aIID.Equals(NS_GET_IID(nsIWifi))) {
     return CallQueryInterface(mWifiWorker,
