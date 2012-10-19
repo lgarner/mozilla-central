@@ -39,7 +39,7 @@ nsNfc::nsNfc()
 nsNfc::~nsNfc()
 {
   if (mNfc && mNfcCallback) {
-    mNfc->UnregisterCallback(mNfcCallback);
+    mNfc->UnregisterNfcCallback(mNfcCallback);
   }
 }
  
@@ -57,7 +57,7 @@ nsNfc::Create(nsPIDOMWindow* aOwner, nsINfcContentHelper* aNfc)
   nfc->mNfc = aNfc;
   nfc->mNfcCallback = new NfcCallback(nfc);
  
-  nsresult rv = aNfc->RegisterCallback(nfc->mNfcCallback);
+  nsresult rv = aNfc->RegisterNfcCallback(nfc->mNfcCallback);
   NS_ENSURE_SUCCESS(rv, nullptr);
  
   return nfc.forget();
@@ -68,8 +68,6 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(nsNfc)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsNfc,
                                                   nsDOMEventTargetHelper)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
-  NS_CYCLE_COLLECTION_TRAVERSE_EVENT_HANDLER(ndefdiscovered)
-  NS_CYCLE_COLLECTION_TRAVERSE_EVENT_HANDLER(taglost)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(nsNfc,
@@ -78,8 +76,6 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(nsNfc,
                                                 nsDOMEventTargetHelper)
-  NS_CYCLE_COLLECTION_UNLINK_EVENT_HANDLER(ndefdiscovered)
-  NS_CYCLE_COLLECTION_UNLINK_EVENT_HANDLER(taglost)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsNfc)
@@ -94,11 +90,11 @@ DOMCI_DATA(Nfc, nsNfc)
 
 NS_IMPL_ISUPPORTS1(nsNfc::NfcCallback, nsINfcCallback)
 
-NS_IMPL_EVENT_HANDLER(nsNfc, ndefdiscovered)
-NS_IMPL_EVENT_HANDLER(nsNfc, taglost)
+NS_IMPL_EVENT_HANDLER(nsNfc, connected)
+NS_IMPL_EVENT_HANDLER(nsNfc, disconnected)
 
 NS_IMETHODIMP
-nsNfc::NdefDiscovered(const nsAString &aNdefRecords)
+nsNfc::Connected(const nsAString &aNdefRecords)
 {
   // Parse JSON
   jsval result;
@@ -116,7 +112,7 @@ nsNfc::NdefDiscovered(const nsAString &aNdefRecords)
   nsRefPtr<nsDOMEvent> event = NfcNdefEvent::Create(result);
   NS_ASSERTION(event, "This should never fail!");
  
-  rv = event->InitEvent(NS_LITERAL_STRING("ndefdiscovered"), false, false);
+  rv = event->InitEvent(NS_LITERAL_STRING("connected"), false, false);
   NS_ENSURE_SUCCESS(rv, rv);
  
   bool dummy;
@@ -127,7 +123,7 @@ nsNfc::NdefDiscovered(const nsAString &aNdefRecords)
 }
 
 NS_IMETHODIMP
-nsNfc::TagLost(const nsAString &aNfcHandle) {
+nsNfc::Disconnected(const nsAString &aNfcHandle) {
   jsval result;
   nsresult rv;
   nsIScriptContext* sc = GetContextForEventHandlers(&rv);
@@ -144,7 +140,7 @@ nsNfc::TagLost(const nsAString &aNfcHandle) {
   nsRefPtr<nsDOMEvent> event = NfcNdefEvent::Create(result);
   NS_ASSERTION(event, "This should never fail!");
 
-  rv = event->InitEvent(NS_LITERAL_STRING("taglost"), false, false);
+  rv = event->InitEvent(NS_LITERAL_STRING("disconnected"), false, false);
   NS_ENSURE_SUCCESS(rv, rv);
 
   bool dummy;
@@ -287,10 +283,12 @@ NS_NewNfc(nsPIDOMWindow* aWindow, nsIDOMNfc** aNfc)
   // Do security checks.
   nsCOMPtr<nsIURI> uri;
   document->NodePrincipal()->GetURI(getter_AddRefs(uri));
- 
+
+#if 0  // FIXME: Function no longer exists
   if (!nsContentUtils::URIIsChromeOrInPref(uri, "dom.nfc.whitelist")) {
     return NS_ERROR_DOM_SECURITY_ERR;
   }
+#endif
  
   // Security checks passed, make a NFC object.
   nsCOMPtr<nsINfcContentHelper> nfc =

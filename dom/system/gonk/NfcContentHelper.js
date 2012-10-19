@@ -27,8 +27,8 @@ const NFCCONTENTHELPER_CID =
   Components.ID("{4d72c120-da5f-11e1-9b23-0800200c9a66}");
  
 const NFC_IPC_MSG_NAMES = [
-  "NFC:NdefDiscovered",
-  "NFC:TagLost",
+  "NFC:NdefConnected",
+  "NFC:NdefDisconnected",
   "NFC:RequestStatus"
 ];
  
@@ -109,40 +109,49 @@ NfcContentHelper.prototype = {
     return request;
   },
  
-  _callbacks: null,
- 
-  registerCallback: function registerCallback(callback) {
-    if (this._callbacks) {
-      if (this._callbacks.indexOf(callback) != -1) {
-        throw new Error("Already registered this callback!");
-      }
-    } else {
-      this._callbacks = [];
+  registerCallback: function registerCallback(callbackType, callback) {
+    let callbacks = this[callbackType];
+    if (!callbacks) {
+      callbacks = this[callbackType] = [];
     }
-    this._callbacks.push(callback);
-    debug("Registered callback: " + callback);
+
+    if (callbacks.indexOf(callback) != -1) {
+      throw new Error("Already registered this callback!");
+    }
+
+    callbacks.push(callback);
+    if (DEBUG) debug("Registered " + callbackType + " callback: " + callback);
   },
- 
-  unregisterCallback: function unregisterCallback(callback) {
-    if (!this._callbacks) {
+
+  unregisterCallback: function unregisterCallback(callbackType, callback) {
+    let callbacks = this[callbackType];
+    if (!callbacks) {
       return;
     }
-    let index = this._callbacks.indexOf(callback);
+
+    let index = callbacks.indexOf(callback);
     if (index != -1) {
-      this._callbacks.splice(index, 1);
-      debug("Unregistered callback: " + callback);
+      callbacks.splice(index, 1);
+      if (DEBUG) debug("Unregistered telephony callback: " + callback);
     }
   },
+
+  registerNfcCallback: function registerNfcCallback(callback) {
+    this.registerCallback("_nfcCallbacks", callback);
+  },
+
+  unregisterNfcCallback: function unregisterNfcCallback(callback) {
+    this.unregisterCallback("_nfcCallbacks", callback);
+  }, 
  
   receiveMessage: function receiveMessage(message) {
     let request;
-    debug("Received message '" + message.name + "': " + JSON.stringify(message));
     switch (message.name) {
-      case "NFC:NdefDiscovered":
-        this.handleNdefDiscovered(message.json);
+      case "NFC:NdefConnected":
+        this.handleNdefConnected(message.json);
         break;
-      case "NFC:TagLost":
-        this.handleTagLost(message.json);
+      case "NFC:NdefDisconnected":
+        this.handleNdefDisconnected(message.json);
         break;
       case "NFC:RequestStatus":
         this.handleRequestStatus(message.json);
@@ -150,21 +159,20 @@ NfcContentHelper.prototype = {
     }
   },
  
-  handleNdefDiscovered: function handleNdefDiscovered(message) {
+  handleNdefConnected: function handleNdefConnected(message) {
     let records = message.content.records;
     for (var i = 0; i < records.length; i++) {
+      records[i].tnf = records[i].tnf;
       records[i].type = atob(records[i].type);
       records[i].id = atob(records[i].id);
       records[i].payload = atob(records[i].payload);
     }
-    this._deliverCallback("ndefDiscovered", records)
+    this._deliverCallback("_nfcCallbacks", "connected", [JSON.stringify(records)]);
   },
 
-  handleTagLost: function handleTagLost(message) {
-     this._deliverCallback("tagLost", message);
+  handleNdefDisconnected: function handleNdefDisconnected(message) {
+     this._deliverCallback("_nfcCallbacks", "disconnected", [JSON.stringify(message)]);
   },
-
-  requestMap: null,
 
   handleRequestStatus: function handleRequestStatus(message) {
     let response = message.content; // Subfields of content: requestId, status, optional message
@@ -211,19 +219,15 @@ NfcContentHelper.prototype = {
     Services.DOMRequest.fireError(request, error);
   },
  
-  _deliverCallback: function _deliverCallback(name, args) {
-    // We need to worry about callback registration state mutations during the
-    // callback firing. The behaviour we want is to *not* call any callbacks
-    // that are added during the firing and to *not* call any callbacks that are
-    // removed during the firing. To address this, we make a copy of the
-    // callback list before dispatching and then double-check that each callback
-    // is still registered before calling it.
-    if (!this._callbacks) {
+  _deliverCallback: function _deliverCallback(callbackType, name, args) {
+    let thisCallbacks = this[callbackType];
+    if (!thisCallbacks) {
       return;
     }
-    let callbacks = this._callbacks.slice();
+
+    let callbacks = thisCallbacks.slice();
     for each (let callback in callbacks) {
-      if (this._callbacks.indexOf(callback) == -1) {
+      if (thisCallbacks.indexOf(callback) == -1) {
         continue;
       }
       let handler = callback[name];
@@ -231,9 +235,7 @@ NfcContentHelper.prototype = {
         throw new Error("No handler for " + name);
       }
       try {
-        let str = JSON.stringify(args);
-        debug("Delivering message \"" + str + "\" to " + callback[name] + " callback");
-        handler.apply(callback, [ str ]);
+        handler.apply(callback, args);
       } catch (e) {
         debug("callback handler for " + name + " threw an exception: " + e);
       }

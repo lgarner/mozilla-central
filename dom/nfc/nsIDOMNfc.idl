@@ -9,8 +9,8 @@
 [scriptable, builtinclass, uuid(c2c01a50-4779-11e1-b86c-0800200c9a66)]
 interface nsIDOMNfc : nsIDOMEventTarget {
 
-  attribute nsIDOMEventListener onndefdiscovered;
-  attribute nsIDOMEventListener ontaglost;
+  [implicit_jscontext] attribute jsval onconnected;
+  [implicit_jscontext] attribute jsval ondisconnected;
 
   [implicit_jscontext]
   boolean validateNdefTag(in jsval records);

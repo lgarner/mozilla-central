@@ -34,11 +34,11 @@ let Nfc = {
    * Process incoming data.
    *
    * @param incoming
-   *        Uint8Array containing the incoming data.
+   *        nfc JSON message
    */
   processIncoming: function processIncoming(incoming) {
     if (DEBUG) {
-      debug("Received " + incoming);
+      debug("Received: " + incoming);
     }
     let message = JSON.parse(incoming);
     this.sendDOMMessage(message);
@@ -79,7 +79,7 @@ let Nfc = {
    * Send messages to the main UI thread.
    */
   sendDOMMessage: function sendDOMMessage(message) {
-    postMessage(message, "*");
+    postMessage(message);
   }
 
 };
@@ -104,5 +104,6 @@ onmessage = function onmessage(event) {
 };
 
 onerror = function onerror(event) {
+  debug("OnError: event: " + JSON.stringify(event));
   debug("NFC Worker error " + event.message + "\n");
 };   

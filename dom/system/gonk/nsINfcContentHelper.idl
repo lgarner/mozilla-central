@@ -10,8 +10,8 @@ interface nsINfcCallback;
 [scriptable, uuid(28c8f240-da8c-11e1-9b23-0800200c9a66)]
 interface nsINfcContentHelper : nsISupports
 {
-  void registerCallback(in nsINfcCallback callback);
-  void unregisterCallback(in nsINfcCallback callback);
+  void registerNfcCallback(in nsINfcCallback callback);
+  void unregisterNfcCallback(in nsINfcCallback callback);
  
   nsIDOMDOMRequest writeNdefTag(in nsIDOMWindow window, in jsval records);
   nsIDOMDOMRequest ndefPush(in nsIDOMWindow window, in jsval records);
