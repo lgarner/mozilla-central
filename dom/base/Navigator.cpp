@@ -1297,6 +1297,10 @@ Navigator::GetMozNfc(nsIDOMNfc** aNfc)
     nsCOMPtr<nsPIDOMWindow> window = do_QueryReferent(mWindow);
     NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
 
+    if (!CheckPermission("nfc")) {
+      return NS_OK;
+    }
+
     nsresult rv = NS_NewNfc(window, getter_AddRefs(mNfc));
     NS_ENSURE_SUCCESS(rv, rv);
 
