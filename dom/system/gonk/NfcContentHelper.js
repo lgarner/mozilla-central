@@ -27,7 +27,7 @@ const NFCCONTENTHELPER_CID =
   Components.ID("{4d72c120-da5f-11e1-9b23-0800200c9a66}");
  
 const NFC_IPC_MSG_NAMES = [
-  "NFC:NdefConnected",
+  "NFC:NdefDiscovered",
   "NFC:NdefDisconnected",
   "NFC:RequestStatus"
 ];
@@ -147,8 +147,8 @@ NfcContentHelper.prototype = {
   receiveMessage: function receiveMessage(message) {
     let request;
     switch (message.name) {
-      case "NFC:NdefConnected":
-        this.handleNdefConnected(message.json);
+      case "NFC:NdefDiscovered":
+        this.handleNdefDiscovered(message.json);
         break;
       case "NFC:NdefDisconnected":
         this.handleNdefDisconnected(message.json);
@@ -159,7 +159,7 @@ NfcContentHelper.prototype = {
     }
   },
  
-  handleNdefConnected: function handleNdefConnected(message) {
+  handleNdefDiscovered: function handleNdefDiscovered(message) {
     let records = message.content.records;
     for (var i = 0; i < records.length; i++) {
       records[i].tnf = records[i].tnf;

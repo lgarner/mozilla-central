@@ -71,8 +71,8 @@ Nfc.prototype = {
     let message = event.data;
     debug("Received message: " + JSON.stringify(message));
     switch (message.type) {
-      case "ndefConnected":
-        ppmm.broadcastAsyncMessage("NFC:NdefConnected", message);
+      case "ndefDiscovered":
+        ppmm.broadcastAsyncMessage("NFC:NdefDiscovered", message);
         break;
       case "ndefDisconnected":
         ppmm.broadcastAsyncMessage("NFC:NdefDisconnected", message);

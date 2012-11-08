@@ -90,11 +90,11 @@ DOMCI_DATA(Nfc, nsNfc)
 
 NS_IMPL_ISUPPORTS1(nsNfc::NfcCallback, nsINfcCallback)
 
-NS_IMPL_EVENT_HANDLER(nsNfc, connected)
-NS_IMPL_EVENT_HANDLER(nsNfc, disconnected)
+NS_IMPL_EVENT_HANDLER(nsNfc, ndefdiscovered)
+NS_IMPL_EVENT_HANDLER(nsNfc, ndefdisconnected)
 
 NS_IMETHODIMP
-nsNfc::Connected(const nsAString &aNdefRecords)
+nsNfc::NdefDiscovered(const nsAString &aNdefRecords)
 {
   // Parse JSON
   jsval result;
@@ -112,7 +112,7 @@ nsNfc::Connected(const nsAString &aNdefRecords)
   nsRefPtr<nsDOMEvent> event = NfcNdefEvent::Create(result);
   NS_ASSERTION(event, "This should never fail!");
  
-  rv = event->InitEvent(NS_LITERAL_STRING("connected"), false, false);
+  rv = event->InitEvent(NS_LITERAL_STRING("ndefdiscovered"), false, false);
   NS_ENSURE_SUCCESS(rv, rv);
  
   bool dummy;
@@ -123,7 +123,7 @@ nsNfc::Connected(const nsAString &aNdefRecords)
 }
 
 NS_IMETHODIMP
-nsNfc::Disconnected(const nsAString &aNfcHandle) {
+nsNfc::NdefDisconnected(const nsAString &aNfcHandle) {
   jsval result;
   nsresult rv;
   nsIScriptContext* sc = GetContextForEventHandlers(&rv);
@@ -140,7 +140,7 @@ nsNfc::Disconnected(const nsAString &aNfcHandle) {
   nsRefPtr<nsDOMEvent> event = NfcNdefEvent::Create(result);
   NS_ASSERTION(event, "This should never fail!");
 
-  rv = event->InitEvent(NS_LITERAL_STRING("disconnected"), false, false);
+  rv = event->InitEvent(NS_LITERAL_STRING("ndefdisconnected"), false, false);
   NS_ENSURE_SUCCESS(rv, rv);
 
   bool dummy;

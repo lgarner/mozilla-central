@@ -7,6 +7,6 @@
 [scriptable, uuid(999fa430-6180-11e1-b86c-0800200c9a66)]
 interface nsINfcCallback : nsISupports
 {
-  void connected(in AString aNdefRecords);
-  void disconnected(in AString aNfcHandle);
+  void ndefDiscovered(in AString aNdefRecords);
+  void ndefDisconnected(in AString aNfcHandle);
 };
