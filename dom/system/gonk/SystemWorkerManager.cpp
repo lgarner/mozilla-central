@@ -45,6 +45,8 @@
 #include "WifiWorker.h"
 #include "mozilla/StaticPtr.h"
 
+#include "mozilla/Preferences.h"
+
 USING_WORKERS_NAMESPACE
 
 using namespace mozilla::dom::gonk;
@@ -717,6 +719,13 @@ nsresult
 SystemWorkerManager::InitNfc(JSContext *cx)
 {
 #ifdef MOZ_B2G_NFC
+  bool nfcEnabled;
+  // Check preferences, do not create nfc object if disabled.
+  nfcEnabled = Preferences::GetBool("dom.nfc.enabled", false);
+  if (!nfcEnabled) {
+    return NS_OK;
+  }
+
   // Check if the nfcd binary exists before trying to spin off a I/O thread
   if(!DoesNfcExist()) {
     return NS_OK;
