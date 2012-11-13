@@ -167,11 +167,11 @@ NfcContentHelper.prototype = {
       records[i].id = atob(records[i].id);
       records[i].payload = atob(records[i].payload);
     }
-    this._deliverCallback("_nfcCallbacks", "connected", [JSON.stringify(records)]);
+    this._deliverCallback("_nfcCallbacks", "ndefDiscovered", [JSON.stringify(records)]);
   },
 
   handleNdefDisconnected: function handleNdefDisconnected(message) {
-     this._deliverCallback("_nfcCallbacks", "disconnected", [JSON.stringify(message)]);
+     this._deliverCallback("_nfcCallbacks", "ndefDisconnected", [JSON.stringify(message)]);
   },
 
   handleRequestStatus: function handleRequestStatus(message) {

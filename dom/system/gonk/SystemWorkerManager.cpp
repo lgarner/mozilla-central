@@ -55,6 +55,11 @@ using namespace mozilla::ipc;
 using namespace mozilla::system;
 #endif
 
+#undef LOG
+#define SYSTEM_WORKER_MANAGER_TAG "SystemWorkerManager"
+#define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, SYSTEM_WORKER_MANAGER_TAG, ## args)
+#define ERR(args...)  __android_log_print(ANDROID_LOG_ERROR, SYSTEM_WORKER_MANAGER_TAG, ## args)
+
 #define NS_NETWORKMANAGER_CID \
   { 0x33901e46, 0x33b8, 0x11e1, \
   { 0x98, 0x69, 0xf4, 0x6d, 0x04, 0xd2, 0x5b, 0xcc } }
@@ -724,6 +729,7 @@ SystemWorkerManager::InitNfc(JSContext *cx)
   nfcEnabled = Preferences::GetBool("dom.nfc.enabled", false);
   if (!nfcEnabled) {
     return NS_OK;
+  } else {
   }
 
   // Check if the nfcd binary exists before trying to spin off a I/O thread

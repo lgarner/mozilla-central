@@ -3716,6 +3716,9 @@ pref("dom.vibrator.max_vibrate_list_len", 128);
 // Battery API
 pref("dom.battery.enabled", true);
 
+// Near Field Communications enable/disable
+pref("dom.nfc.enabled", false);
+
 // WebSMS
 pref("dom.sms.enabled", false);
 // Enable Latin characters replacement with corresponding ones in GSM SMS
