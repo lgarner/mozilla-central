@@ -45,7 +45,7 @@
 #include "WifiWorker.h"
 #include "mozilla/StaticPtr.h"
 
-#include "mozilla/Preferences.h"
+#include <cutils/properties.h>
 
 USING_WORKERS_NAMESPACE
 
@@ -70,7 +70,6 @@ NS_DEFINE_CID(kWifiWorkerCID, NS_WIFIWORKER_CID);
 NS_DEFINE_CID(kNetworkManagerCID, NS_NETWORKMANAGER_CID);
 
 #ifdef MOZ_B2G_NFC
-#define NFCD_EXECUTABLE "/system/bin/nfcd"
 NS_DEFINE_CID(kNfcWorkerCID, NS_NFC_CID);
 #endif
 
@@ -724,18 +723,12 @@ nsresult
 SystemWorkerManager::InitNfc(JSContext *cx)
 {
 #ifdef MOZ_B2G_NFC
-  bool nfcEnabled;
-  // Check preferences, do not create nfc object if disabled.
-  nfcEnabled = Preferences::GetBool("dom.nfc.enabled", false);
-  if (!nfcEnabled) {
+  // Check a system property to see if NFC is enabled.
+  bool isNfcEnabled = IsNfcEnabled();
+  if (!isNfcEnabled) {
+    LOG("NFC Property not enabled.");
     return NS_OK;
-  } else {
-  }
-
-  // Check if the nfcd binary exists before trying to spin off a I/O thread
-  if(!DoesNfcExist()) {
-    return NS_OK;
-  }
+  } 
  
   // We're keeping as much of this implementation as possible in JS, so the real
   // worker lives in Nfc.js. All we do here is hold it alive and
@@ -771,15 +764,22 @@ SystemWorkerManager::InitNfc(JSContext *cx)
 #endif
   return NS_OK;
 }
- 
+
 #ifdef MOZ_B2G_NFC
 // static
-bool SystemWorkerManager::DoesNfcExist()
+bool SystemWorkerManager::IsNfcEnabled()
 {
-  return access(NFCD_EXECUTABLE, F_OK) != -1 ? true : false;
+  char propBuf[PROPERTY_VALUE_MAX];
+  property_get("nfc.enabled", propBuf, "false");
+  if (strcmp(propBuf, "false") == 0) {
+    return false;
+  } else {
+    return true;
+  }
 }
 #endif
 
+ 
 NS_IMPL_ISUPPORTS2(SystemWorkerManager, nsIObserver, nsIInterfaceRequestor)
 
 NS_IMETHODIMP

@@ -52,7 +52,7 @@ public:
   GetInterfaceRequestor();
 
 #ifdef MOZ_B2G_NFC
-  static bool DoesNfcExist();
+  static bool IsNfcEnabled();
 #endif
 
 private:

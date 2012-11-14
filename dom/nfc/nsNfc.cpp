@@ -150,15 +150,6 @@ nsNfc::NdefDisconnected(const nsAString &aNfcHandle) {
   return NS_OK;
 }
 
-static JSBool
-JSONCreator(const jschar* aBuf, uint32_t aLen, void* aData)
-{
-  nsAString* result = static_cast<nsAString*>(aData);
-  result->Append(static_cast<const PRUnichar*>(aBuf),
-                 static_cast<PRUint32>(aLen));
-  return true;
-}
-
 NS_IMETHODIMP
 nsNfc::ValidateNdefTag(const jsval& aRecords, JSContext* aCx, bool* result)
 {
@@ -259,7 +250,7 @@ NS_NewNfc(nsPIDOMWindow* aWindow, nsIDOMNfc** aNfc)
   NS_ASSERTION(aWindow, "Null pointer!");
   
   // Check if Nfc exists and return null if it doesn't
-  if(!mozilla::dom::gonk::SystemWorkerManager::DoesNfcExist()) {
+  if(!mozilla::dom::gonk::SystemWorkerManager::IsNfcEnabled()) {
     *aNfc = nullptr; 
     return NS_OK;
   }
