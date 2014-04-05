@@ -482,6 +482,29 @@ Nfc.prototype = {
   },
 
   /**
+   * Send message to system target
+   *
+   * @param systemMessageType
+   *        A text message type to system
+   * @param message
+   *        A message object
+   */
+  sendMessageToSystem: function sendMessageToSystem(systemMessageType,
+                                                    message) {
+    let systemPageURL = Services.prefs.getCharPref('browser.homescreenURL');
+    let systemManifestURL = Services.prefs.getCharPref('browser.manifestURL');
+    let uriPage = Services.io.newURI(systemPageURL, null, null);
+    let uriManifest = Services.io.newURI(systemManifestURL, null, null);
+
+    if (!uriPage || !uriManifest) {
+      return;
+    }
+
+    gSystemMessenger.sendMessage(systemMessageType, message,
+                                 uriPage, uriManifest, null);
+  },
+
+  /**
    * Process the incoming message from the NFC worker
    */
   onmessage: function onmessage(event) {
@@ -490,34 +513,10 @@ Nfc.prototype = {
 
     switch (message.type) {
       case "techDiscovered":
-        this._currentSessionId = message.sessionId;
-
-        // Check if the session token already exists. If exists, continue to use the same one.
-        // If not, generate a new token.
-        if (!this.sessionTokenMap[this._currentSessionId]) {
-          this.sessionTokenMap[this._currentSessionId] = UUIDGenerator.generateUUID().toString();
-        }
-        // Update the upper layers with a session token (alias)
-        message.sessionToken = this.sessionTokenMap[this._currentSessionId];
-        // Do not expose the actual session to the content
-        delete message.sessionId;
-
-        gSystemMessenger.broadcastMessage("nfc-manager-tech-discovered", message);
+        this.handleTechDiscovered(message);
         break;
       case "techLost":
-        gMessageManager._unregisterMessageTarget(this.sessionTokenMap[this._currentSessionId], null);
-
-        // Update the upper layers with a session token (alias)
-        message.sessionToken = this.sessionTokenMap[this._currentSessionId];
-        // Do not expose the actual session to the content
-        delete message.sessionId;
-
-        gSystemMessenger.broadcastMessage("nfc-manager-tech-lost", message);
-        // Notify 'PeerLost' to appropriate registered target, if any
-        gMessageManager.notifyPeerEvent(this.currentPeerAppId, NFC.NFC_PEER_EVENT_LOST);
-        delete this.sessionTokenMap[this._currentSessionId];
-        this._currentSessionId = null;
-        this.currentPeerAppId = null;
+        this.handleTechLost(message);
         break;
      case "ConfigResponse":
         let target = this.targetsByRequestId[message.requestId];
@@ -543,6 +542,38 @@ Nfc.prototype = {
       default:
         throw new Error("Don't know about this message type: " + message.type);
     }
+  },
+
+  handleTechDiscovered: function handleTechDiscovered(message) {
+    this._currentSessionId = message.sessionId;
+
+    // Check if the session token already exists. If exists, continue to use the same one.
+    // If not, generate a new token.
+    if (!this.sessionTokenMap[this._currentSessionId]) {
+      this.sessionTokenMap[this._currentSessionId] = UUIDGenerator.generateUUID().toString();
+    }
+    // Update the upper layers with a session token (alias)
+    message.sessionToken = this.sessionTokenMap[this._currentSessionId];
+    // Do not expose the actual session to the content
+    delete message.sessionId;
+
+    this.sendMessageToSystem("nfc-manager-tech-discovered", message);
+  },
+
+  handleTechLost: function handleTechLost(message) {
+    gMessageManager._unregisterMessageTarget(this.sessionTokenMap[this._currentSessionId], null);
+
+    // Update the upper layers with a session token (alias)
+    message.sessionToken = this.sessionTokenMap[this._currentSessionId];
+    // Do not expose the actual session to the content
+    delete message.sessionId;
+
+    this.sendMessageToSystem("nfc-manager-tech-lost", message);
+    // Notify 'PeerLost' to appropriate registered target, if any
+    gMessageManager.notifyPeerEvent(this.currentPeerAppId, NFC.NFC_PEER_EVENT_LOST);
+    delete this.sessionTokenMap[this._currentSessionId];
+    this._currentSessionId = null;
+    this.currentPeerAppId = null;
   },
 
   // nsINfcWorker
