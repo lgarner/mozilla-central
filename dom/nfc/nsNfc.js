@@ -6,7 +6,7 @@
 
 "use strict";
 
-const DEBUG = false;
+const DEBUG = true;
 function debug(s) {
   if (DEBUG) dump("-*- Nfc DOM: " + s + "\n");
 }
@@ -24,6 +24,8 @@ XPCOMUtils.defineLazyServiceGetter(this,
                                    "nsIAppsService");
 const NFC_PEER_EVENT_READY = 0x01;
 const NFC_PEER_EVENT_LOST  = 0x02;
+const NFC_TAG_EVENT_FOUND  = 0x04;
+const NFC_TAG_EVENT_LOST   = 0x08;
 
 /**
  * NFCTag
@@ -151,6 +153,7 @@ mozNfc.prototype = {
 
   // Only apps which have nfc-manager permission can call the following interfaces
   // 'checkP2PRegistration' , 'notifyUserAcceptedP2P' , 'notifySendFileStatus',
+  // 'notifyTagFound', 'notifyTagLost'
   // 'startPoll', 'stopPoll', and 'powerOff'.
   checkP2PRegistration: function checkP2PRegistration(manifestUrl) {
     // Get the AppID and pass it to ContentHelper
@@ -167,6 +170,21 @@ mozNfc.prototype = {
   notifySendFileStatus: function notifySendFileStatus(status, requestId) {
     this._nfcContentHelper.notifySendFileStatus(this._window,
                                                 status, requestId);
+  },
+
+  notifyTagFound: function notifyTagFound(appId, data) {
+    debug("XXXXXXXXXXXX XXXXXXXXXXX notifyTagFound: data: " + data);
+    debug("XXXXXXXXXXXX XXXXXXXXXXX notifyTagFound: appId: " + appId);
+    debug("XXXXXXXXXXXX XXXXXXXXXXX notifyTagFound: Sending Event: " + NFC_TAG_EVENT_FOUND);
+    this._nfcContentHelper.notifyTagEvent(this._window, appId,
+                                          NFC_TAG_EVENT_FOUND,
+                                          data);
+  },
+
+  notifyTagLost: function notifyTagLost(appId, data) {
+    this._nfcContentHelper.notifyTagEvent(this._window, appId,
+                                          NFC_TAG_EVENT_LOST,
+                                          data);
   },
 
   startPoll: function startPoll() {
@@ -199,6 +217,24 @@ mozNfc.prototype = {
     }
     throw new Error("Unable to create NFCPeer object, Reason:  Bad SessionToken " +
                      sessionToken);
+  },
+
+  // get/set ontagfound
+  get ontagfound() {
+    return this.__DOM_IMPL__.getEventHandler("ontagfound");
+  },
+
+  set ontagfound(handler) {
+    this.__DOM_IMPL__.setEventHandler("ontagfound", handler);
+  },
+
+  // get/set ontaglost
+  get ontaglost() {
+    return this.__DOM_IMPL__.getEventHandler("ontaglost");
+  },
+
+  set ontaglost(handler) {
+    this.__DOM_IMPL__.setEventHandler("ontaglost", handler);
   },
 
   // get/set onpeerready
@@ -236,10 +272,14 @@ mozNfc.prototype = {
   registerTarget: function registerTarget(event) {
     let self = this;
     let appId = this._window.document.nodePrincipal.appId;
+    debug("registerTarget: " + event.toString(2) + " " + appId);
+    debug("registerTarget 1a: " + event + " " + appId);
     this._nfcContentHelper.registerTargetForPeerEvent(this._window, appId,
-      event, function(evt, sessionToken) {
+      event, function(evt, sessionToken, data) {
+        debug("registerTarget: 2: " + evt + " " + sessionToken);
+        debug("registerTarget: 3: " + data);
         self.session = sessionToken;
-        self.firePeerEvent(evt, sessionToken);
+        self.fireDOMEvent(evt, sessionToken, data);
     });
   },
 
@@ -251,6 +291,7 @@ mozNfc.prototype = {
 
   getEventType: function getEventType(evt) {
     let eventType = -1;
+    debug("XXXXX getEventType: " + evt);
     switch (evt) {
       case 'peerready':
         eventType = NFC_PEER_EVENT_READY;
@@ -258,19 +299,92 @@ mozNfc.prototype = {
       case 'peerlost':
         eventType = NFC_PEER_EVENT_LOST;
         break;
+      case 'tagfound':
+        eventType = NFC_TAG_EVENT_FOUND;
+        break;
+      case 'taglost':
+        eventType = NFC_TAG_EVENT_LOST;
+        break;
       default:
+        debug("Unknown DOM Event: " + evt.toString(2) + ", not registering.");
         break;
     }
+    debug("XXXXX eventType conversion: " + eventType.toString(2));
     return eventType;
   },
 
-  firePeerEvent: function firePeerEvent(evt, sessionToken) {
-    let peerEvent = (NFC_PEER_EVENT_READY === evt) ? "peerready" : "peerlost";
-    let detail = {
-      "detail":sessionToken
-    };
-    let event = new this._window.CustomEvent(peerEvent, this._wrap(detail));
+  fireDOMEvent: function fireDOMEvent(evt, sessionToken, data) {
+    let domEvent = -1;
+    debug("XXXXX fireDOMEvent: " + evt + " " + sessionToken);
+    switch(evt) {
+      case NFC_PEER_EVENT_READY:
+        domEvent = 'peerready';
+        break;
+      case NFC_PEER_EVENT_LOST:
+        domEvent = 'peerlost';
+        break;
+      case NFC_TAG_EVENT_FOUND:
+        domEvent = 'tagfound';
+        break;
+      case NFC_TAG_EVENT_LOST:
+        domEvent = 'taglost';
+        break;
+      default:
+        debug("Unknown DOM Event: " + evt + ", not firing.");
+        return;
+    }
+
+    let detailObj = null;
+    let event = null;
+    if (data) {
+      let jdata = JSON.parse(data);
+      detailObj = { "detail": { "name": jdata.name, "data": {} } };
+      // Ref everyting but records
+      for (var elm in jdata.data) {
+        if (elm != "records") {
+          debug("adding elm: " + elm + ", data: " + jdata.data[elm]);
+          detailObj.detail.data[elm] = jdata.data[elm];
+        }
+      }
+      detailObj.detail.data.sessionToken = sessionToken;
+      detailObj.detail.data.records = this._convertObjectToNDEFMessage(jdata.data.records);
+      event = new this._window.CustomEvent(domEvent, this._wrap(detailObj));
+    } else { // session only
+      detailObj = {
+        "detail": {
+          "sessionToken": sessionToken ? sessionToken : null
+        }
+      }
+      event = new this._window.CustomEvent(domEvent, this._wrap(detailObj));
+    }
     this.__DOM_IMPL__.dispatchEvent(event);
+  },
+
+  _convertObjectToNDEFMessage: function _convertObjectToNDEFMessage(message) {
+    if (!message) {
+      return [];
+    }
+    let newMessage = [];
+    let convert = function convert(obj) {
+      if (!obj) {
+        return new Uint8Array();
+      }
+      let uint8 = [];
+      for (let elm in obj) {
+        uint8.push(obj[elm]);
+      }
+      return new Uint8Array(uint8);
+    };
+    for (let i = 0; i < message.length; i++) {
+      let rec = {};
+      rec.tnf = message[i].tnf;
+      rec.type = convert(message[i].type);
+      rec.id  = convert(message[i].id);
+      rec.payload = convert(message[i].payload);
+      //rec = new this._window.MozNDEFRecord(rec.tnf, rec.type, rec.id, rec.payload); // Not working with cloneInto
+      newMessage.push(rec);
+    }
+    return newMessage;
   },
 
   classID: Components.ID("{6ff2b290-2573-11e3-8224-0800200c9a66}"),

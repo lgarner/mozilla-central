@@ -113,6 +113,9 @@ this.SystemMessagePermissionsTable = {
   "nfc-manager-send-file": {
     "nfc-manager": []
   },
+  "nfc-manager-app-event-registration": {
+    "nfc-manager": []
+  },
   "nfc-powerlevel-change": {
     "settings": ["read", "write"]
   },

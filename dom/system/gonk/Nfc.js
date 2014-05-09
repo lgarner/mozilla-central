@@ -70,6 +70,7 @@ const NFC_IPC_MANAGER_PERM_MSG_NAMES = [
   "NFC:CheckP2PRegistration",
   "NFC:NotifyUserAcceptedP2P",
   "NFC:NotifySendFileStatus",
+  "NFC:NotifyTagEvent",
   "NFC:StartPoll",
   "NFC:StopPoll",
   "NFC:PowerOff"
@@ -225,20 +226,26 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
 
     registerPeerTarget: function registerPeerTarget(msg) {
       let appInfo = msg.json;
+      debug("registerPeerTarget 1"); 
+      debug("registerPeerTarget 2: " + JSON.stringify(msg)); 
       // Sanity check on PeerEvent
-      if (!this.isValidPeerEvent(appInfo.event)) {
+      if (!this.isValidPeerEvent(appInfo.event) && !this.isValidTagEvent(appInfo.event)) {
         return;
       }
+      debug("registerPeerTarget 3: targets: " + JSON.stringify(this.peerTargetsMap)); 
       let targets = this.peerTargetsMap;
       let targetInfo = targets[appInfo.appId];
       // If the application Id is already registered
       if (targetInfo) {
+      debug("registerPeerTarget 4: targetInfo: " + JSON.stringify(targetInfo)); 
         // If the event is not registered
         if (targetInfo.event !== appInfo.event) {
+      debug("registerPeerTarget 5: targetInfo: " + JSON.stringify(targetInfo)); 
           // Update the event field ONLY
           targetInfo.event |= appInfo.event;
         }
         // Otherwise event is already registered, return!
+      debug("registerPeerTarget 6: targetInfo: " + JSON.stringify(targetInfo)); 
         return;
       }
       // Target not registered yet! Add to the target map
@@ -246,15 +253,21 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
       // Registered targetInfo target consists of 2 fields (values)
       // target : Target to notify the right content for peer notifications
       // event  : NFC_PEER_EVENT_READY (0x01) Or NFC_PEER_EVENT_LOST (0x02)
+      debug("registerPeerTarget 7: targetInfo: " + JSON.stringify(targetInfo)); 
       let newTargetInfo = { target : msg.target,
                             event  : appInfo.event };
+      debug("registerPeerTarget 8: new targetInfo: " + JSON.stringify(newTargetInfo)); 
       targets[appInfo.appId] = newTargetInfo;
+      debug("registerPeerTarget 9: updated targets: " + JSON.stringify(targets)); 
+
+      // Notify System App(s) that is holding the data the app with the event registered needs.
+      gSystemMessenger.broadcastMessage("nfc-manager-app-event-registration", appInfo);
     },
 
     unregisterPeerTarget: function unregisterPeerTarget(msg) {
       let appInfo = msg.json;
       // Sanity check on PeerEvent
-      if (!this.isValidPeerEvent(appInfo.event)) {
+      if (!this.isValidPeerEvent(appInfo.event) && !this.isValidTagEvent(appInfo.event)) {
         return;
       }
       let targets = this.peerTargetsMap;
@@ -305,9 +318,7 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
 
     isValidPeerEvent: function isValidPeerEvent(event) {
       // Valid values : 0x01, 0x02 Or 0x03
-      return ((event === NFC.NFC_PEER_EVENT_READY) ||
-              (event === NFC.NFC_PEER_EVENT_LOST)  ||
-              (event === (NFC.NFC_PEER_EVENT_READY | NFC.NFC_PEER_EVENT_LOST)));
+      return ((event & NFC.NFC_PEER_EVENT_READY) || (event & NFC.NFC_PEER_EVENT_LOST));
     },
 
     checkP2PRegistration: function checkP2PRegistration(msg) {
@@ -325,6 +336,29 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
       }
       // Notify the content process immediately of the status
       msg.target.sendAsyncMessage(msg.name + "Response", respMsg);
+    },
+
+    isValidTagEvent: function isValidTagEvent(event) {
+      return ((event & NFC.NFC_TAG_EVENT_FOUND) || (event & NFC.NFC_TAG_EVENT_LOST));
+    },
+
+    // Tag found or lost:
+    notifyTagEvent: function notifyTagEvent(appId, event, data) {
+      debug("notifyTagEvent: AppID:" + appId);
+      let targetInfo = this.peerTargetsMap[appId];
+      // Check if the application id is a registeredP2PTarget
+      debug("notifyTagEventmap: " + JSON.stringify(this.peerTargetsMap));
+      debug("notifyTagEventmap data: " + JSON.stringify(data));
+      if (this.isValidPeerEvent(appId, event) || this.isValidTagEvent(appId, event)) {
+        targetInfo.target.sendAsyncMessage("NFC:TagEvent", {
+          event: event,
+          sessionToken: this.nfc.sessionTokenMap[this.nfc._currentSessionId],
+          data: data
+        });
+        return;
+      }
+      debug("Application ID : " + appId + " is not a registered target" +
+            " for the event " + event + " notification");
     },
 
     /**
@@ -394,6 +428,10 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
           // Upon receiving the status of sendFile operation, send the response
           // to appropriate content process.
           this.sendNfcResponseMessage(msg.name + "Response", msg.json);
+          return null;
+        case "NFC:NotifyTagEvent":
+          debug("Notifying Tag Event: " + JSON.stringify(msg));
+          this.notifyTagEvent(msg.json.appId, msg.json.eventId, msg.json.data);
           return null;
         default:
           return this.nfc.receiveMessage(msg);

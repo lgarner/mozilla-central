@@ -21,7 +21,8 @@ interface nsINfcPeerCallback : nsISupports
    *        SessionToken received from Chrome process
    */
    void peerNotification(in unsigned long event,
-                         in DOMString sessionToken);
+                         in DOMString sessionToken,
+                         in DOMString data);
 };
 
 [scriptable, uuid(26e8123f-ba00-4708-ac77-d1902457168c)]
@@ -78,7 +79,7 @@ interface nsINfcContentHelper : nsISupports
   */
   void registerTargetForPeerEvent(in nsIDOMWindow window,
                                   in unsigned long appId,
-                                  in octet event,
+                                  in unsigned long event,
                                   in nsINfcPeerCallback callback);
  /**
   * Unregister the given application id with Chrome process
@@ -94,7 +95,7 @@ interface nsINfcContentHelper : nsISupports
   */
   void unregisterTargetForPeerEvent(in nsIDOMWindow window,
                                     in unsigned long appId,
-                                    in octet event);
+                                    in unsigned long event);
  /**
   * Checks if the given application's id is a registered peer target (with the Chrome process)
   *
@@ -134,6 +135,25 @@ interface nsINfcContentHelper : nsISupports
   void notifySendFileStatus(in nsIDOMWindow window,
                             in octet status,
                             in DOMString requestId);
+
+  /**
+   * notifyTagEvent
+  * @param window
+  *        Current window
+  *
+  * @param appId
+  *        ID of target application to notify.
+  *
+  * @param eventID
+  *        ID of event to send to target application.
+  * 
+  * @param data
+  *        Event type dependent data. This can be null.
+  */
+  void notifyTagEvent(in nsIDOMWindow window,
+                      in unsigned long appId,
+                      in unsigned long eventId,
+                      in DOMString data);
 
   /**
    * Power on the NFC hardware and start polling for NFC tags or devices.

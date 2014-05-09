@@ -27,6 +27,16 @@ interface MozNFCManager {
    void notifySendFileStatus(octet status, DOMString requestId);
 
    /**
+    * Notify specified app that a tag is found
+    */
+   void notifyTagFound(unsigned long appId, DOMString data);
+
+   /**
+    * Notify specified app that a tag is lost
+    */
+   void notifyTagLost(unsigned long appId, DOMString data);
+
+   /**
     * Power on the NFC hardware and start polling for NFC tags or devices.
     */
    DOMRequest startPoll();
@@ -50,6 +60,9 @@ interface MozNFC : EventTarget {
    MozNFCTag getNFCTag(DOMString sessionId);
    [Throws]
    MozNFCPeer getNFCPeer(DOMString sessionId);
+
+   attribute EventHandler ontagfound;
+   attribute EventHandler ontaglost;
 
    [CheckPermissions="nfc-write"]
    attribute EventHandler onpeerready;

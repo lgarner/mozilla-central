@@ -54,6 +54,7 @@ const NFC_IPC_MSG_NAMES = [
   "NFC:MakeReadOnlyNDEFResponse",
   "NFC:ConnectResponse",
   "NFC:CloseResponse",
+  "NFC:TagEvent",
   "NFC:CheckP2PRegistrationResponse",
   "NFC:PeerEvent",
   "NFC:NotifySendFileStatusResponse",
@@ -81,8 +82,8 @@ function NfcContentHelper() {
 
   this._requestMap = [];
 
-  // Maintains an array of PeerEvent related callbacks, mainly
-  // one for 'peerReady' and another for 'peerLost'.
+  // Maintains an array of TagEvent and PeerEvent related callbacks, mainly
+  // for 'peerReady', 'peerLost', 'tagFound', 'tagLost'
   this.peerEventsCallbackMap = {};
 }
 
@@ -263,11 +264,14 @@ NfcContentHelper.prototype = {
 
   registerTargetForPeerEvent: function registerTargetForPeerEvent(window,
                                                   appId, event, callback) {
+    debug("Register Target for Peer/Tag Event: appId: " + appId + " callback: " + callback + " event: " + event);
     if (window == null) {
+      debug("Window NULLLLLL");
       throw Components.Exception("Can't get window object",
                                   Cr.NS_ERROR_UNEXPECTED);
     }
     this.peerEventsCallbackMap[event] = callback;
+    debug("Firing message: " + appId + ", " + event);
     cpmm.sendAsyncMessage("NFC:RegisterPeerTarget", {
       appId: appId,
       event: event
@@ -315,6 +319,20 @@ NfcContentHelper.prototype = {
 
     cpmm.sendAsyncMessage("NFC:NotifyUserAcceptedP2P", {
       appId: appId
+    });
+  },
+
+  notifyTagEvent: function notifyTagEvent(window, appId, eventId, data /* DOMString */) {
+    if (window == null) {
+      throw Components.Exception("Can't get window object",
+                                 Cr.NS_ERROR_UNEXPECTED);
+    }
+
+    debug("XXXXXXXXXXXXXX At notifyEvent: appId: " + appId + " event: " + eventId + " data: " + data);
+    cpmm.sendAsyncMessage("NFC:NotifyTagEvent", {
+      appId: appId,
+      eventId: eventId,
+      data: data
     });
   },
 
@@ -426,14 +444,11 @@ NfcContentHelper.prototype = {
           this.fireRequestSuccess(atob(result.requestId), result);
         }
         break;
+      case "NFC:TagEvent":
+        this.handleTagEvent(result);
+        break;
       case "NFC:PeerEvent":
-        let callback = this.peerEventsCallbackMap[result.event];
-        if (callback) {
-          callback.peerNotification(result.event, result.sessionToken);
-        } else {
-          debug("PeerEvent: No valid callback registered for the event " +
-                result.event);
-        }
+        this.handlePeerEvent(result);
         break;
     }
   },
@@ -481,6 +496,30 @@ NfcContentHelper.prototype = {
     let requestId = atob(result.requestId);
     this.fireRequestSuccess(requestId, !result.errorMsg);
   },
+
+  handlePeerEvent: function handlePeerEvent(result) {
+    let callback = this.peerEventsCallbackMap[result.event];
+      if (callback) {
+        callback.peerNotification(result.event, result.sessionToken, null);
+      } else {
+        debug("PeerEvent: No valid callback registered for the event " +
+              result.event.toString(2));
+      }
+  },
+
+  handleTagEvent: function handleTagEvent(result) {
+    // Peer, tag, general callback mechanism.
+    debug("XXXXXXXXXXXXXXX handleTagEvent.");
+    debug("XXXXXXXXXXXXXXX handleTagEvent: result: " + result);
+    debug("XXXXXXXXXXXXXXX handleTagEvent: the Peer Map: " + JSON.stringify(this.peerEventsCallbackMap));
+    let callback = this.peerEventsCallbackMap[result.event]; // Rename to eventsCallbackMap.
+      if (callback) {
+        callback.peerNotification(result.event, result.sessionToken, result.data);
+      } else {
+        debug("TagEvent: No valid callback registered for the event " +
+              result.event.toString(2));
+      }
+  }
 };
 
 if (NFC_ENABLED) {
