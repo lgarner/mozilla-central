@@ -89,22 +89,6 @@ interface nsIIccProvider : nsISupports
                                  in DOMString pin2);
 
   /**
-   * Secure Card Icc communication channel
-   */
-  nsIDOMDOMRequest iccOpenChannel(in unsigned long clientId,
-                                  in nsIDOMWindow window,
-                                  in DOMString aid);
-
-  nsIDOMDOMRequest iccExchangeAPDU(in unsigned long clientId,
-                                   in nsIDOMWindow window,
-                                   in long channel,
-                                   in jsval apdu);
-
-  nsIDOMDOMRequest iccCloseChannel(in unsigned long clientId,
-                                   in nsIDOMWindow window,
-                                   in long channel);
-
-  /**
    * Helpers
    */
   nsIDOMDOMRequest matchMvno(in unsigned long clientId,

@@ -96,9 +96,6 @@ const RIL_IPC_MSG_NAMES = [
   "RIL:GetCallingLineIdRestriction",
   "RIL:CellBroadcastReceived",
   "RIL:CfStateChanged",
-  "RIL:IccOpenChannel",
-  "RIL:IccCloseChannel",
-  "RIL:IccExchangeAPDU",
   "RIL:ReadIccContacts",
   "RIL:UpdateIccContact",
   "RIL:SetRoamingPreference",
@@ -1047,65 +1044,6 @@ RILContentHelper.prototype = {
     });
   },
 
-  iccOpenChannel: function(clientId, window, aid) {
-    if (window == null) {
-      throw Components.Exception("Can't get window object",
-                                  Cr.NS_ERROR_UNEXPECTED);
-    }
-
-    let request = Services.DOMRequest.createRequest(window);
-    let requestId = this.getRequestId(request);
-
-    cpmm.sendAsyncMessage("RIL:IccOpenChannel", {
-      clientId: clientId,
-      data: {
-        requestId: requestId,
-        aid: aid
-      }
-    });
-    return request;
-  },
-
-  iccExchangeAPDU: function(clientId, window, channel, apdu) {
-    if (window == null) {
-      throw Components.Exception("Can't get window object",
-                                  Cr.NS_ERROR_UNEXPECTED);
-    }
-
-    let request = Services.DOMRequest.createRequest(window);
-    let requestId = this.getRequestId(request);
-
-    //Potentially you need serialization here and can't pass the jsval through
-    cpmm.sendAsyncMessage("RIL:IccExchangeAPDU", {
-      clientId: clientId,
-      data: {
-        requestId: requestId,
-        channel: channel,
-        apdu: apdu
-      }
-    });
-    return request;
-  },
-
-  iccCloseChannel: function(clientId, window, channel) {
-    if (window == null) {
-      throw Components.Exception("Can't get window object",
-                                  Cr.NS_ERROR_UNEXPECTED);
-    }
-
-    let request = Services.DOMRequest.createRequest(window);
-    let requestId = this.getRequestId(request);
-
-    cpmm.sendAsyncMessage("RIL:IccCloseChannel", {
-      clientId: clientId,
-      data: {
-        requestId: requestId,
-        channel: channel
-      }
-    });
-    return request;
-  },
-
   readContacts: function(clientId, window, contactType) {
     if (window == null) {
       throw Components.Exception("Can't get window object",
@@ -1772,16 +1710,6 @@ RILContentHelper.prototype = {
       case "RIL:StkSessionEnd":
         this._deliverEvent(clientId, "_iccListeners", "notifyStkSessionEnd", null);
         break;
-      case "RIL:IccOpenChannel":
-        this.handleSimpleRequest(data.requestId, data.errorMsg,
-                                 data.channel);
-        break;
-      case "RIL:IccCloseChannel":
-        this.handleSimpleRequest(data.requestId, data.errorMsg, null);
-        break;
-      case "RIL:IccExchangeAPDU":
-        this.handleIccExchangeAPDU(data);
-        break;
       case "RIL:ReadIccContacts":
         this.handleReadIccContacts(data);
         break;
@@ -1918,15 +1846,6 @@ RILContentHelper.prototype = {
     }
 
     this.fireRequestSuccess(message.requestId, networks);
-  },
-
-  handleIccExchangeAPDU: function(message) {
-    if (message.errorMsg) {
-      this.fireRequestError(message.requestId, message.errorMsg);
-    } else {
-      var result = [message.sw1, message.sw2, message.simResponse];
-      this.fireRequestSuccess(message.requestId, result);
-    }
   },
 
   handleReadIccContacts: function(message) {

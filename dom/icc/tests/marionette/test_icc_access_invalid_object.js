@@ -87,20 +87,6 @@ taskHelper.push(function testAccessRemovedIccObject() {
       ok(false, "updateContact() should get exception");
     } catch(e) {}
 
-    // Test secure element related function.
-    try {
-      icc.iccOpenChannel("");
-      ok(false, "iccOpenChannel() should get exception");
-    } catch(e) {}
-    try {
-      icc.iccExchangeAPDU(0, {});
-      ok(false, "iccExchangeAPDU() should get exception");
-    } catch(e) {}
-    try {
-      icc.iccCloseChannel(0);
-      ok(false, "iccCloseChannel() should get exception");
-    } catch(e) {}
-
     // We should restore the radio status.
     setRadioEnabled(true);
     iccManager.addEventListener("iccdetected", function oniccdetected(evt) {

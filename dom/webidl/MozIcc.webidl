@@ -388,49 +388,6 @@ interface MozIcc : EventTarget
    * (UICC).
    */
 
-  /**
-   * Send request to open a logical channel defined by its
-   * application identifier (AID).
-   *
-   * @param aid
-   *        The application identifier of the applet to be selected on this
-   *        channel.
-   *
-   * @return a DOMRequest.
-   *         The request's result will be an instance of channel (channelID)
-   *         if available or null.
-   */
-  [Throws]
-  DOMRequest iccOpenChannel(DOMString aid);
-
-  /**
-   * Interface, used to communicate with an applet through the
-   * application data protocol units (APDUs) and is
-   * used for all data that is exchanged between the UICC and the terminal (ME).
-   *
-   * @param channel
-   *        The application identifier of the applet to which APDU is directed.
-   * @param apdu
-   *        Application protocol data unit.
-   *
-   * @return a DOMRequest.
-   *         The request's result will be response APDU.
-   */
-  [Throws]
-  DOMRequest iccExchangeAPDU(long channel, any apdu);
-
-  /**
-   * Send request to close the selected logical channel identified by its
-   * application identifier (AID).
-   *
-   * @param aid
-   *        The application identifier of the applet, to be closed.
-   *
-   * @return a DOMRequest.
-   */
-  [Throws]
-  DOMRequest iccCloseChannel(long channel);
-
   // Integrated Circuit Card Helpers.
 
   /**
