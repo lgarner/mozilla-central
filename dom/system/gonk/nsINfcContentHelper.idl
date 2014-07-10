@@ -8,7 +8,7 @@
 interface nsIVariant;
 
 [scriptable, function, uuid(26673d1a-4af4-470a-ba96-f1f54b1f2052)]
-interface nsINfcPeerCallback : nsISupports
+interface nsINfcEventCallback : nsISupports
 {
   /**
    * Callback function used to notify NFC peer events.
@@ -19,9 +19,11 @@ interface nsINfcPeerCallback : nsISupports
    *
    * @param sessionToken
    *        SessionToken received from Chrome process
+   * @param JSObject message type (optional)
    */
-   void peerNotification(in unsigned long event,
-                         in DOMString sessionToken);
+   void eventNotification(in unsigned long event,
+                          in DOMString sessionToken,
+                          in nsIVariant message);
 };
 
 [scriptable, uuid(26e8123f-ba00-4708-ac77-d1902457168c)]
@@ -74,12 +76,12 @@ interface nsINfcContentHelper : nsISupports
   *       Event to be registered. Either NFC_EVENT_PEER_READY or NFC_EVENT_PEER_LOST
   *
   * @param callback
-  *       Callback that is used to notify upper layers whenever PeerEvents happen.
+  *       Callback that is used to notify upper layers whenever DOMEvents happen.
   */
-  void registerTargetForPeerEvent(in nsIDOMWindow window,
-                                  in unsigned long appId,
-                                  in octet event,
-                                  in nsINfcPeerCallback callback);
+  void registerTargetForEvent(in nsIDOMWindow window,
+                              in unsigned long appId,
+                              in octet event,
+                              in nsINfcEventCallback callback);
  /**
   * Unregister the given application id with Chrome process
   *
@@ -92,9 +94,9 @@ interface nsINfcContentHelper : nsISupports
   * @param event
   *       Event to be unregistered. Either NFC_EVENT_PEER_READY or NFC_EVENT_PEER_LOST
   */
-  void unregisterTargetForPeerEvent(in nsIDOMWindow window,
-                                    in unsigned long appId,
-                                    in octet event);
+  void unregisterTargetForEvent(in nsIDOMWindow window,
+                                in unsigned long appId,
+                                in octet event);
  /**
   * Checks if the given application's id is a registered peer target (with the Chrome process)
   *

@@ -16,7 +16,7 @@
 /* Copyright © 2013, Deutsche Telekom, Inc. */
 
 // Set to true to debug all NFC layers
-this.DEBUG_ALL = false;
+this.DEBUG_ALL = true;
 
 // Set individually to debug specific layers
 this.DEBUG_CONTENT_HELPER = false || DEBUG_ALL;
@@ -42,6 +42,7 @@ this.NFC_RESPONSE_READ_NDEF = 1003;
 this.NFC_NOTIFICATION_INITIALIZED = 2000;
 this.NFC_NOTIFICATION_TECH_DISCOVERED = 2001;
 this.NFC_NOTIFICATION_TECH_LOST = 2002;
+this.NFC_NOTIFICATION_HCI_EVENT_TRANSACTION = 2003;
 
 this.NFC_TECHS = {
   0:"NDEF",
@@ -141,8 +142,9 @@ this.NFC_POWER_LEVEL_ENABLED        = 2;
 
 this.TOPIC_XPCOM_SHUTDOWN           = "xpcom-shutdown";
 
-this.NFC_PEER_EVENT_READY = 0x01;
-this.NFC_PEER_EVENT_LOST  = 0x02;
+this.NFC_PEER_EVENT_READY      = 0x01;
+this.NFC_PEER_EVENT_LOST       = 0x02;
+this.NFC_HCI_EVENT_TRANSACTION = 0x04;
 
 // Allow this file to be imported via Components.utils.import().
 this.EXPORTED_SYMBOLS = Object.keys(this);

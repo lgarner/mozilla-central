@@ -55,6 +55,12 @@ interface MozNFC : EventTarget {
    attribute EventHandler onpeerready;
    [CheckPermissions="nfc-write"]
    attribute EventHandler onpeerlost;
+
+   /**
+    * HCI Events
+    */
+   [CheckPermissions="nfc-write"]
+   attribute EventHandler onhcieventtransaction;
 };
 
 // Mozilla Only

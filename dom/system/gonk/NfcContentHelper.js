@@ -55,7 +55,7 @@ const NFC_IPC_MSG_NAMES = [
   "NFC:ConnectResponse",
   "NFC:CloseResponse",
   "NFC:CheckP2PRegistrationResponse",
-  "NFC:PeerEvent",
+  "NFC:DOMEvent",
   "NFC:NotifySendFileStatusResponse",
   "NFC:ConfigResponse"
 ];
@@ -81,9 +81,9 @@ function NfcContentHelper() {
 
   this._requestMap = [];
 
-  // Maintains an array of PeerEvent related callbacks, mainly
-  // one for 'peerReady' and another for 'peerLost'.
-  this.peerEventsCallbackMap = {};
+  // Maintains an array of DOMEvent related callbacks, mainly
+  // one for 'peerReady', 'peerLost', and 'hcieventtransaction'.
+  this.eventsCallbackMap = {};
 }
 
 NfcContentHelper.prototype = {
@@ -100,7 +100,7 @@ NfcContentHelper.prototype = {
   }),
 
   _requestMap: null,
-  peerEventsCallbackMap: null,
+  eventsCallbackMap: null,
 
   encodeNDEFRecords: function encodeNDEFRecords(records) {
     let encodedRecords = [];
@@ -261,31 +261,31 @@ NfcContentHelper.prototype = {
     });
   },
 
-  registerTargetForPeerEvent: function registerTargetForPeerEvent(window,
+  registerTargetForEvent: function registerTargetForEvent(window,
                                                   appId, event, callback) {
     if (window == null) {
       throw Components.Exception("Can't get window object",
                                   Cr.NS_ERROR_UNEXPECTED);
     }
-    this.peerEventsCallbackMap[event] = callback;
-    cpmm.sendAsyncMessage("NFC:RegisterPeerTarget", {
+    this.eventsCallbackMap[event] = callback;
+    cpmm.sendAsyncMessage("NFC:RegisterEventTarget", {
       appId: appId,
       event: event
     });
   },
 
-  unregisterTargetForPeerEvent: function unregisterTargetForPeerEvent(window,
-                                                                appId, event) {
+  unregisterTargetForEvent: function unregisterTargetForEvent(window,
+                                                              appId, event) {
     if (window == null) {
       throw Components.Exception("Can't get window object",
                                   Cr.NS_ERROR_UNEXPECTED);
     }
-    let callback = this.peerEventsCallbackMap[event];
+    let callback = this.eventsCallbackMap[event];
     if (callback != null) {
-      delete this.peerEventsCallbackMap[event];
+      delete this.eventsCallbackMap[event];
     }
 
-    cpmm.sendAsyncMessage("NFC:UnregisterPeerTarget", {
+    cpmm.sendAsyncMessage("NFC:UnregisterEventTarget", {
       appId: appId,
       event: event
     });
@@ -426,12 +426,12 @@ NfcContentHelper.prototype = {
           this.fireRequestSuccess(atob(result.requestId), result);
         }
         break;
-      case "NFC:PeerEvent":
-        let callback = this.peerEventsCallbackMap[result.event];
+      case "NFC:DOMEvent":
+        let callback = this.eventsCallbackMap[result.event];
         if (callback) {
-          callback.peerNotification(result.event, result.sessionToken);
+          callback.eventNotification(result.event, result.sessionToken, result.data);
         } else {
-          debug("PeerEvent: No valid callback registered for the event " +
+          debug("DOMEvent: No valid callback registered for the event " +
                 result.event);
         }
         break;
