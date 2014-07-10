@@ -304,10 +304,13 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
     },
 
     isValidPeerEvent: function isValidPeerEvent(event) {
-      // Valid values : 0x01, 0x02 Or 0x03
-      return ((event === NFC.NFC_PEER_EVENT_READY) ||
-              (event === NFC.NFC_PEER_EVENT_LOST)  ||
-              (event === (NFC.NFC_PEER_EVENT_READY | NFC.NFC_PEER_EVENT_LOST)));
+      switch (event) {
+        case NFC.NFC_PEER_EVENT_READY:
+        case NFC.NFC_PEER_EVENT_LOST:
+          return true;
+        default:
+          return false;
+      }
     },
 
     checkP2PRegistration: function checkP2PRegistration(msg) {
