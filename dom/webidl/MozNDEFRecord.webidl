@@ -5,7 +5,8 @@
 
 /* Copyright © 2013 Deutsche Telekom, Inc. */
 
-[Constructor(octet tnf, optional Uint8Array type, optional Uint8Array id, optional Uint8Array payload)]
+[JSImplementation="@mozilla.org/nfc/NDEFRecord;1",
+ Constructor(octet tnf, optional Uint8Array type, optional Uint8Array id, optional Uint8Array payload)]
 interface MozNDEFRecord
 {
   /**

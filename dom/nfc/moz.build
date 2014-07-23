@@ -6,13 +6,8 @@
 # Copyright © 2013 Deutsche Telekom, Inc.
 
 if CONFIG['MOZ_NFC']:
-    EXPORTS.mozilla.dom += [
-        'MozNDEFRecord.h',
-    ]
-    SOURCES += [
-        'MozNDEFRecord.cpp',
-    ]
     EXTRA_COMPONENTS += [
+      'NDEFRecord.js',
       'nsNfc.js',
       'nsNfc.manifest',
     ]

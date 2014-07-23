@@ -6,3 +6,6 @@ contract @mozilla.org/nfc/NFCTag;1 {4e1e2e90-3137-11e3-aa6e-0800200c9a66}
 
 component {c1b2bcf0-35eb-11e3-aa6e-0800200c9a66} nsNfc.js
 contract @mozilla.org/nfc/NFCPeer;1 {c1b2bcf0-35eb-11e3-aa6e-0800200c9a66}
+
+component {b0687a80-11fe-11e4-9191-0800200c9a66} NDEFRecord.js
+contract @mozilla.org/nfc/NDEFRecord;1 {b0687a80-11fe-11e4-9191-0800200c9a66}
