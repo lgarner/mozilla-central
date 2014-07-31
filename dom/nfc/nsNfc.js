@@ -281,6 +281,10 @@ mozNfc.prototype = {
     return Cu.isDeadWrapper(this._window) || Cu.isDeadWrapper(this.__DOM_IMPL__);
   },
 
+  fireDOMEvent: function fireDOMEvent(evt, sessionToken, data) {
+    let domEvent = null;
+    let msgdetail = {};
+    debug("fireDOMEvent: data: " + JSON.stringify(data));
     switch (evt) {
       case NFC_PEER_EVENT_READY:
         domEvent = 'peerready';

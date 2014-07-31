@@ -163,6 +163,24 @@ public:
     COPY_OPT_FIELD(mCanBeMadeReadOnly, -1)
     COPY_OPT_FIELD(mMaxSupportedLength, -1)
 
+    if (mEvent.mHciEventTransaction.mAid.Length() > 0) {
+      event.mHciEventTransaction.mAid.Construct();
+      event.mHciEventTransaction.mAid.Value().Init(Uint8Array::Create(cx, mEvent.mHciEventTransaction.mAid.Length(),
+                                                                      mEvent.mHciEventTransaction.mAid.Elements()));
+    }
+
+    if (mEvent.mHciEventTransaction.mPayload.Length() > 0) {
+      event.mHciEventTransaction.mPayload.Construct();
+      event.mHciEventTransaction.mPayload.Value().Init(Uint8Array::Create(cx, mEvent.mHciEventTransaction.mPayload.Length(),
+                                                                          mEvent.mHciEventTransaction.mPayload.Elements()));
+    }
+
+    if (mEvent.mHciEventTransaction.mAidOrigin.Length() > 0) {
+      event.mHciEventTransaction.mAidOrigin.Construct();
+      event.mHciEventTransaction.mAidOrigin.Value().Init(Uint8Array::Create(cx, mEvent.mHciEventTransaction.mAidOrigin.Length(),
+                                                                            mEvent.mHciEventTransaction.mAidOrigin.Elements()));
+    }
+
 #undef COPY_FIELD
 #undef COPY_OPT_FIELD
 

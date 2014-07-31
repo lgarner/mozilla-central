@@ -559,7 +559,7 @@ Nfc.prototype = {
         this._currentSessionId = null;
         gMessageManager.currentPeerAppId = null;
         break;
-     case "HCIEventTransaction":
+     case "HCIEventTransactionNotification":
         this.notifyHCIEventTransaction(message);
         break;
      case "ConfigResponse":

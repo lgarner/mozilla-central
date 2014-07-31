@@ -33,6 +33,8 @@ static const char* kCloseResponse = "CloseResponse";
 static const char* kInitializedNotification = "InitializedNotification";
 static const char* kTechDiscoveredNotification = "TechDiscoveredNotification";
 static const char* kTechLostNotification = "TechLostNotification";
+static const char* kHCIEventTransactionNotification =
+                     "HCIEventTransactionNotification";
 
 bool
 NfcMessageHandler::Marshall(Parcel& aParcel, const CommandOptions& aOptions)
@@ -93,6 +95,9 @@ NfcMessageHandler::Unmarshall(const Parcel& aParcel, EventOptions& aOptions)
       break;
     case eNfcNotification_TechLost:
       result = TechLostNotification(aParcel, aOptions);
+      break;
+    case eNfcNotification_HCIEventTransaction:
+      result = HCIEventTransactionNotification(aParcel, aOptions);
       break;
     default:
       result = false;
@@ -287,6 +292,27 @@ NfcMessageHandler::TechLostNotification(const Parcel& aParcel, EventOptions& aOp
 {
   aOptions.mType = NS_ConvertUTF8toUTF16(kTechLostNotification);
   aOptions.mSessionId = aParcel.readInt32();
+  return true;
+}
+
+bool
+NfcMessageHandler::HCIEventTransactionNotification(const Parcel& aParcel, EventOptions& aOptions)
+{
+  aOptions.mType = NS_ConvertUTF8toUTF16(kHCIEventTransactionNotification);
+  aOptions.mSessionId = -1;
+
+  int32_t aidLength = aParcel.readInt32();
+  aOptions.mHciEventTransaction.mAid.AppendElements(
+       static_cast<const uint8_t*>(aParcel.readInplace(aidLength)), aidLength);
+
+  int32_t payloadLength = aParcel.readInt32();
+  aOptions.mHciEventTransaction.mPayload.AppendElements(
+       static_cast<const uint8_t*>(aParcel.readInplace(payloadLength)), payloadLength);
+
+  int32_t aidOriginLength = aParcel.readInt32();
+  aOptions.mHciEventTransaction.mAidOrigin.AppendElements(
+       static_cast<const uint8_t*>(aParcel.readInplace(aidOriginLength)), aidOriginLength);
+
   return true;
 }
 
