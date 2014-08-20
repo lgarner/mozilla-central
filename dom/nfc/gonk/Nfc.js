@@ -65,7 +65,7 @@ const NFC_IPC_WRITE_PERM_MSG_NAMES = [
   "NFC:RegisterPeerReadyTarget",
   "NFC:UnregisterPeerReadyTarget",
   "NFC:RegisterHCIEventTransactionTarget",
-  "NFC:UnregisterHCIEventTransactionTarget"
+  "NFC:UnregisterHCIEventTransactionTarget",
 ];
 
 const NFC_IPC_MANAGER_PERM_MSG_NAMES = [
@@ -75,6 +75,11 @@ const NFC_IPC_MANAGER_PERM_MSG_NAMES = [
   "NFC:StartPoll",
   "NFC:StopPoll",
   "NFC:PowerOff"
+];
+
+const NFC_IPC_HCI_EVENT_PERM_MSG_NAMES = [
+  "NFC:RegisterHCIEventTransactionTarget",
+  "NFC:UnregisterHCIEventTransactionTarget",
 ];
 
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
@@ -95,9 +100,11 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
 
     // Manage registered Peer Targets
     peerTargetsMap: {},
-    // HCI Event Transaction Targets: FIXME, map format should be targets[EventName][AppId]
-    hciEventTransactionTargetsMap: {},
     currentPeerAppId: null,
+
+    // HCI Event Transaction Targets:
+    hciEventTransactionTargetsMap: {},
+    cachedHCIEvtTransactionMessage: null,
 
     init: function init(nfc) {
       this.nfc = nfc;
@@ -132,6 +139,10 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
       for (let msgname of NFC_IPC_MANAGER_PERM_MSG_NAMES) {
         ppmm.addMessageListener(msgname, this);
       }
+
+      for (let msgname of NFC_IPC_HCI_EVENT_PERM_MSG_NAMES) {
+        ppmm.addMessageListener(msgname, this);
+      }
     },
 
     _unregisterMessageListeners: function _unregisterMessageListeners() {
@@ -151,6 +162,10 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
 
       for (let msgname of NFC_IPC_MANAGER_PERM_MSG_NAMES) {
         ppmm.removeMessageListener(msgname, this);
+      }
+
+      for (let msgname of NFC_IPC_HCI_EVENT_PERM_MSG_NAMES) {
+        ppmm.addMessageListener(msgname, this);
       }
 
       ppmm = null;
@@ -215,6 +230,9 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
     registerHCIEventTransactionTarget:
       function registerHCIEventTransactionTarget(msg) {
         this.registerEventTarget(this.hciEventTransactionTargetsMap, msg);
+        // FIXME: Bug 884594: Access Control Enforcer
+        this.fireHCIEventTransaction(this.cachedHCIEvtTransactionMessage);
+        this.cachedHCIEvtTransactionMessage = null;
     },
 
     unregisterHCIEventTransactionTarget:
@@ -228,13 +246,17 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
     },
 
     notifyHCIEventTransaction: function notifyHCIEventTransaction(message) {
-      // Notify whatever was registered for the transaction
-      // TODO: Access Control Enforcer
-      // Find one or more applications that handles the transaction, and
-      // fire to all of them (message or DOM event).
+      debug("notifyHCIEventTransaction: " + JSON.stringify(message));
+      // Fire a filtered system message to any registered application, and include the extra field.
+      delete message.type;
+      gSystemMessenger.broadcastMessage("nfc-hci-event-transaction", message);
+      this.cachedHCIEvtTransactionMessage = message;
+    },
+
+    fireHCIEventTransaction: function notifyHCIEventTransaction(message) {
       let targets = gMessageManager.hciEventTransactionTargetsMap;
 
-      debug("notifyHCIEventTransaction: " + JSON.stringify(message));
+      debug("fireHCIEventTransaction: " + JSON.stringify(message));
       for (let appId in targets) {
         debug("Application ID: " + appId);
         delete message.type;
@@ -341,6 +363,12 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
         if (!msg.target.assertPermission("nfc-manager")) {
           debug("NFC message " + message.name +
                 " from a content process with no 'nfc-manager' privileges.");
+          return null;
+        }
+      } else if (NFC_IPC_HCI_EVENT_PERM_MSG_NAMES.indexOf(msg.name) != -1) {
+        if (!msg.target.assertPermission("nfc-hci-events")) {
+          debug("NFC message " + message.name +
+                " from a content process with no 'nfc-hci-events' privileges.");
           return null;
         }
       } else {

@@ -6,7 +6,7 @@
 
 "use strict";
 
-const DEBUG = false;
+const DEBUG = true;
 function debug(s) {
   if (DEBUG) dump("-*- Nfc DOM: " + s + "\n");
 }
@@ -237,7 +237,7 @@ mozNfc.prototype = {
     this.__DOM_IMPL__.setEventHandler("onpeerlost", handler);
   },
 
-  // get/set onhcieventtransaction
+  // get/set nhcieventtransaction
   get onhcieventtransaction() {
     return this.__DOM_IMPL_.getEventHandler("onhcieventtransaction");
   },
@@ -256,9 +256,13 @@ mozNfc.prototype = {
         this._nfcContentHelper.registerTargetForPeerReady(this._window, appId);
         break;
       case NFC_HCI_EVENT_TRANSACTION:
+        debug("YYYYY set onhcieventtransaction");
         appId = this._window.document.nodePrincipal.appId;
         this._nfcContentHelper.registerTargetForHCIEventTransaction(
                                  this._window, appId);
+        break;
+      default:
+        debug("Bad, unmatched event: " + eventType);
         break;
     }
   },
@@ -331,6 +335,7 @@ mozNfc.prototype = {
     let event = new this._window.CustomEvent(
                   'hcieventtransaction',
                   Cu.cloneInto(transactionMsg, this._window));
+    debug("notifyHCIEventTransaction: data sent: " + JSON.stringify(transactionMsg.detail));
     this.__DOM_IMPL__.dispatchEvent(event);
   },
 
