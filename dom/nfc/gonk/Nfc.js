@@ -63,7 +63,9 @@ const NFC_IPC_WRITE_PERM_MSG_NAMES = [
   "NFC:MakeReadOnlyNDEF",
   "NFC:SendFile",
   "NFC:RegisterPeerReadyTarget",
-  "NFC:UnregisterPeerReadyTarget"
+  "NFC:UnregisterPeerReadyTarget",
+  "NFC:RegisterHCIEventTransactionTarget",
+  "NFC:UnregisterHCIEventTransactionTarget"
 ];
 
 const NFC_IPC_MANAGER_PERM_MSG_NAMES = [
@@ -93,6 +95,8 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
 
     // Manage registered Peer Targets
     peerTargetsMap: {},
+    // HCI Event Transaction Targets: FIXME, map format should be targets[EventName][AppId]
+    hciEventTransactionTargetsMap: {},
     currentPeerAppId: null,
 
     init: function init(nfc) {
@@ -206,6 +210,81 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
       });
     },
 
+    // HCI Event Transaction handlers
+
+    registerHCIEventTransactionTarget:
+      function registerHCIEventTransactionTarget(msg) {
+        this.registerEventTarget(this.hciEventTransactionTargetsMap, msg);
+    },
+
+    unregisterHCIEventTransactionTarget:
+      function unregisterHCIEventTransactionTarget(msg) {
+        this.unregisterEventTarget(this.hciEventTransactionTargetsMap, msg);
+    },
+
+    removeHCIEventTransactionTarget:
+      function removeHCIEventTransactionTarget(target) {
+        this.removeEventTarget(this.hciEventTransactionTargetsMap, target);
+    },
+
+    notifyHCIEventTransaction: function notifyHCIEventTransaction(message) {
+      // Notify whatever was registered for the transaction
+      // TODO: Access Control Enforcer
+      // Find one or more applications that handles the transaction, and
+      // fire to all of them (message or DOM event).
+      let targets = gMessageManager.hciEventTransactionTargetsMap;
+
+      debug("notifyHCIEventTransaction: " + JSON.stringify(message));
+      for (let appId in targets) {
+        debug("Application ID: " + appId);
+        delete message.type;
+        let targetInfo = targets[appId];
+        targetInfo.target.sendAsyncMessage("NFC:DOMEvent", {
+            event: NFC.NFC_NOTIFICATION_HCI_EVENT_TRANSACTION,
+            data: message.hciEventTransaction
+          });
+      }
+    },
+
+    // Generic event target map handlers
+
+    registerEventTarget: function registerEventTarget(targetMap, msg) {
+      let appInfo = msg.json;
+      let targets = targetMap;
+      let targetInfo = targets[appInfo.appId];
+      // If the application Id is already registered
+      if (targetInfo) {
+        return;
+      }
+
+      // Target not registered yet! Add to the target map
+      let newTargetInfo = { target : msg.target }
+      targets[appInfo.appId] = newTargetInfo;
+    },
+
+    unregisterEventTarget: function unregisterEventTarget(targetMap, msg) {
+      let targets = targetMap;
+      Object.keys(targets).forEach((appId) => {
+        let targetInfo = targets[appId];
+        if (targetInfo && targetInfo.target === target) {
+          // Remove the target from the list of registered targets
+          delete targets[appId];
+        }
+      });
+    },
+
+    removeEventTarget: function removeEventTarget(targetMap, target) {
+      let targets = targetMap;
+      Object.keys(targets).forEach((appId) => {
+        let targetInfo = targets[appId];
+        if (targetInfo && targetInfo.target === target) {
+          // Remove the target from the list of registered targets
+          delete targets[appId];
+        }
+      });
+    },
+
+
     checkP2PRegistration: function checkP2PRegistration(msg) {
       // Check if the session and application id yeild a valid registered
       // target.  It should have registered for NFC_PEER_EVENT_READY
@@ -240,6 +319,7 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
       debug("Received '" + msg.name + "' message from content process");
       if (msg.name == "child-process-shutdown") {
         this.removePeerTarget(msg.target);
+        this.removeEventTarget(msg.target);
         return null;
       }
 
@@ -306,6 +386,12 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
               this.nfc.getErrorMessage(NFC.NFC_GECKO_ERROR_SEND_FILE_FAILED);
           }
           this.nfc.sendNfcResponse(msg.json);
+          return null;
+        case "NFC:RegisterHCIEventTransactionTarget":
+          this.registerHCIEventTransactionTarget(msg);
+          return null;
+        case "NFC:UnregisterHCIEventTransactionTarget":
+          this.unregisterHCIEventTransactionTarget(msg);
           return null;
         default:
           return this.nfc.receiveMessage(msg);
@@ -452,6 +538,9 @@ Nfc.prototype = {
         delete this.sessionTokenMap[this._currentSessionId];
         this._currentSessionId = null;
 
+        break;
+     case "HCIEventTransactionNotification":
+        gMessageManager.notifyHCIEventTransaction(message);
         break;
      case "ConfigResponse":
         if (message.status === NFC.NFC_SUCCESS) {

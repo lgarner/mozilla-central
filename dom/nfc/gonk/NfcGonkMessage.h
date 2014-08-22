@@ -31,6 +31,7 @@ enum NfcNotification {
   Initialized = 2000,
   TechDiscovered,
   TechLost,
+  HCIEventTransaction,
 };
 
 enum NfcTechlogy {

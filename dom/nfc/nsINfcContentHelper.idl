@@ -25,6 +25,19 @@ interface nsINfcPeerEventListener : nsISupports
    *        SessionToken received from Chrome process
    */
    void notifyPeerLost(in DOMString sessionToken);
+
+  /**
+   * Callback function used to notify an
+   * HCI Event Transaction, from a secure element source.
+   * @param data
+   *        optional JSObject with fields:
+   *          {
+   *            Uint8Array aid
+   *            Uint8Array payload
+   *            Uint8Array aidOrigin
+   *          }
+   */
+   void notifyHCIEventTransaction(in nsIVariant data);
 };
 
 [scriptable, uuid(9a41d969-3375-4933-814e-2da781c8f691)]
@@ -134,6 +147,32 @@ interface nsINfcContentHelper : nsISupports
   void notifySendFileStatus(in nsIDOMWindow window,
                             in octet status,
                             in DOMString requestId);
+
+ /**
+  * Register the given application id with Chrome process
+  * to handle Secure Element HCI Event Transaction notification.
+  *
+  * @param window
+  *        Current window
+  *
+  * @param appId
+  *        Application ID to be registered
+  */
+  void registerTargetForHCIEventTransaction(in nsIDOMWindow window,
+                                            in unsigned long appId);
+
+ /**
+  * Unregister the given application id with Chrome process
+  * to handle Secure Element HCI Event Transaction notification.
+  *
+  * @param window
+  *        Current window
+  *
+  * @param appId
+  *        Application ID to be registered
+  */
+  void unregisterTargetForHCIEventTransaction(in nsIDOMWindow window,
+                                              in unsigned long appId);
 
   /**
    * Power on the NFC hardware and start polling for NFC tags or devices.

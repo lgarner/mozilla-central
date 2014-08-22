@@ -22,8 +22,9 @@ XPCOMUtils.defineLazyServiceGetter(this,
                                    "appsService",
                                    "@mozilla.org/AppsService;1",
                                    "nsIAppsService");
-const NFC_PEER_EVENT_READY = 0x01;
-const NFC_PEER_EVENT_LOST  = 0x02;
+const NFC_PEER_EVENT_READY      = 0x01;
+const NFC_PEER_EVENT_LOST       = 0x02;
+const NFC_HCI_EVENT_TRANSACTION = 0x03;
 
 /**
  * NFCTag
@@ -236,24 +237,47 @@ mozNfc.prototype = {
     this.__DOM_IMPL__.setEventHandler("onpeerlost", handler);
   },
 
+  // get/set onhcieventtransaction
+  get onhcieventtransaction() {
+    return this.__DOM_IMPL_.getEventHandler("onhcieventtransaction");
+  },
+
+  set onhcieventtransaction(handler) {
+    this.__DOM_IMPL__.setEventHandler("onhcieventtransaction", handler);
+  },
+
   eventListenerWasAdded: function(evt) {
     let eventType = this.getEventType(evt);
-    if (eventType != NFC_PEER_EVENT_READY) {
-      return;
-    }
+    let appId = null;
 
-    let appId = this._window.document.nodePrincipal.appId;
-    this._nfcContentHelper.registerTargetForPeerReady(this._window, appId);
+    switch(eventType) {
+      case NFC_PEER_EVENT_READY:
+        appId = this._window.document.nodePrincipal.appId;
+        this._nfcContentHelper.registerTargetForPeerReady(this._window, appId);
+        break;
+      case NFC_HCI_EVENT_TRANSACTION:
+        appId = this._window.document.nodePrincipal.appId;
+        this._nfcContentHelper.registerTargetForHCIEventTransaction(
+                                 this._window, appId);
+        break;
+    }
   },
 
   eventListenerWasRemoved: function(evt) {
     let eventType = this.getEventType(evt);
-    if (eventType != NFC_PEER_EVENT_READY) {
-      return;
-    }
+    let appId = null;
 
-    let appId = this._window.document.nodePrincipal.appId;
-    this._nfcContentHelper.unregisterTargetForPeerReady(this._window, appId);
+    switch(eventType) {
+      case NFC_PEER_EVENT_READY:
+        appId = this._window.document.nodePrincipal.appId;
+        this._nfcContentHelper.unregisterTargetForPeerReady(this._window, appId);
+        break;
+      case NFC_HCI_EVENT_TRANSACTION:
+        appId = this._window.document.nodePrincipal.appId;
+        this._nfcContentHelper.unregisterTargetForHCIEventTransaction(
+                                 this._window, appId);
+        break;
+    }
   },
 
   notifyPeerReady: function notifyPeerReady(sessionToken) {
@@ -295,6 +319,21 @@ mozNfc.prototype = {
     this.__DOM_IMPL__.dispatchEvent(event);
   },
 
+  notifyHCIEventTransaction: function notifyHCITransactionEvent(data) {
+    if (this.hasDeadWrapper()) {
+      dump("this._window or this.__DOM_IMPL__ is a dead wrapper.");
+      return;
+    }
+
+    let transactionMsg = {};
+    debug("notifyHCIEventTransaction: data: " + JSON.stringify(data));
+    transactionMsg.detail = data;
+    let event = new this._window.CustomEvent(
+                  'hcieventtransaction',
+                  Cu.cloneInto(transactionMsg, this._window));
+    this.__DOM_IMPL__.dispatchEvent(event);
+  },
+
   getEventType: function getEventType(evt) {
     let eventType = -1;
     switch (evt) {
@@ -303,6 +342,9 @@ mozNfc.prototype = {
         break;
       case 'peerlost':
         eventType = NFC_PEER_EVENT_LOST;
+        break;
+      case 'hcieventtransaction':
+        eventType = NFC_HCI_EVENT_TRANSACTION;
         break;
       default:
         break;

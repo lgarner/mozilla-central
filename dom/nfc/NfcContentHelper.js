@@ -57,6 +57,7 @@ const NFC_IPC_MSG_NAMES = [
   "NFC:CheckP2PRegistrationResponse",
   "NFC:PeerEvent",
   "NFC:NotifySendFileStatusResponse",
+  "NFC:DOMEvent",
   "NFC:ConfigResponse"
 ];
 
@@ -306,6 +307,28 @@ NfcContentHelper.prototype = {
     });
   },
 
+  registerTargetForHCIEventTransaction:
+    function registerTargetForHCIEventTransaction(window, appId) {
+      if (window == null) {
+        throw Components.Exception("Can't get window object",
+                                   Cr.NS_ERROR_UNEXPECTED);
+      }
+
+      cpmm.sendAsyncMessage("NFC:RegisterHCIEventTransactionTarget",
+                            { appId: appId });
+  },
+
+  unregisterTargetForHCIEventTransaction:
+    function unregisterTargetForHCIEventTransaction(window, appId) {
+      if (window == null) {
+        throw Components.Exception("Can't get window object",
+                                   Cr.NS_ERROR_UNEXPECTED);
+      }
+
+      cpmm.sendAsyncMessage("NFC:UnregisterHCIEventTransactionTarget",
+                             { appId: appId });
+  },
+
   startPoll: function startPoll(window) {
     if (window == null) {
       throw Components.Exception("Can't get window object",
@@ -424,6 +447,14 @@ NfcContentHelper.prototype = {
             break;
         }
         break;
+      case "NFC:DOMEvent":
+        switch (result.event) {
+          case NFC.NFC_NOTIFICATION_HCI_EVENT_TRANSACTION:
+            this.peerEventListener.notifyHCIEventTransaction(result.data);
+            break;
+          default:
+            debug("Unhandled DOM Event.");
+        }
     }
   },
 
