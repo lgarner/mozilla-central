@@ -206,6 +206,15 @@ XPCOMUtils.defineLazyGetter(this, "gMessageManager", function () {
       });
     },
 
+    // HCI Event Transaction handlers
+
+    notifyHCIEventTransaction: function notifyHCIEventTransaction(message) {
+      debug("notifyHCIEventTransaction: " + JSON.stringify(message));
+      // Fire a filtered system message to any currently registered application
+      delete message.type;
+      gSystemMessenger.broadcastMessage("nfc-hci-event-transaction", message);
+    },
+
     checkP2PRegistration: function checkP2PRegistration(msg) {
       // Check if the session and application id yeild a valid registered
       // target.  It should have registered for NFC_PEER_EVENT_READY
@@ -452,6 +461,9 @@ Nfc.prototype = {
         delete this.sessionTokenMap[this._currentSessionId];
         this._currentSessionId = null;
 
+        break;
+     case "HCIEventTransactionNotification":
+        gMessageManager.notifyHCIEventTransaction(message);
         break;
      case "ConfigResponse":
         if (message.status === NFC.NFC_SUCCESS) {

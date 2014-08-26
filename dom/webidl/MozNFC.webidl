@@ -67,6 +67,23 @@ interface MozNFC : EventTarget {
    attribute EventHandler onpeerready;
    [CheckPermissions="nfc-write"]
    attribute EventHandler onpeerlost;
+
+   /**
+    * An HCI Event Transaction event comes from an application running on Secure
+    * Element hardware. It returns the following event data with the following
+    * format:
+    *
+    * {
+    *   detail: {
+    *     aidOrigin: Unsigned int. The Secure Element that sent this message.
+    *     aidOriginIndex: Unsigned int. Index of the secure element.
+    *     aid: Uint8Array. Application ID of the application.
+    *     payload: Uint8Array. Transaction payload
+    *   }
+    * }
+    */
+   [CheckPermissions="nfc-hci-events"]
+   attribute EventHandler onhcieventtransaction;
 };
 
 // Mozilla Only
