@@ -91,6 +91,7 @@ let debug = Services.prefs.getBoolPref("dom.mozApps.debug")
               ? (aMsg) => dump("-*- Webapps.jsm : " + aMsg + "\n")
               : (aMsg) => {};
 #endif
+debug = (aMsg) => dump("-*- Webapps.jsm : " + aMsg + "\n");
 
 function getNSPRErrorCode(err) {
   return -1 * ((err) & 0xffff);
@@ -903,6 +904,22 @@ this.DOMApplicationRegistry = {
     }
   },
 
+  _registerInternalSystemMessages: function(aManifest, aApp) {
+    debug("_registerInternalSystemMessages");
+
+    // FIXME: Drop mapping table into PermissionsTable.jsm?
+    if (aManifest.permissions && aManifest.permissions['nfc-hci-events']) {
+      debug("have nfc-hci-events");
+      if (!aManifest.messages) {
+        aManifest.messages = [];
+      }
+      // A target html path is needed, and we only know the lauch path.
+      aManifest.messages.push({ "nfc-hci-event-transaction": aManifest.launch_path });
+      // Register modified aManifest (root only)
+      this._registerSystemMessagesForEntryPoint(aManifest, aApp, null);
+    }
+  },
+
   _registerInterAppConnections: function(aManifest, aApp) {
     this._registerInterAppConnectionsForEntryPoint(aManifest, aApp, null);
 
@@ -1095,6 +1112,7 @@ this.DOMApplicationRegistry = {
         }
         app.kind = this.appKind(app, aResult.manifest);
         this._registerSystemMessages(manifest, app);
+        this._registerInternalSystemMessages(manifest, app);
         this._registerInterAppConnections(manifest, app);
         appsToRegister.push({ manifest: manifest, app: app });
       });
@@ -2006,6 +2024,7 @@ this.DOMApplicationRegistry = {
         this._unregisterActivities(aOldManifest, aApp);
       }
       this._registerSystemMessages(aNewManifest, aApp);
+      this._registerInternalSystemMessages(aNewManifest, aApp);
       this._registerActivities(aNewManifest, aApp, true);
       this._registerInterAppConnections(aNewManifest, aApp);
     } else {

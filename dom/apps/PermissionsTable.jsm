@@ -514,6 +514,24 @@ this.PermissionsTable =  { geolocation: {
                          };
 
 /**
+ * Permissions that implicitly declare corresponding system messages.
+ * Currently, that just means messages that require interprocess system
+ * messages be forwarded to an in process event handler for W3C compliance
+ * reasons. Chrome only system messages.
+ */
+this.PermissionsToSystemMessageTable = {
+  "nfc-hci-events": "nfc-hci-event-transaction"
+};
+
+/**
+ * Return system message matching aPermName
+ * @param string aPermName
+ */
+this.getPermissionToSystemMessage = function getPermissionToSystemMessage(aPermName) {
+  return this.PermissionsToSystemMessageTable[aPermName];
+},
+
+/**
  * Append access modes to the permission name as suffixes.
  *   e.g. permission name 'contacts' with ['read', 'write'] =
  *   ['contacts-read', contacts-write']
