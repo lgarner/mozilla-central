@@ -1833,6 +1833,28 @@ Navigator::MozSetMessageHandler(const nsAString& aType,
   }
 }
 
+void
+Navigator::MozSetInternalMessageHandler(const nsAString& aType,
+                                systemMessageCallback* aCallback,
+                                ErrorResult& aRv)
+{
+  // The WebIDL binding is responsible for the pref check here.
+  nsresult rv = EnsureMessagesManager();
+  if (NS_FAILED(rv)) {
+    aRv.Throw(rv);
+    return;
+  }
+
+  CallbackObjectHolder<systemMessageCallback, nsIDOMSystemMessageCallback>
+    holder(aCallback);
+  nsCOMPtr<nsIDOMSystemMessageCallback> callback = holder.ToXPCOMCallback();
+
+  rv = mMessagesManager->MozSetInternalMessageHandler(aType, callback);
+  if (NS_FAILED(rv)) {
+    aRv.Throw(rv);
+  }
+}
+
 #ifdef MOZ_TIME_MANAGER
 time::TimeManager*
 Navigator::GetMozTime(ErrorResult& aRv)

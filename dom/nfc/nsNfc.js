@@ -202,10 +202,24 @@ MozNFCImpl.prototype = {
     this.defineEventHandlerGetterSetter("onpeerready");
     this.defineEventHandlerGetterSetter("onpeerfound");
     this.defineEventHandlerGetterSetter("onpeerlost");
+    this.defineEventHandlerGetterSetter("onhcieventtransaction");
 
     if (this._nfcContentHelper) {
       this._nfcContentHelper.init(aWindow);
     }
+
+    debug("Set reserved internal message handler");
+    // Call an internal message handler so only chrome can fire this event into a process.
+    this._window.navigator.mozSetInternalMessageHandler("nfc-hci-event-transaction", (aMessage) => {
+      let txnDict = {};
+        txnDict.aid = Cu.cloneInto(aMessage.aid, this._window);
+        txnDict.payload = Cu.cloneInto(aMessage.payload, this._window);
+        txnDict.origin = Cu.cloneInto(aMessage.origin, this._window);
+        let event = new this._window.HCIEventTransactionEvent("hcieventtransaction",
+                                                              Cu.cloneInto(txnDict, this._window));
+        this.__DOM_IMPL__.dispatchEvent(event);
+      return;
+    });
   },
 
   // Only apps which have nfc-manager permission can call the following interfaces

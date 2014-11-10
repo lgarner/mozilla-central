@@ -113,6 +113,13 @@ interface MozNFC : EventTarget {
    */
   [CheckPermissions="nfc-read nfc-write"]
   attribute EventHandler ontaglost;
+
+  /**
+   * HCI Event Transaction event is fired when there is a
+   * transaction event notification routed through NFC.
+   */
+  [CheckPermissions="nfc-hci-events"]
+  attribute EventHandler onhcieventtransaction;
 };
 
 // Mozilla Only

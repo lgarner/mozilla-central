@@ -36,6 +36,9 @@ function SystemMessageManager() {
   //    to this handler.
   this._dispatchers = {};
 
+  // Reverved Message Names used to map System Messages to in-process Events.
+  this._MsgToEvent.push('nfc-hci-event-transaction'); // FIXME: constants...
+
   // Pending messages for this page, keyed by message type.
   this._pendings = {};
 
@@ -56,6 +59,9 @@ function SystemMessageManager() {
 
 SystemMessageManager.prototype = {
   __proto__: DOMRequestIpcHelper.prototype,
+
+  _MsgToEvent: [],
+
 
   _dispatchMessage: function(aType, aDispatcher, aMessage) {
     if (aDispatcher.isHandling) {
@@ -120,6 +126,46 @@ SystemMessageManager.prototype = {
 
   mozSetMessageHandler: function(aType, aHandler) {
     debug("set message handler for [" + aType + "] " + aHandler);
+
+    if (this._isInBrowserElement) {
+      debug("the app loaded in the browser cannot set message handler");
+      // Don't throw there, but ignore the registration.
+      return;
+    }
+
+    if (!aType) {
+      // Just bail out if we have no type.
+      return;
+    }
+
+    if (this._MsgToEvent.indexOf(aType) != -1) {
+      // Ignore internal chrome only message types set from content.
+      debug("Ignoring reserved type handlers from content.");
+      return;
+    }
+
+    let dispatchers = this._dispatchers;
+    if (!aHandler) {
+      // Setting the dispatcher to null means we don't want to handle messages
+      // for this type anymore.
+      delete dispatchers[aType];
+      return;
+    }
+
+    // Last registered handler wins.
+    dispatchers[aType] = { handler: aHandler, messages: [], isHandling: false };
+
+    // Ask for the list of currently pending messages.
+    cpmm.sendAsyncMessage("SystemMessageManager:GetPendingMessages",
+                          { type: aType,
+                            pageURL: this._pageURL,
+                            manifestURL: this._manifestURL });
+  },
+
+  // Needs chrome only privilages to set reserved messages.
+  // This implementation should be nearly identical to the regular version.
+  mozSetInternalMessageHandler: function (aType, aHandler) {
+    debug("set reserved message handler for [" + aType + "] " + aHandler);
 
     if (this._isInBrowserElement) {
       debug("the app loaded in the browser cannot set message handler");
