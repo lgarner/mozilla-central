@@ -12,6 +12,7 @@ const Cr = Components.results;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/DOMRequestHelper.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/SystemMessagePermissionsChecker.jsm");
 
 const kSystemMessageInternalReady = "system-message-internal-ready";
 
@@ -20,7 +21,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
                                    "nsISyncMessageSender");
 
 function debug(aMsg) {
-   // dump("-- SystemMessageManager " + Date.now() + " : " + aMsg + "\n");
+   dump("-- SystemMessageManager " + Date.now() + " : " + aMsg + "\n");
 }
 
 // Implementation of the DOM API for system messages
@@ -148,6 +149,13 @@ SystemMessageManager.prototype = {
                           { type: aType,
                             pageURL: this._pageURL,
                             manifestURL: this._manifestURL });
+  },
+
+  // The following has chrome only privilages to set reserved messages. This is
+  // needed solely to ensure the content or chrome mozSetMessagehandler callback
+  // doesn't overwrite each other.
+  mozSetReservedMessageHandler: function (aType, aHandler) {
+    this.mozSetMessageHandler(aType, aHandler);
   },
 
   mozHasPendingMessage: function(aType) {

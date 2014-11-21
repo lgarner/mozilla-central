@@ -231,6 +231,9 @@ public:
   void MozSetMessageHandler(const nsAString& aType,
                             systemMessageCallback* aCallback,
                             ErrorResult& aRv);
+  void MozSetReservedMessageHandler(const nsAString& aType,
+                            systemMessageCallback* aCallback,
+                            ErrorResult& aRv);
   bool MozHasPendingMessage(const nsAString& aType, ErrorResult& aRv);
 #ifdef MOZ_B2G
   already_AddRefed<Promise> GetMobileIdAssertion(const MobileIdOptions& options,

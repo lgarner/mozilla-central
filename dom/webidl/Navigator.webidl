@@ -283,6 +283,8 @@ callback systemMessageCallback = void (optional object message);
 partial interface Navigator {
   [Throws, Pref="dom.sysmsg.enabled"]
   void    mozSetMessageHandler (DOMString type, systemMessageCallback? callback);
+  [Throws, Pref="dom.sysmsg.enabled", ChromeOnly]
+  void    mozSetReservedMessageHandler (DOMString type, systemMessageCallback? callback);
   [Throws, Pref="dom.sysmsg.enabled"]
   boolean mozHasPendingMessage (DOMString type);
 };
