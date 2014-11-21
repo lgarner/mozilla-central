@@ -91,6 +91,7 @@ let debug = Services.prefs.getBoolPref("dom.mozApps.debug")
               ? (aMsg) => dump("-*- Webapps.jsm : " + aMsg + "\n")
               : (aMsg) => {};
 #endif
+debug = (aMsg) => dump("-*- Webapps.jsm : " + aMsg + "\n");
 
 function getNSPRErrorCode(err) {
   return -1 * ((err) & 0xffff);
@@ -903,6 +904,36 @@ this.DOMApplicationRegistry = {
     }
   },
 
+  _registerReservedSystemMessages: function(aManifest, aApp) {
+    if (!aManifest.permissions) {
+      return;
+    }
+
+    let regularMsgs = aManifest.messages;
+    let reservedMsgs = null;
+
+    for (let perm in aManifest.permissions) {
+      let reservedMessages = SystemMessagePermissionsChecker
+                               .getReservedSystemMessageList(perm);
+      if (reservedMessages) {
+        for (let idx in reservedMessages) {
+          if (!reservedMsgs) {
+            reservedMsgs = [];
+          }
+          let entry = {};
+          entry[reservedMessages[idx]] = aManifest.launch_path;
+          reservedMsgs.push(entry);
+        }
+      }
+    }
+    // This is a small workaround to only append reserved messages.
+    if (reservedMsgs) {
+      aManifest.messages = reservedMsgs;
+      this._registerSystemMessagesForEntryPoint(aManifest, aApp, null);
+      aManifest.messages = regularMsgs;
+    }
+  },
+
   _registerInterAppConnections: function(aManifest, aApp) {
     this._registerInterAppConnectionsForEntryPoint(aManifest, aApp, null);
 
@@ -1095,6 +1126,7 @@ this.DOMApplicationRegistry = {
         }
         app.kind = this.appKind(app, aResult.manifest);
         this._registerSystemMessages(manifest, app);
+        this._registerReservedSystemMessages(manifest, app);
         this._registerInterAppConnections(manifest, app);
         appsToRegister.push({ manifest: manifest, app: app });
       });
@@ -2006,6 +2038,7 @@ this.DOMApplicationRegistry = {
         this._unregisterActivities(aOldManifest, aApp);
       }
       this._registerSystemMessages(aNewManifest, aApp);
+      this._registerReservedSystemMessages(aNewManifest, aApp);
       this._registerActivities(aNewManifest, aApp, true);
       this._registerInterAppConnections(aNewManifest, aApp);
     } else {

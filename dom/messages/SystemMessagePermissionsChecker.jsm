@@ -18,11 +18,12 @@ XPCOMUtils.defineLazyServiceGetter(this, "dataStoreService",
                                    "@mozilla.org/datastore-service;1",
                                    "nsIDataStoreService");
 
-this.EXPORTED_SYMBOLS = ["SystemMessagePermissionsChecker",
+this.EXPORTED_SYMBOLS = ["PermissionToReservedSystemMessageTable",
+                         "SystemMessagePermissionsChecker",
                          "SystemMessagePermissionsTable"];
 
 function debug(aStr) {
-  // dump("SystemMessagePermissionsChecker.jsm: " + aStr + "\n");
+  dump("SystemMessagePermissionsChecker.jsm: " + aStr + "\n");
 }
 
 // This table maps system message to permission(s), indicating only
@@ -129,6 +130,15 @@ this.SystemMessagePermissionsTable = {
   }
 };
 
+/**
+ * Permissions that implicitly declare corresponding chrome only system
+ * messages. Currently, that just means messages that require interprocess
+ * system messages be forwarded to an in process event handler for W3C
+ * compliance reasons. This is not a simple table key/value pair swap.
+ */
+this.PermissionToReservedSystemMessageTable = {
+  "nfc-hci-events": ["nfc-hci-event-transaction"]
+};
 
 this.SystemMessagePermissionsChecker = {
   /**
@@ -202,6 +212,41 @@ this.SystemMessagePermissionsChecker = {
   },
 
   /**
+   * Check if aSysMsgName is a reserved system message name.
+   * @param string aSysMsgName
+   *          A System message name.
+   * @returns boolean
+   *          true if reserved system message. false otherwise.
+   */
+  isReservedSystemMessage: function(aSysMsgName) {
+    for (let permission in PermissionToReservedSystemMessageTable) {
+      debug("Permission: " + permission);
+      let msgs = PermissionToReservedSystemMessageTable[permission];
+      if (msgs.indexOf(aSysMsgName) != -1) {
+        debug("Reserved System Message verified: " + aSysMsgName);
+        return true;
+      }
+    }
+    return false;
+  },
+
+  /**
+   * Returns a list of reserved system messages by permission name.
+   * @param string aPermName
+   *        Lookup reserved system message by permission name.
+   * @returns array of string
+   *        An array of reserved system messages.
+   */
+  getReservedSystemMessageList: function(aPermName) {
+    let msgs = null;
+    msgs = PermissionToReservedSystemMessageTable[aPermName];
+    if (msgs == -1) {
+      return null;
+    }
+    return msgs;
+  },
+
+  /**
    * Check if the system message is permitted to be registered for the given
    * app at start-up based on the permissions claimed in the app's manifest.
    * @param string aSysMsgName
@@ -229,6 +274,9 @@ this.SystemMessagePermissionsChecker = {
 
     let permNames = this.getSystemMessagePermissions(aSysMsgName);
     if (permNames === null) {
+      return false;
+    } else if (!permNames && this.isReservedSystemMessage(aSysMsgName)) {
+      debug("ZZZ Not allowed to register reserved system messages");
       return false;
     }
 
@@ -258,7 +306,7 @@ this.SystemMessagePermissionsChecker = {
     let newManifest = new ManifestHelper(aManifest, aManifestURL, aManifestURL);
 
     for (let permName in permNames) {
-      // The app doesn't claim valid permissions for this sytem message.
+      // The app doesn't claim valid permissions for this system message.
       if (!newManifest.permissions || !newManifest.permissions[permName]) {
         debug("'" + aSysMsgName + "' isn't permitted by '" + permName + "'. " +
               "Please add the permission for app: '" + aManifestURL + "'.");
@@ -321,6 +369,9 @@ this.SystemMessagePermissionsChecker = {
 
     let permNames = this.getSystemMessagePermissions(aSysMsgName);
     if (permNames === null) {
+      return false;
+    } else if (!permNames && this.isReservedSystemMessage(aSysMsgName)) {
+      debug("ZZZ Not allowed to send reserved system messages");
       return false;
     }
 
