@@ -7,14 +7,16 @@
 "use strict";
 
 
-const DEBUG = false;
+//const DEBUG = false;
 function debug(msg) {
-  if (DEBUG) {
-    dump("ACEservice: " + msg + "\n");
-  }
+//  if (DEBUG) {
+//    dump("ACEservice: " + msg + "\n");
+//  }
+console.log("ACEService: " + msg);
 }
 
-const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
+//const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
+const { classes: Cc } = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/FileUtils.jsm");
