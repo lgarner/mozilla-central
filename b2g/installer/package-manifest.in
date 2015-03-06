@@ -428,12 +428,6 @@
 @RESPATH@/components/htmlMenuBuilder.manifest
 @RESPATH@/components/PresentationDeviceInfoManager.manifest
 @RESPATH@/components/PresentationDeviceInfoManager.js
-#ifdef MOZ_SECUREELEMENT
-@RESPATH@/components/SecureElement.js
-@RESPATH@/components/SecureElement.manifest
-@RESPATH@/components/UiccConnector.js
-@RESPATH@/components/UiccConnector.manifest
-#endif
 
 ; WiFi, NetworkManager, NetworkStats
 #ifdef MOZ_WIDGET_GONK
@@ -579,8 +573,16 @@
 @RESPATH@/components/NfcContentHelper.js
 #endif
 #ifdef MOZ_SECUREELEMENT
+@RESPATH@/components/ACEService.manifest
+@RESPATH@/components/ACEService.js
 @RESPATH@/components/DOMSecureElement.manifest
 @RESPATH@/components/DOMSecureElement.js
+@RESPATH@/components/GPAccessRulesManager.manifest
+@RESPATH@/components/GPAccessRulesManager.js
+@RESPATH@/components/SecureElement.manifest
+@RESPATH@/components/SecureElement.js
+@RESPATH@/components/UiccConnector.manifest
+@RESPATH@/components/UiccConnector.js
 #endif
 #ifdef MOZ_ENABLE_DBUS
 @RESPATH@/components/@DLL_PREFIX@dbusservice@DLL_SUFFIX@
