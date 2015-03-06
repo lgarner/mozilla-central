@@ -6,7 +6,7 @@
 
 "use strict";
 
-const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
+const { classes: Cc } = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 
@@ -22,11 +22,9 @@ XPCOMUtils.defineLazyGetter(this, "SE", function() {
   return obj;
 });
 
-let DEBUG = SE.DEBUG_ACE;
+let DEBUG = true;
 function debug(msg) {
-  if (DEBUG) {
-    dump("ACEservice: " + msg + "\n");
-  }
+  console.log("ACEservice: " + msg + "\n");
 }
 
 /**
