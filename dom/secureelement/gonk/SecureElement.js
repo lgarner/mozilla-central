@@ -193,6 +193,9 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 function SecureElementManager() {
   this._registerMessageListeners();
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
+  this._acEnforcer =
+    Cc["@mozilla.org/secureelement/access-control/ace;1"]
+    .getService(Ci.nsIAccessControlEnforcer);
 }
 
 SecureElementManager.prototype = {
@@ -207,7 +210,10 @@ SecureElementManager.prototype = {
                        Ci.nsIObserver]
   }),
 
+  _acEnforcer: null,
+
   _shutdown: function() {
+    this._acEnforcer = null;
     this.secureelement = null;
     Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
     this._unregisterMessageListeners();
@@ -258,37 +264,47 @@ SecureElementManager.prototype = {
       return;
     }
 
-    // TODO: Bug 1118098  - Integrate with ACE module
-    let connector = getConnector(msg.type);
-    if (!connector) {
-      debug("No SE connector available");
-      callback({ error: SE.ERROR_NOTPRESENT });
-      return;
-    }
-
-    connector.openChannel(SEUtils.byteArrayToHexString(msg.aid), {
-      notifyOpenChannelSuccess: (channelNumber, openResponse) => {
-        // Add the new 'channel' to the map upon success
-        let channelToken =
-          gMap.addChannel(msg.appId, msg.type, msg.aid, channelNumber);
-        if (channelToken) {
-          callback({
-            error: SE.ERROR_NONE,
-            channelToken: channelToken,
-            isBasicChannel: (channelNumber === SE.BASIC_CHANNEL),
-            openResponse: SEUtils.hexStringToByteArray(openResponse)
-          });
-        } else {
-          callback({ error: SE.ERROR_GENERIC });
-        }
-      },
-
-      notifyError: (reason) => {
-        debug("Failed to open the channel to AID : " +
-               SEUtils.byteArrayToHexString(msg.aid) +
-               ", Rejected with Reason : " + reason);
-        callback({ error: SE.ERROR_GENERIC, reason: reason, response: [] });
+    this._acEnforcer.isAccessAllowed(msg.appId, msg.type, msg.aid)
+    .then((allowed) => {
+      if (!allowed) {
+        callback({ error: SE.ERROR_SECURITY });
+        return;
       }
+      let connector = getConnector(msg.type);
+      if (!connector) {
+        debug("No SE connector available");
+        callback({ error: SE.ERROR_NOTPRESENT });
+        return;
+      }
+      connector.openChannel(SEUtils.byteArrayToHexString(msg.aid), {
+
+        notifyOpenChannelSuccess: (channelNumber, openResponse) => {
+          // Add the new 'channel' to the map upon success
+          let channelToken =
+            gMap.addChannel(msg.appId, msg.type, msg.aid, channelNumber);
+          if (channelToken) {
+            callback({
+              error: SE.ERROR_NONE,
+              channelToken: channelToken,
+              isBasicChannel: (channelNumber === SE.BASIC_CHANNEL),
+              openResponse: SEUtils.hexStringToByteArray(openResponse)
+            });
+          } else {
+            callback({ error: SE.ERROR_GENERIC });
+          }
+        },
+
+        notifyError: (reason) => {
+          debug("Failed to open the channel to AID : " +
+                 SEUtils.byteArrayToHexString(msg.aid) +
+                 ", Rejected with Reason : " + reason);
+          callback({ error: SE.ERROR_GENERIC, reason: reason, response: [] });
+        }
+      });
+    })
+    .catch((error) => {
+      debug("Failed to get info from accessControlEnforcer " + error);
+      callback({ error: SE.ERROR_SECURITY });
     });
   },
 
@@ -300,30 +316,40 @@ SecureElementManager.prototype = {
       return;
     }
 
-    let connector = getConnector(channel.seType);
-    if (!connector) {
-      debug("No SE connector available");
-      callback({ error: SE.ERROR_NOTPRESENT });
-      return;
-    }
-
-    connector.exchangeAPDU(channel.channelNumber, msg.apdu.cla, msg.apdu.ins,
-                           msg.apdu.p1, msg.apdu.p2,
-                           SEUtils.byteArrayToHexString(msg.apdu.data),
-                           msg.apdu.le, {
-      notifyExchangeAPDUResponse: (sw1, sw2, response) => {
-        callback({
-          error: SE.ERROR_NONE,
-          sw1: sw1,
-          sw2: sw2,
-          response: SEUtils.hexStringToByteArray(response)
-        });
-      },
-
-      notifyError: (reason) => {
-        debug("Transmit failed, rejected with Reason : " + reason);
-        callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
+    this._acEnforcer.isAccessAllowed(msg.appId, msg.type, msg.aid)
+    .then((allowed) => {
+      if (!allowed) {
+        callback({ error: SE.ERROR_SECURITY });
+        return;
       }
+      let connector = getConnector(channel.seType);
+      if (!connector) {
+        debug("No SE connector available");
+        callback({ error: SE.ERROR_NOTPRESENT });
+        return;
+      }
+      connector.exchangeAPDU(channel.channelNumber, msg.apdu.cla, msg.apdu.ins,
+                             msg.apdu.p1, msg.apdu.p2,
+                             SEUtils.byteArrayToHexString(msg.apdu.data),
+                             msg.apdu.le, {
+        notifyExchangeAPDUResponse: (sw1, sw2, response) => {
+          callback({
+            error: SE.ERROR_NONE,
+            sw1: sw1,
+            sw2: sw2,
+            response: SEUtils.hexStringToByteArray(response)
+          });
+        },
+
+        notifyError: (reason) => {
+          debug("Transmit failed, rejected with Reason : " + reason);
+          callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
+        }
+      })
+    })
+    .catch((error) => {
+      debug("Failed to get info from accessControlEnforcer " + error);
+      callback({ error: SE.ERROR_SECURITY });
     });
   },
 
@@ -335,24 +361,34 @@ SecureElementManager.prototype = {
       return;
     }
 
-    let connector = getConnector(channel.seType);
-    if (!connector) {
-      debug("No SE connector available");
-      callback({ error: SE.ERROR_NOTPRESENT });
-      return;
-    }
-
-    connector.closeChannel(channel.channelNumber, {
-      notifyCloseChannelSuccess: () => {
-        gMap.removeChannel(msg.appId, msg.channelToken);
-        callback({ error: SE.ERROR_NONE });
-      },
-
-      notifyError: (reason) => {
-        debug("Failed to close channel with token: " + msg.channelToken +
-              ", reason: "+ reason);
-        callback({ error: SE.ERROR_BADSTATE, reason: reason });
+    this._acEnforcer.isAccessAllowed(msg.appId, msg.type, msg.aid)
+    .then((allowed) => {
+      if (!allowed) {
+        callback({ error: SE.ERROR_SECURITY });
+        return;
       }
+      let connector = getConnector(channel.seType);
+      if (!connector) {
+        debug("No SE connector available");
+        callback({ error: SE.ERROR_NOTPRESENT });
+        return;
+      }
+      connector.closeChannel(channel.channelNumber, {
+        notifyCloseChannelSuccess: () => {
+          gMap.removeChannel(msg.appId, msg.channelToken);
+          callback({ error: SE.ERROR_NONE });
+        },
+
+        notifyError: (reason) => {
+          debug("Failed to close channel with token: " + msg.channelToken +
+                ", reason: "+ reason);
+          callback({ error: SE.ERROR_BADSTATE, reason: reason });
+        }
+      });
+    })
+    .catch((error) => {
+      debug("Failed to get info from accessControlEnforcer " + error);
+      callback({ error: SE.ERROR_SECURITY });
     });
   },
 
