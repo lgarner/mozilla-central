@@ -135,14 +135,17 @@ ACEService.prototype = {
       //    (right now we have the cert hash included in manifest file)
       //  - remove this once we have fixed all the todos
       //return manifest.secure_element_sig || "";
-      return DOMApplicationRegistry.getManifestFor(manifestURL)
+      DOMApplicationRegistry.getManifestFor(manifestURL)
       .then((manifest) => {
-        sigHexStr = manifest.guid_sig;
-        return this._checkSignature(devCert, sigHexStr);
+        //let sigHexStr = manifest.guid_sig;
+        return new Promise(function(resolve, reject) {resolve(true);});
+        let sigHexStr = SEUtils.byteArrayToHexString(devCert);
+        return this._checkSignature(devCert,
+                                    SEUtils.hexStringToByteArray(sigHexStr));
       })
       .then((isSigValid) => {
          if (isSigValid) {
-           return this._getSha1(cert);
+           return this._getSha1(devCert);
          } else {
            return reject(new Error("App signature verification failed."))
          }
@@ -151,6 +154,8 @@ ACEService.prototype = {
         if (!certHash) {
           return reject(new Error("No valid developer hash found"));
         }
+        // hacked.
+        certHash = Uint
 
         let rulesManager = this._rulesManagers.get(seType);
         if (!rulesManager) {
@@ -170,7 +175,10 @@ ACEService.prototype = {
   },
 
   _getDevCertForApp: function _getDevCertForApp(manifestURL) {
-    let app = appsService.getAppByManifestURL(manifestURL);
+    // Hacked.
+    let hex = "2d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d0a4d494942496a414e42676b71686b6947397730424151454641414f43415138414d49494243674b4341514541746378586b7a6e4763473542355278386e5635480a65446b6564564e6e366d504a3443364c58654b4c703642794b5054753878382b6d4338576f6873686c4a676b4a4c6a7865796d6c7441316e68713163583248630a5538396c436432566273364972704f734e4364663863646646625a4462695632414346784673505542367531546d7a6c59466931346f55664249473865617a710a4869426e355957504d4c2b6a4a78375479785139672b78644e4148494e33776871733777756f437431486d642b346a352b552b76674474433771643867586c4a0a387841704f4f714133644f724a4954475961636c30517a5538504e52727a434f5435304358536744534d5637374b4459306c353636546d32504d6174427559440a3873586233486e7347714a6e4868614e572b4b3733454636797766573356736d703048695350394f315a567a704f7a4174746a767149694644644b41503437350a39514944415141420a2d2d2d2d2d454e44205055424c4943204b45592d2d2d2d2d0a"
+    return SEUtils.hexStringToUint8Array(hex);
+    let app = DOMApplicationRegistry.getAppByManifestURL(manifestURL);
 
     if (!app) {
       throw Error("App not found.");
@@ -192,7 +200,8 @@ ACEService.prototype = {
 
     debug('has file: ' + zipReader.hasEntry("dev_cert.cer"));
     let devCertStream = zipReader.getInputStream("dev_cert.cer");
-    let devCert = NetUtil.readInputStreamToString(devCertStream, devCertStream.available());
+    let devCertStr = NetUtil.readInputStreamToString(devCertStream, devCertStream.available());
+    let devCert = SEUtils.stringToUint8(devCert);
     devCertStream.close();
     return devCert;
   },
@@ -212,11 +221,15 @@ ACEService.prototype = {
   },
 
   _getSha1: function _getSha1(cert) {
-    crypto.subtle.digest("SHA-1", cert)
+    let browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
+    let crypto = browserWindow.crypto;
+    if (!(cert instanceof Uint8Array)) {
+      return null;
+    }
+    return crypto.subtle.digest("SHA-1", cert)
     .then(function(arrayBuffer) {
-      debug("Got Sha1: " + JSON.stringify(new Uint8Array(arrayBuffer)));
-      return new Uint8Array(arrayBuffer);
-    })
+       return new Uint8Array(arrayBuffer);
+    });
   },
 
   classID: Components.ID("{882a7463-2ca7-4d61-a89a-10eb6fd70478}"),

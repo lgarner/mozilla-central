@@ -25,6 +25,12 @@ var Components = {
   ID: () => {}
 };
 
+var Services = {
+  wm: {
+    getMostRecentWindow: function(str) { return window; }
+  }
+};
+
 var MockParentProcessMessageManager = {
   addMessageListener: function() {
     debug("MockParentProcessMessageManager.addMessageListener" + arguments);
