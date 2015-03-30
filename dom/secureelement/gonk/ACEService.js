@@ -11,6 +11,7 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/FileUtils.jsm");
 Cu.import("resource://gre/modules/NetUtil.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "DOMApplicationRegistry",
                                   "resource://gre/modules/Webapps.jsm");
@@ -156,6 +157,7 @@ ACEService.prototype = {
       //return manifest.secure_element_sig || "";
       return DOMApplicationRegistry.getManifestFor(manifestURL)
       .then((manifest) => {
+        DEBUG && debug("manifest: " + JSON.stringify(manifest));
         let guid_sig = SEUtils.hexStringToUint8Array(manifest.guid_sig);
         let guid = SEUtils.hexStringToUint8Array(manifest.guid);
         return this._checkSignature(devCert, guid_sig, guid);
@@ -164,12 +166,14 @@ ACEService.prototype = {
          if (isSigValid) {
            return this._getSha1(cert);
          } else {
-           return reject(new Error("App signature verification failed."))
+           reject(Error("App signature verification failed."));
+           return;
          }
       })
       .then((certHash) => {
         if (!certHash) {
-          return reject(new Error("No valid developer hash found"));
+          reject(Error("No valid developer hash found"));
+          return;
         }
 
         rulesManager.getAccessRules()
@@ -178,8 +182,13 @@ ACEService.prototype = {
           resolve(decision.isAccessAllowed());
           return;
         });
+      })
+      .catch(e => {
+        debug("Exception at isAccessAllowed " + e);
+        resolve(false);
       });
     });
+
   },
 
   _getDevCertForApp: function _getDevCertForApp(manifestURL) {
@@ -203,7 +212,7 @@ ACEService.prototype = {
       .createInstance(Ci.nsIZipReader);
     zipReader.open(appPackage);
 
-    DEBUG && debug('has file: ' + zipReader.hasEntry("dev_cert.cer"));
+    DEBUG && debug("has file: " + zipReader.hasEntry("dev_cert.cer"));
     let devCertStream = zipReader.getInputStream("dev_cert.cer");
     let devCert = NetUtil.readInputStreamToString(devCertStream, devCertStream.available());
     devCert = SEUtils.hexStringToUint8Array(devCert);
@@ -227,6 +236,7 @@ ACEService.prototype = {
     let alg = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-1" };
     return crypto.subtle.importKey("spki", devCert, alg, false, ['verify'])
       .then((cryptoKey) => {
+        debug("Got crypto key " + cryptoKey);
         return crypto.subtle.verify(alg.name, cryptoKey, guid_sig, guid);
       });
   },
