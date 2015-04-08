@@ -28,5 +28,5 @@ interface nsIAccessControlEnforcer : nsISupports
    */
   jsval isAccessAllowed(in unsigned long localId,
                         in DOMString seType,
-                        in nsIVariant aid);
+                        in DOMString aid);
 };
