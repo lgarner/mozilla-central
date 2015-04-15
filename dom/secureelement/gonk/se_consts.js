@@ -63,5 +63,8 @@ this.ERROR_NOTPRESENT         = "SENotPresentError";
 this.TYPE_UICC = "uicc";
 this.TYPE_ESE = "eSE";
 
+this.FILE_CERT = 'dev_cert.der';
+this.FILE_PUBKEY = 'pub_key.der';
+
 // Allow this file to be imported via Components.utils.import().
 this.EXPORTED_SYMBOLS = Object.keys(this);
