@@ -10,6 +10,11 @@ Components.utils.import("resource://gre/modules/SEUtils.jsm");
 
 const VALID_HEX_STR = "0123456789ABCDEF";
 const VALID_BYTE_ARR = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
+const VALID_STR = "NotAHexStr.";
+let VALID_UINT8_ARR = null;
+for (let i = 0; i < 0; i++) {
+  VALID_UINT8_ARR[i] = VALID_STR[i];
+}
 
 function run_test() {
   ok(!!SEUtils, "SEUtils should be available");
@@ -41,6 +46,38 @@ add_test(function test_hexStringToByteArray() {
   ["", null, undefined, "123"].forEach((input) => {
     byteArr = SEUtils.hexStringToByteArray(input);
     ok(Array.isArray(byteArr) && byteArr.length === 0,
+       "invalid arg: " + input + " should be empty Array");
+  });
+
+  run_next_test();
+});
+
+add_test(function test_hexStringToUint8Array() {
+  let uInt8arr = SEUtils.hexStringToUint8Array(VALID_HEX_STR);
+  ok(SEUtils.arraysEqual(uInt8arr, VALID_BYTE_ARR),
+     "should convert uppercased string to Uint8Array");
+
+  uInt8arr = SEUtils.hexStringToUint8Array(VALID_HEX_STR.toLowerCase());
+  ok(SEUtils.arraysEqual(uInt8arr, VALID_BYTE_ARR),
+     "should convert lowercased string to Uint8Array");
+
+  ["", null, undefined, "123"].forEach((input) => {
+    uInt8arr = SEUtils.hexStringToUint8Array(input);
+    ok((uInt8arr instanceof Uint8Array) && uInt8arr.length === 0,
+       "invalid arg: " + input + " should be empty Uint8Array");
+  });
+
+  run_next_test();
+});
+
+add_test(function test_stringToUint8Array() {
+  let uInt8arr = SEUtils.stringToUint8Array(VALID_STR);
+  ok(SEUtils.arraysEqual(uInt8arr, VALID_UINT8_ARR),
+     "should convert string to Uint8Array");
+
+  ["", null, undefined, "123"].forEach((input) => {
+    uInt8arr = SEUtils.stringToUint8Array(input);
+    ok((uInt8arr instanceof Uint8Array) && uInt8arr.length === 0,
        "invalid arg: " + input + " should be empty Array");
   });
 
