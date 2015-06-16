@@ -304,6 +304,7 @@ SecureElementManager.prototype = {
     this._acEnforcer.isAccessAllowed(msg.appId, msg.type, msg.aid)
     .then((allowed) => {
       if (!allowed) {
+        debug("Access to SE not allowed.");
         callback({ error: SE.ERROR_SECURITY });
         return;
       }

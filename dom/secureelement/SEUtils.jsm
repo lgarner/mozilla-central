@@ -33,6 +33,26 @@ this.SEUtils = {
     return array;
   },
 
+  /**
+   * Convert a raw byte unencoded string (octets only) to Uint8Array.
+   */
+  rawByteStringToUint8Array: function rawByteStringToUint8Array(str) {
+    if (typeof str !== "string") {
+      return new Uint8Array();
+    }
+
+    let array = new Uint8Array(str.length);
+    for (let i = 0; i < str.length; i++) {
+      let int16 = str.charCodeAt(i);
+      if (int16 > 0xFF) {
+        throw Error("Input string is not in raw bytes.");
+      }
+      array[i] = int16;
+    }
+
+    return array;
+  },
+
   arraysEqual: function arraysEqual(a1, a2) {
     if (!a1 || !a2) {
       return false;

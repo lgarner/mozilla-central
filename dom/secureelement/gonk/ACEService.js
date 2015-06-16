@@ -9,6 +9,8 @@
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
+Cu.import("resource://gre/modules/FileUtils.jsm");
+Cu.import("resource://gre/modules/NetUtil.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "DOMApplicationRegistry",
@@ -138,41 +140,95 @@ ACEService.prototype = {
       return Promise.reject(Error("SE type '" + seType + "' not supported"));
     }
 
-    return new Promise((resolve, reject) => {
-      debug("isAccessAllowed for " + manifestURL + " to " + aid);
+    return DOMApplicationRegistry.getManifestFor(manifestURL)
+    .then((manifest) => {
+       if (!manifest.dev_certificate) {
+         debug("App " + manifestURL + " tried to access SE, but is " +
+               "missing manifest.dev_certificate reference.");
+         return Promise.reject(Error("Missing manifest.dev_certificate " +
+                                     "reference."));
+       }
+       return this._getFileFromApp(manifestURL, manifest.dev_certificate);
+    })
+    .then((devCert) => {
+      if (!devCert) {
+        debug("App " + manifestURL + " tried to access SE, devCert: " +
+              !!devCert + ".");
+        return Promise.reject(Error("No developer certificate found"));
+      }
 
-      // Bug 1132749: Implement ACE crypto signature verification
-      this._getDevCertHashForApp(manifestURL).then((certHash) => {
-        if (!certHash) {
-          debug("App " + manifestURL + " tried to access SE, but no developer" +
-                " certificate present");
-          reject(Error("No developer certificate found"));
-          return;
-        }
+      return this._getSha1(devCert);
+    })
+    .then((certHash) => {
+      if (!certHash) {
+        debug("App " + manifestURL + " tried to access SE, but no developer" +
+              " hash was found.");
+        return Promise.reject(Error("No valid developer certificate hash found"));
+      }
 
-        rulesManager.getAccessRules().then((rules) => {
-          let decision = new GPAccessDecision(rules,
-            SEUtils.hexStringToByteArray(certHash), aid);
-
-          resolve(decision.isAccessAllowed());
-        });
+      return rulesManager.getAccessRules()
+      .then((rules) => {
+        let decision = new GPAccessDecision(rules, certHash, aid);
+        return Promise.resolve(decision.isAccessAllowed());
       });
+    })
+    .catch((error) => {
+      debug("Exception thrown: " + error);
+      throw error;
     });
   },
 
-  _getDevCertHashForApp: function getDevCertHashForApp(manifestURL) {
-    return DOMApplicationRegistry.getManifestFor(manifestURL)
-    .then((manifest) => {
-      DEBUG && debug("manifest retrieved: " + JSON.stringify(manifest));
+  _getFileFromApp: function _getFileFromApp(manifestURL, filepath) {
+    let app = DOMApplicationRegistry.getAppByManifestURL(manifestURL);
 
-      // TODO: Bug 973823
-      //  - retrieve the cert from the app
-      //  - verify GUID signature
-      //  - compute the hash of the cert and possibly store it for future use
-      //    (right now we have the cert hash included in manifest file)
-      //  - remove this once we have fixed all the todos
-      let certHash = manifest.dev_cert_hash || "";
-      return Promise.resolve(certHash);
+    if (!app) {
+      throw Error("App not found.");
+    }
+    let appDir = null;
+    // Pre-installed app location, if using non-engineering app builds
+    appDir = FileUtils.getDir("coreAppsDir", ["webapps", app.id], false, true);
+    if (!appDir.exists()) {
+      // Location for other apps, including engineering app builds:
+      appDir = FileUtils.getDir("webappsDir", ["webapps", app.id], false, true);
+    }
+
+    let appPackage = appDir.clone();
+    appPackage.append("application.zip");
+
+    let zipReader = Cc["@mozilla.org/libjar/zip-reader;1"]
+      .createInstance(Ci.nsIZipReader);
+    zipReader.open(appPackage);
+
+    // Strip any leading slashes from filepath.
+    let i = 0;
+    while((filepath.charAt(i) === '/') && (i < filepath.length)) {
+      i++;
+    };
+    filepath = filepath.substring(i, filepath.length);
+
+    DEBUG && debug("has file " + filepath + ":" +
+                   zipReader.hasEntry(filepath));
+    let fileStream = zipReader.getInputStream(filepath);
+    // Empty options => charset: Raw bytes/octets.
+    let file = NetUtil.readInputStreamToString(fileStream, fileStream.available());
+    file = SEUtils.rawByteStringToUint8Array(file);
+    fileStream.close();
+    return Promise.resolve(file);
+  },
+
+  _getSha1: function _getSha1(devCert) {
+    let browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
+    let crypto = browserWindow.crypto;
+    if (!(devCert instanceof Uint8Array)) {
+      return Promise.reject(Error("Certificate must be an instance of " +
+                                  "Uint8Array"));
+    }
+
+    return crypto.subtle.digest("SHA-1", devCert)
+    .then(function(arrayBuffer) {
+      DEBUG && debug("Got Sha1: " +
+                     JSON.stringify(new Uint8Array(arrayBuffer)));
+      return new Uint8Array(arrayBuffer);
     })
     .catch((error) => {
       return Promise.reject(Error("Not able to retrieve certificate hash: " +
