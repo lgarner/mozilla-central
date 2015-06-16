@@ -12,6 +12,13 @@ Components.utils.import("resource://gre/modules/gp_consts.js", GP);
 
 const VALID_HEX_STR = "0123456789ABCDEF";
 const VALID_BYTE_ARR = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF];
+const VALID_STR = "NotAHexStr.";
+let VALID_UINT8_ARR = new Uint8Array(VALID_STR.length);
+for (let i = 0; i < VALID_STR.length; i++) {
+  VALID_UINT8_ARR[i] = VALID_STR.charCodeAt(i);
+}
+const BAD_RAW_BYTES_STR = 'Two\u0041\uFF00';
+const EXP_BAD_RAW_BYTES_EXCEPTION = "Input string is not in raw bytes.";
 
 // This set should be what the actual ACE uses.
 let containerTags = [
@@ -53,8 +60,29 @@ add_test(function test_hexStringToByteArray() {
   ["", null, undefined, "123"].forEach((input) => {
     byteArr = SEUtils.hexStringToByteArray(input);
     ok(Array.isArray(byteArr) && byteArr.length === 0,
-       "invalid arg: " + input + " should be empty Array");
+       "invalid arg: " + input + " should return an empty Array");
   });
+
+  run_next_test();
+});
+
+add_test(function test_rawByteStringToUint8Array() {
+  let uInt8arr = SEUtils.rawByteStringToUint8Array(VALID_STR);
+  ok(SEUtils.arraysEqual(uInt8arr, VALID_UINT8_ARR),
+     "should convert raw byte \"charset\" string to Uint8Array");
+
+  ["", null, undefined].forEach((input) => {
+    uInt8arr = SEUtils.rawByteStringToUint8Array(input);
+    deepEqual(uInt8arr, new Uint8Array(),
+      "arg: " + input + " should return an empty Uint8Array.");
+  });
+
+  try {
+    SEUtils.rawByteStringToUint8Array(BAD_RAW_BYTES_STR);
+  } catch (err) {
+    ok(err.message === EXP_BAD_RAW_BYTES_EXCEPTION,
+       "Raw Bytes Expected exception.");
+  }
 
   run_next_test();
 });
